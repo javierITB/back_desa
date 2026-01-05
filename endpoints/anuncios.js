@@ -1,9 +1,13 @@
+// endpoints/anuncios.js
 const express = require("express");
 const router = express.Router();
 const { ObjectId } = require("mongodb");
 const { addNotification } = require("../utils/notificaciones.helper");
-const { createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
+const { createBlindIndex, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
+
+// Importar TU función validarToken tal como está
+const { validarToken } = require("../utils/validarToken.js");
 
 router.post('/', async (req, res) => {
   console.log('POST /api/anuncios - Body recibido:', req.body);
@@ -19,6 +23,62 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // ==================== 1. VALIDAR TOKEN ====================
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log("DEBUG anuncios: Falta Authorization header");
+      return res.status(401).json({
+        success: false,
+        error: "Token de autenticación requerido."
+      });
+    }
+
+    const sessionToken = authHeader.split(' ')[1];
+    
+    // Usar TU función validarToken EXACTAMENTE COMO ESTÁ
+    const tokenValido = await validarToken(db, sessionToken);
+    
+    if (!tokenValido.ok) {
+      console.log("DEBUG anuncios: Token inválido - Razón:", tokenValido.reason);
+      return res.status(401).json({
+        success: false,
+        error: `Token inválido: ${tokenValido.reason}`
+      });
+    }
+
+    const tokenData = tokenValido.data;
+    
+    // ==================== 2. BUSCAR USUARIO COMPLETO ====================
+    const user = await db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(tokenData.email.toLowerCase().trim())
+    });
+
+    if (!user) {
+      console.log("DEBUG anuncios: Usuario no encontrado en BD");
+      return res.status(401).json({
+        success: false,
+        error: "Usuario no encontrado."
+      });
+    }
+
+    if (user.estado !== 'activo') {
+      console.log("DEBUG anuncios: Usuario no activo - Estado:", user.estado);
+      return res.status(401).json({
+        success: false,
+        error: "Usuario inactivo. Contacta al administrador."
+      });
+    }
+
+    console.log("DEBUG anuncios: Usuario autenticado:", {
+      userId: user._id.toString(),
+      email: tokenData.email,
+      rol: user.rol,
+      estado: user.estado
+    });
+
+    // ==================== 3. CONTINUAR CON LA LÓGICA ORIGINAL ====================
+    // TODO TU CÓDIGO ORIGINAL AQUÍ (todo lo que ya tenías después de las validaciones)
     const {
       titulo,
       descripcion,
@@ -86,11 +146,10 @@ router.post('/', async (req, res) => {
     
         console.log('Usuarios encontrados para correo:', usuarios.length);
         
-        for (const user of usuarios) {
-          if (user.mail) {
+        for (const usuarioItem of usuarios) {
+          if (usuarioItem.mail) {
             try {
-              const emailDecrypted = decrypt(user.mail);
-              console.log('Email desencriptado:', emailDecrypted);
+              const emailDecrypted = decrypt(usuarioItem.mail);
               
               if (emailDecrypted && emailDecrypted.includes('@')) {
                 await sendEmail({
@@ -163,10 +222,10 @@ router.post('/', async (req, res) => {
 
         console.log('Usuarios encontrados por filtro:', usuarios.length);
 
-        for (const user of usuarios) {
-          if (user.mail) {
+        for (const usuarioItem of usuarios) {
+          if (usuarioItem.mail) {
             try {
-              const emailDecrypted = decrypt(user.mail);
+              const emailDecrypted = decrypt(usuarioItem.mail);
               
               if (emailDecrypted && emailDecrypted.includes('@')) {
                 await sendEmail({
@@ -226,13 +285,13 @@ router.post('/', async (req, res) => {
           console.log(`Enviado a ${userId}`);
 
           if (enviarCorreo === true) {
-            const user = await db
+            const usuarioDestino = await db
               .collection("usuarios")
               .findOne({ _id: new ObjectId(userId) });
           
-            if (user?.mail) {
+            if (usuarioDestino?.mail) {
               try {
-                const emailDecrypted = decrypt(user.mail);
+                const emailDecrypted = decrypt(usuarioDestino.mail);
                 
                 if (emailDecrypted && emailDecrypted.includes('@')) {
                   await sendEmail({
@@ -283,7 +342,12 @@ router.post('/', async (req, res) => {
         titulo,
         fechaEnvio,
         destinatariosEnviados: resultadoEnvio?.modifiedCount || 0,
-        errores: resultadoEnvio?.errores || 0
+        errores: resultadoEnvio?.errores || 0,
+        enviadoPor: {
+          userId: user._id.toString(),
+          email: tokenData.email,
+          rol: user.rol
+        }
       }
     };
 
@@ -302,6 +366,7 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Las rutas GET se mantienen IGUAL, SIN tokenizar
 router.get('/', async (req, res) => {
   console.log('GET /api/anuncios - Sin almacenamiento histórico');
 
