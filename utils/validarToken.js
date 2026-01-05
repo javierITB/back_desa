@@ -1,4 +1,4 @@
-const { createBlindIndex, decrypt } = require("./seguridad.helper");
+const { createBlindIndex, decrypt, encrypt } = require("./seguridad.helper");
 
 export async function validarToken(db, token) {
   // 1. Buscar el token (el campo 'token' no está cifrado)
