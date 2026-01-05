@@ -32,16 +32,29 @@ const encrypt = (text) => {
  * Descifra strings en formato iv:authTag:encryptedText
  */
 const decrypt = (encryptedData) => {
-    if (!encryptedData || !encryptedData.includes(':')) return encryptedData;
+    if (!encryptedData) return encryptedData;
+
+    const parts = encryptedData.split(':');
+
+    if (parts.length !== 3) {
+        if (parts.length === 2 && /^\d{1,2}:\d{2}$/.test(encryptedData)) {
+            return encryptedData;
+        }
+        return encryptedData;
+    }
+
     try {
-        const [ivHex, authTagHex, encryptedText] = encryptedData.split(':');
+        const [ivHex, authTagHex, encryptedText] = parts;
+
         const decipher = crypto.createDecipheriv(ALGORITHM, MASTER_KEY, Buffer.from(ivHex, 'hex'));
         decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
         let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
         decrypted += decipher.final('utf8');
+
         return decrypted;
+
     } catch (err) {
-        return "[Error de descifrado]";
+        return encryptedData;
     }
 };
 

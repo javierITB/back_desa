@@ -3,9 +3,8 @@ const router = express.Router();
 const { ObjectId } = require("mongodb");
 const { addNotification } = require("../utils/notificaciones.helper");
 const { createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
+const { sendEmail } = require("../utils/mail.helper");
 
-// Nuevo endpoint para obtener información del documento por responseId
-// MODIFICAR el endpoint POST para no almacenar en BD
 router.post('/', async (req, res) => {
   console.log('POST /api/anuncios - Body recibido:', req.body);
 
@@ -27,10 +26,13 @@ router.post('/', async (req, res) => {
       color = '#f5872dff',
       icono = 'paper',
       actionUrl = null,
-      destinatarios
+      destinatarios,
+      enviarCorreo = false,
+      enviarNotificacion = true
     } = req.body;
 
-    // Validaciones básicas
+    const urlNotificaciones = actionUrl || "https://infoacciona.cl/";
+
     if (!titulo || !descripcion) {
       console.log('Validación fallida: título o descripción faltante');
       return res.status(400).json({
@@ -47,14 +49,23 @@ router.post('/', async (req, res) => {
       });
     }
 
-    console.log('Validaciones pasadas, procesando destinatarios tipo:', destinatarios.tipo);
+    if (!enviarCorreo && !enviarNotificacion) {
+      console.log('Validación fallida: ningún método de envío seleccionado');
+      return res.status(400).json({
+        success: false,
+        error: 'Debe seleccionar al menos un método de envío (notificación o correo)'
+      });
+    }
+
+    console.log('Enviar correo:', enviarCorreo);
+    console.log('Enviar notificación:', enviarNotificacion);
+    console.log('Procesando destinatarios tipo:', destinatarios.tipo);
 
     let resultadoEnvio;
     const fechaEnvio = new Date();
 
-    // ENVIAR SEGÚN TIPO DE DESTINATARIOS (sin almacenar en BD)
     if (destinatarios.tipo === 'todos') {
-      console.log('📨 Enviando a TODOS los usuarios activos');
+      console.log('Enviando a TODOS los usuarios activos');
 
       resultadoEnvio = await addNotification(db, {
         filtro: { estado: 'activo' },
@@ -66,10 +77,49 @@ router.post('/', async (req, res) => {
         actionUrl
       });
 
+      if (enviarCorreo) {
+        const usuarios = await db
+          .collection("usuarios")
+          .find({ estado: "activo", mail: { $exists: true } })
+          .project({ mail: 1 })
+          .toArray();
+    
+        console.log('Usuarios encontrados para correo:', usuarios.length);
+        
+        for (const user of usuarios) {
+          if (user.mail) {
+            try {
+              const emailDecrypted = decrypt(user.mail);
+              console.log('Email desencriptado:', emailDecrypted);
+              
+              if (emailDecrypted && emailDecrypted.includes('@')) {
+                await sendEmail({
+                  to: emailDecrypted,
+                  subject: titulo,
+                  html: `
+                    <p>${descripcion}</p>
+                    <br/>
+                    <a 
+                      href="${urlNotificaciones}" 
+                      style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;"
+                    >
+                      Ver notificación en la plataforma
+                    </a>
+                  `
+                });
+                console.log('Correo enviado a:', emailDecrypted);
+              }
+            } catch (emailError) {
+              console.error("Error enviando correo:", emailError.message);
+            }
+          }
+        }
+      }
+
       console.log('Notificación enviada a todos:', resultadoEnvio);
 
     } else if (destinatarios.tipo === 'filtro') {
-      console.log('📨 Enviando por FILTROS:', destinatarios.filtro);
+      console.log('Enviando por FILTROS:', destinatarios.filtro);
 
       const filtro = destinatarios.filtro || {};
       const condicionesFiltro = { estado: 'activo' };
@@ -92,7 +142,7 @@ router.post('/', async (req, res) => {
         condicionesFiltro.$and = andConditions;
       }
 
-      console.log('🔍 Filtro construido:', condicionesFiltro);
+      console.log('Filtro construido:', condicionesFiltro);
 
       resultadoEnvio = await addNotification(db, {
         filtro: condicionesFiltro,
@@ -103,6 +153,44 @@ router.post('/', async (req, res) => {
         icono,
         actionUrl
       });
+
+      if (enviarCorreo) {
+        const usuarios = await db
+          .collection("usuarios")
+          .find(condicionesFiltro)
+          .project({ mail: 1 })
+          .toArray();
+
+        console.log('Usuarios encontrados por filtro:', usuarios.length);
+
+        for (const user of usuarios) {
+          if (user.mail) {
+            try {
+              const emailDecrypted = decrypt(user.mail);
+              
+              if (emailDecrypted && emailDecrypted.includes('@')) {
+                await sendEmail({
+                  to: emailDecrypted,
+                  subject: titulo,
+                  html: `
+                    <p>${descripcion}</p>
+                    <br/>
+                    <a 
+                      href="${urlNotificaciones}" 
+                      style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;"
+                    >
+                      Ver notificación en la plataforma
+                    </a>
+                  `
+                });
+                console.log('Correo enviado a:', emailDecrypted);
+              }
+            } catch (emailError) {
+              console.error("Error enviando correo:", emailError.message);
+            }
+          }
+        }
+      }
 
       console.log('Notificación enviada por filtro:', resultadoEnvio);
 
@@ -137,6 +225,38 @@ router.post('/', async (req, res) => {
           totalEnviados++;
           console.log(`Enviado a ${userId}`);
 
+          if (enviarCorreo === true) {
+            const user = await db
+              .collection("usuarios")
+              .findOne({ _id: new ObjectId(userId) });
+          
+            if (user?.mail) {
+              try {
+                const emailDecrypted = decrypt(user.mail);
+                
+                if (emailDecrypted && emailDecrypted.includes('@')) {
+                  await sendEmail({
+                    to: emailDecrypted,
+                    subject: titulo,
+                    html: `
+                      <p>${descripcion}</p>
+                      <br/>
+                      <a 
+                        href="${urlNotificaciones}" 
+                        style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;"
+                      >
+                        Ver notificación en la plataforma
+                      </a>
+                    `
+                  });
+                  console.log('Correo enviado a:', emailDecrypted);
+                }
+              } catch (emailError) {
+                console.error("Error enviando correo:", emailError.message);
+              }
+            }
+          }
+
         } catch (error) {
           totalErrores++;
           erroresDetalle.push({
@@ -156,11 +276,6 @@ router.post('/', async (req, res) => {
       console.log(`Total manual: ${totalEnviados} enviados, ${totalErrores} errores`);
     }
 
-    // ✅ REMOVER: No guardar en colección 'anuncios'
-    // const anuncioRegistro = { ... }; // Eliminar todo este bloque
-    // const insertResult = await db.collection('anuncios').insertOne(anuncioRegistro);
-
-    // ✅ RESPONDER sin ID de BD
     const respuesta = {
       success: true,
       message: `Notificación enviada exitosamente a ${resultadoEnvio?.modifiedCount || 0} usuario(s)`,
@@ -187,12 +302,10 @@ router.post('/', async (req, res) => {
   }
 });
 
-// MODIFICAR el GET para devolver array vacío (ya que no se almacenan)
 router.get('/', async (req, res) => {
   console.log('GET /api/anuncios - Sin almacenamiento histórico');
 
   try {
-    // Devolver array vacío ya que no se almacenan anuncios
     const respuesta = {
       success: true,
       data: []
@@ -210,7 +323,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Ruta de prueba simple
 router.get('/test', (req, res) => {
   console.log('GET /api/anuncios/test - Prueba de conexión');
   res.json({

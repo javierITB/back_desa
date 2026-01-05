@@ -273,6 +273,7 @@ router.post("/login", async (req, res) => {
     });
 
     if (!user || !(await verifyPassword(user.pass, password))) {
+      
       return res.status(401).json({ success: false, message: "Credenciales inválidas" });
     }
 

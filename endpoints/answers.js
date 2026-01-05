@@ -84,12 +84,12 @@ const uploadMultiple = multer({
 
 // Helper para verificar token en cualquier request
 const verifyRequest = async (req) => {
-  let token = req.headers.authorization?.split(" ")[1]; // Bearer <token>
+  let token = req.headers.authorization?.split(" ")[1];
 
-  // Fallback: buscar en body.user.token (legacy)
+  // Fallback: buscar en body.user.token
   if (!token && req.body?.user?.token) token = req.body.user.token;
 
-  // Fallback: buscar en query param (para descargas/GET simples)
+  // Fallback: buscar en query param
   if (!token && req.query?.token) token = req.query.token;
 
   if (!token) return { ok: false, error: "Token no proporcionado" };
