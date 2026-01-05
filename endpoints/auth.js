@@ -4,16 +4,18 @@ const crypto = require("crypto");
 const { ObjectId } = require('mongodb');
 const multer = require('multer');
 const { addNotification } = require("../utils/notificaciones.helper");
-const { sendEmail } = require("../utils/mail.helper"); // Importación del helper de correo
+const { sendEmail } = require("../utils/mail.helper");
 const useragent = require('useragent');
-const { createBlindIndex, verifyPassword, decrypt, encrypt, hashPassword } = require("../utils/seguridad.helper");
+const { encrypt, createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
 
+const getAhoraChile = () => {
+  const d = new Date();
+  return new Date(d.toLocaleString("en-US", { timeZone: "America/Santiago" }));
+};
 
 const TOKEN_EXPIRATION = 12 * 1000 * 60 * 60;
-// Constante para la expiración del código de recuperación (ej: 15 minutos)
 const RECOVERY_CODE_EXPIRATION = 15 * 60 * 1000;
 
-// Configurar Multer para almacenar logos en memoria
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: function (req, file, cb) {
@@ -29,17 +31,16 @@ const upload = multer({
 });
 
 const generateAndSend2FACode = async (db, user, type) => {
-  // 1. Definir expiración y contenido del correo basado en el tipo
   let EXPIRATION_TIME;
   let subject;
   let contextMessage;
 
   if (type === '2FA_SETUP') {
-    EXPIRATION_TIME = 15 * 60 * 1000; // 15 minutos para activación
+    EXPIRATION_TIME = 15 * 60 * 1000;
     subject = 'Código de Activación de 2FA - Acciona';
     contextMessage = 'Hemos recibido una solicitud para **activar** la Autenticación de Dos Factores (2FA).';
   } else if (type === '2FA_LOGIN') {
-    EXPIRATION_TIME = 5 * 60 * 1000; // 5 minutos para login (más seguro)
+    EXPIRATION_TIME = 5 * 60 * 1000;
     subject = 'Código de Verificación de Acceso 2FA - Acciona';
     contextMessage = 'Estás intentando **iniciar sesión**. Ingresa el código en el sistema.';
   } else {
@@ -48,43 +49,91 @@ const generateAndSend2FACode = async (db, user, type) => {
 
   const verificationCode = crypto.randomInt(100000, 999999).toString();
   const expiresAt = new Date(Date.now() + EXPIRATION_TIME);
-  const userId = user.mail; // **CORRECCIÓN: Usar el _id de MongoDB**
+  const userId = user._id.toString();
 
-  // 2. Invalidar códigos anteriores del MISMO TIPO
   await db.collection("2fa_codes").updateMany(
-    { userId: userId, active: true, type: type }, // Usar el tipo y el ID para la limpieza
+    { userId: userId, active: true, type: type },
     { $set: { active: false, revokedAt: new Date(), reason: "new_code_issued" } }
   );
 
-  // 3. Guardar el nuevo código
   await db.collection("2fa_codes").insertOne({
     userId: userId,
     code: verificationCode,
-    type: type, // Usar el tipo dinámico
+    type: type,
     createdAt: new Date(),
     expiresAt: expiresAt,
     active: true
   });
 
-  // 4. Enviar el email
+  const userEmail = decrypt(user.mail);
+  const userName = decrypt(user.nombre);
+
   const minutes = EXPIRATION_TIME / 1000 / 60;
   const htmlContent = `
-        <p>Hola ${user.nombre},</p>
-        <p>${contextMessage}</p>
-        <p>Tu código de verificación es:</p>
-        <h2 style="color: #f97316; font-size: 24px; text-align: center; border: 1px solid #f97316; padding: 10px; border-radius: 8px;">
-            ${verificationCode}
-        </h2>
-        <p>Este código expira en ${minutes} minutos. Si no solicitaste esta acción, ignora este correo.</p>
-        <p>Saludos cordiales,</p>
-        <p>El equipo de Acciona</p>
-    `;
+    <p>Hola ${userName},</p>
+    <p>${contextMessage}</p>
+    <p>Tu código de verificación es:</p>
+    <h2 style="color: #f97316; font-size: 24px; text-align: center; border: 1px solid #f97316; padding: 10px; border-radius: 8px;">
+      ${verificationCode}
+    </h2>
+    <p>Este código expira en ${minutes} minutos. Si no solicitaste esta acción, ignora este correo.</p>
+    <p>Saludos cordiales,</p>
+    <p>El equipo de Acciona</p>
+  `;
 
   await sendEmail({
-    to: user.mail,
+    to: userEmail,
     subject: subject,
     html: htmlContent
   });
+};
+
+// Helper para buscar token por email (compatible con cifrado)
+const buscarTokenPorEmail = async (db, email) => {
+  const emailIndex = createBlindIndex(email.toLowerCase().trim());
+  return await db.collection("tokens").findOne({
+    email_index: emailIndex,
+    active: encrypt("true")
+  });
+};
+
+// Helper para crear nuevo token (con cifrado)
+const crearNuevoToken = async (db, user, email) => {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + TOKEN_EXPIRATION);
+  const now = getAhoraChile();
+
+  await db.collection("tokens").insertOne({
+    token: token,
+    email: encrypt(email.toLowerCase().trim()),
+    email_index: createBlindIndex(email.toLowerCase().trim()),
+    userId: user._id.toString(),
+    rol: encrypt(user.rol),
+    createdAt: now,
+    expiresAt: expiresAt,
+    active: encrypt("true")
+  });
+
+  return { token, expiresAt };
+};
+
+// Helper para desactivar token por email
+const desactivarTokenPorEmail = async (db, email) => {
+  const emailIndex = createBlindIndex(email.toLowerCase().trim());
+  const ahora = new Date();
+
+  await db.collection("tokens").updateOne(
+    {
+      email_index: emailIndex,
+      active: encrypt("true")
+    },
+    {
+      $set: {
+        active: encrypt("false"),
+        revokedAt: ahora
+      }
+    }
+  );
 };
 
 router.get("/", async (req, res) => {
@@ -95,7 +144,6 @@ router.get("/", async (req, res) => {
       return res.status(404).json({ error: "Usuarios no encontrados" });
     }
 
-    // Mapear usuarios, eliminar pass y descifrar campos sensibles
     const usuariosProcesados = usuarios.map(u => {
       const { pass, ...resto } = u;
 
@@ -125,10 +173,10 @@ router.get("/solicitud", async (req, res) => {
       .toArray();
 
     const usuariosFormateados = usuarios.map(usr => ({
-      nombre: usr.nombre,
-      apellido: usr.apellido,
-      correo: usr.mail,
-      empresa: usr.empresa
+      nombre: decrypt(usr.nombre),
+      apellido: decrypt(usr.apellido),
+      correo: decrypt(usr.mail),
+      empresa: decrypt(usr.empresa)
     }));
 
     res.json(usuariosFormateados);
@@ -138,39 +186,10 @@ router.get("/solicitud", async (req, res) => {
   }
 });
 
-// --- ENDPOINT DE MIGRACIÓN MASIVA ---
-router.get("/mantenimiento/migrar-pqc", async (req, res) => {
-  try {
-    const usuarios = await req.db.collection("usuarios").find().toArray();
-    let cont = 0;
-    for (let u of usuarios) {
-      const up = {};
-      if (u.pass && !u.pass.startsWith('$argon2')) up.pass = await hashPassword(u.pass);
-      if (u.nombre && !u.nombre.includes(':')) up.nombre = encrypt(u.nombre);
-      if (u.apellido && !u.apellido.includes(':')) up.apellido = encrypt(u.apellido);
-      if (u.mail && !u.mail.includes(':')) {
-        const cleanMail = u.mail.toLowerCase().trim();
-        up.mail = encrypt(cleanMail);
-        up.mail_index = createBlindIndex(cleanMail);
-      }
-      if (Object.keys(up).length > 0) {
-        await req.db.collection("usuarios").updateOne({ _id: u._id }, { $set: up });
-        cont++;
-      }
-    }
-    res.json({ success: true, message: `Migración finalizada. ${cont} registros procesados.` });
-    } catch (err) {
-  res.status(500).json({ error: err.message });
-}
-});
-
 router.get("/:mail", async (req, res) => {
   try {
-    // 1. Limpiamos el parámetro de entrada
     const cleanMail = req.params.mail.toLowerCase().trim();
 
-    // 2. Buscamos utilizando el Blind Index (Hash SHA-256)
-    // Esto permite que MongoDB use índices y la respuesta sea instantánea
     const usr = await req.db
       .collection("usuarios")
       .findOne({ mail_index: createBlindIndex(cleanMail) });
@@ -179,12 +198,10 @@ router.get("/:mail", async (req, res) => {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    // 3. Retornamos los datos. 
-    // Nota: Si 'empresa' o 'cargo' estuvieran cifrados, deberías usar decrypt() aquí.
     res.json({
       id: usr._id,
-      empresa: usr.empresa,
-      cargo: usr.cargo || usr.rol
+      empresa: decrypt(usr.empresa),
+      cargo: decrypt(usr.cargo || usr.rol)
     });
 
   } catch (err) {
@@ -193,16 +210,15 @@ router.get("/:mail", async (req, res) => {
   }
 });
 
-// auth.js - Ruta /full/:mail CORREGIDA
 router.get("/full/:mail", async (req, res) => {
   try {
     const { mail } = req.params;
-    const mailIndex = createBlindIndex(mail.toLowerCase().trim()); // Crear el hash del email
+    const mailIndex = createBlindIndex(mail.toLowerCase().trim());
 
     const usr = await req.db
       .collection("usuarios")
       .findOne({
-        mail_index: mailIndex // Buscar por el índice hash, no por el mail cifrado
+        mail_index: mailIndex
       }, {
         projection: {
           _id: 1,
@@ -211,22 +227,31 @@ router.get("/full/:mail", async (req, res) => {
           empresa: 1,
           cargo: 1,
           rol: 1,
-          notificaciones: 1
+          notificaciones: 1,
+          twoFactorEnabled: 1,
+          estado: 1
         }
       });
 
     if (!usr) return res.status(404).json({ error: "Usuario no encontrado" });
 
-    // Asegurar que notificaciones exista como array
     if (!usr.notificaciones) {
       usr.notificaciones = [];
     }
 
-    // Opcional: Descifrar los campos cifrados si es necesario para el frontend
-    usr.nombre = decrypt(usr.nombre);
-    usr.mail = decrypt(usr.mail);
+    const usuarioDesencriptado = {
+      _id: usr._id,
+      nombre: decrypt(usr.nombre),
+      mail: decrypt(usr.mail),
+      empresa: decrypt(usr.empresa),
+      cargo: decrypt(usr.cargo),
+      rol: usr.rol,
+      notificaciones: usr.notificaciones,
+      twoFactorEnabled: usr.twoFactorEnabled,
+      estado: usr.estado
+    };
 
-    res.json(usr);
+    res.json(usuarioDesencriptado);
   } catch (err) {
     console.error("Error en /full/:mail:", err);
     res.status(500).json({ error: "Error al obtener Usuario completo" });
@@ -243,7 +268,6 @@ router.post("/login", async (req, res) => {
   try {
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Buscar usuario por blind index
     const user = await req.db.collection("usuarios").findOne({
       mail_index: createBlindIndex(normalizedEmail)
     });
@@ -252,7 +276,6 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ success: false, message: "Credenciales inválidas" });
     }
 
-    // Estados
     if (user.estado === "pendiente") {
       return res.status(401).json({
         success: false,
@@ -273,41 +296,37 @@ router.post("/login", async (req, res) => {
       return res.json({
         success: true,
         twoFA: true,
+        userId: user._id.toString(),
+        email: normalizedEmail,
         message: "Se requiere código 2FA. Enviado a tu correo."
       });
     }
 
-    const now = new Date();
+    const now = getAhoraChile();
+
     let finalToken = null;
     let expiresAt = null;
 
-    const existingToken = await req.db.collection("tokens").findOne({
-      email: normalizedEmail,
-      active: true
-    });
+    // Buscar token existente usando email_index
+    const existingToken = await buscarTokenPorEmail(req.db, normalizedEmail);
 
-    if (existingToken && new Date(existingToken.expiresAt) > now) {
-      finalToken = existingToken.token;
-      expiresAt = existingToken.expiresAt;
-    } else {
-      if (existingToken) {
-        await req.db.collection("tokens").updateOne(
-          { _id: existingToken._id },
-          { $set: { active: false, revokedAt: now } }
-        );
+    if (existingToken) {
+      // Descifrar expiresAt y verificar
+      const expiresAtDescifrado = existingToken.expiresAt;
+      if (new Date(expiresAtDescifrado) > now) {
+        finalToken = existingToken.token;
+        expiresAt = expiresAtDescifrado;
+      } else {
+        // Token expirado, desactivarlo
+        await desactivarTokenPorEmail(req.db, normalizedEmail);
       }
+    }
 
-      finalToken = crypto.randomBytes(32).toString("hex");
-      expiresAt = new Date(Date.now() + TOKEN_EXPIRATION);
-
-      await req.db.collection("tokens").insertOne({
-        token: finalToken,
-        email: normalizedEmail,
-        rol: user.rol,
-        createdAt: now,
-        expiresAt,
-        active: true
-      });
+    if (!finalToken) {
+      // Crear nuevo token
+      const nuevoToken = await crearNuevoToken(req.db, user, normalizedEmail);
+      finalToken = nuevoToken.token;
+      expiresAt = nuevoToken.expiresAt;
     }
 
     let nombre = "";
@@ -324,7 +343,8 @@ router.post("/login", async (req, res) => {
       usr: {
         name: nombre,
         email: normalizedEmail,
-        cargo: user.rol
+        cargo: user.rol,
+        userId: user._id.toString()
       },
       ipAddress,
       os: agent.os?.toString?.() || "Desconocido",
@@ -338,7 +358,8 @@ router.post("/login", async (req, res) => {
       usr: {
         name: nombre,
         email: normalizedEmail,
-        cargo: user.rol
+        cargo: user.rol,
+        userId: user._id.toString()
       }
     });
 
@@ -351,68 +372,116 @@ router.post("/login", async (req, res) => {
 router.post("/verify-login-2fa", async (req, res) => {
   const { email, verificationCode } = req.body;
 
+  console.log("DEBUG verify-login-2fa - Datos recibidos:", {
+    email: email,
+    verificationCode: verificationCode,
+    codeLength: verificationCode?.length
+  });
+
   if (!email || !verificationCode || verificationCode.length !== 6) {
-    return res.status(400).json({ success: false, message: "Datos incompletos o código inválido." });
+    return res.status(400).json({
+      success: false,
+      message: "Datos incompletos o código inválido."
+    });
   }
 
   const now = new Date();
-  const normalizedEmail = email.toLowerCase().trim();
 
   try {
-    const user = await req.db.collection("usuarios").findOne({ mail: normalizedEmail });
-    if (!user) return res.status(401).json({ success: false, message: "Usuario no encontrado." });
+    // Buscar usuario por email (usando blind index)
+    const user = await req.db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(email.toLowerCase().trim())
+    });
+
+    if (!user) {
+      console.log("DEBUG: Usuario no encontrado para email:", email);
+      return res.status(401).json({
+        success: false,
+        message: "Usuario no encontrado."
+      });
+    }
 
     const userId = user._id.toString();
+    console.log("DEBUG: Usuario encontrado, ID:", userId);
 
-    // 1. Buscar el código activo y no expirado para LOGIN
+    // Buscar código 2FA activo para LOGIN
     const codeRecord = await req.db.collection("2fa_codes").findOne({
-      userId: normalizedEmail,
+      userId: userId,
       code: verificationCode,
       type: '2FA_LOGIN',
       active: true,
       expiresAt: { $gt: now }
     });
 
+    console.log("DEBUG: Código encontrado:", codeRecord);
+
     if (!codeRecord) {
-      return res.status(401).json({ success: false, message: "Código 2FA incorrecto o expirado." });
+      // Verificar si hay códigos pero expirados
+      const expiredCode = await req.db.collection("2fa_codes").findOne({
+        userId: userId,
+        code: verificationCode,
+        type: '2FA_LOGIN'
+      });
+
+      if (expiredCode) {
+        console.log("DEBUG: Código encontrado pero expirado o inactivo");
+        return res.status(401).json({
+          success: false,
+          message: "Código 2FA expirado. Solicita uno nuevo."
+        });
+      }
+
+      return res.status(401).json({
+        success: false,
+        message: "Código 2FA incorrecto."
+      });
     }
 
-    // 2. Marcar el código como usado/inactivo
+    // Marcar código como usado
     await req.db.collection("2fa_codes").updateOne(
       { _id: codeRecord._id },
       { $set: { active: false, usedAt: now } }
     );
 
-    // 3. Generar o Reutilizar Token (Misma lógica que en /login)
+    // Lógica de tokens (compatible con cifrado)
     let finalToken = null;
     let expiresAt = null;
+    const userEmail = decrypt(user.mail);
 
-    const existingTokenRecord = await req.db.collection("tokens").findOne({
-      email: normalizedEmail,
-      active: true
-    });
+    // Buscar token existente
+    const existingTokenRecord = await buscarTokenPorEmail(req.db, userEmail);
 
-    // Lógica de reutilización/generación de token...
-    if (existingTokenRecord && new Date(existingTokenRecord.expiresAt) > now) {
-      finalToken = existingTokenRecord.token;
-    } else {
-      finalToken = crypto.randomBytes(32).toString("hex");
-      expiresAt = new Date(Date.now() + TOKEN_EXPIRATION);
-      await req.db.collection("tokens").insertOne({
-        token: finalToken,
-        email: normalizedEmail,
-        rol: user.rol,
-        createdAt: now,
-        expiresAt,
-        active: true
-      });
+    if (existingTokenRecord) {
+      // Verificar si está activo y no expirado
+      const expiresAtDescifrado = existingTokenRecord.expiresAt;
+      if (new Date(expiresAtDescifrado) > now) {
+        finalToken = existingTokenRecord.token;
+        expiresAt = expiresAtDescifrado;
+      } else {
+        // Token expirado, desactivarlo
+        await desactivarTokenPorEmail(req.db, userEmail);
+      }
     }
 
-    // 4. Registrar Ingreso
+    if (!finalToken) {
+      // Crear nuevo token
+      const nuevoToken = await crearNuevoToken(req.db, user, userEmail);
+      finalToken = nuevoToken.token;
+      expiresAt = nuevoToken.expiresAt;
+    }
+
+    // Registrar ingreso
     const ipAddress = req.ip || req.connection.remoteAddress;
     const userAgentString = req.headers['user-agent'] || 'Desconocido';
     const agent = useragent.parse(userAgentString);
-    const usr = { name: user.nombre, email: normalizedEmail, cargo: user.rol };
+
+    const userName = decrypt(user.nombre);
+    const usr = {
+      name: userName,
+      email: userEmail,
+      cargo: user.rol,
+      userId: userId
+    };
 
     await req.db.collection("ingresos").insertOne({
       usr,
@@ -422,45 +491,65 @@ router.post("/verify-login-2fa", async (req, res) => {
       now: now,
     });
 
-    // 5. Retornar el token y datos del usuario (ACCESO CONCEDIDO)
-    return res.json({ success: true, token: finalToken, usr });
+    console.log("DEBUG: Login 2FA exitoso para usuario:", userEmail);
 
+    return res.json({
+      success: true,
+      token: finalToken,
+      usr
+    });
   } catch (err) {
     console.error("Error en verify-login-2fa:", err);
-    return res.status(500).json({ success: false, message: "Error interno en la verificación 2FA." });
+    return res.status(500).json({
+      success: false,
+      message: "Error interno en la verificación 2FA."
+    });
   }
 });
 
-
-// =================================================================
-// 🔑 ENDPOINT 1: SOLICITAR RECUPERACIÓN (PASO 1)
-// =================================================================
-// --- RECUPERACION Y 2FA (LOGICA INTEGRADA) ---
 router.post("/recuperacion", async (req, res) => {
   const { email } = req.body;
   try {
-    const user = await req.db.collection("usuarios").findOne({ mail_index: createBlindIndex(email) });
-    if (!user || user.estado === "inactivo") return res.status(404).json({ message: "No disponible." });
+    const user = await req.db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(email.toLowerCase().trim())
+    });
+
+    if (!user || user.estado === "inactivo") {
+      return res.status(404).json({ message: "No disponible." });
+    }
 
     const code = crypto.randomInt(100000, 999999).toString();
     const expiresAt = new Date(Date.now() + RECOVERY_CODE_EXPIRATION);
 
-    await req.db.collection("recovery_codes").updateMany({ email: email.toLowerCase().trim(), active: true }, { $set: { active: false } });
-    await req.db.collection("recovery_codes").insertOne({ email: email.toLowerCase().trim(), code, userId: user._id.toString(), createdAt: new Date(), expiresAt, active: true });
+    const userEmail = decrypt(user.mail);
+
+    await req.db.collection("recovery_codes").updateMany(
+      { email: userEmail, active: true },
+      { $set: { active: false } }
+    );
+
+    await req.db.collection("recovery_codes").insertOne({
+      email: userEmail,
+      code,
+      userId: user._id.toString(),
+      createdAt: new Date(),
+      expiresAt,
+      active: true
+    });
 
     await sendEmail({
-      to: email,
+      to: userEmail,
       subject: 'Recuperación de Contraseña',
       html: `<h2>Tu código es: ${code}</h2>`
     });
 
     res.json({ success: true, message: "Enviado." });
-  } catch (err) { res.status(500).json({ error: "Error interno" }); }
+  } catch (err) {
+    console.error("Error en recuperación:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
 });
 
-// =================================================================
-// 🔑 ENDPOINT 2: VERIFICAR CÓDIGO Y BORRAR PASS (PASO 2)
-// =================================================================
 router.post("/borrarpass", async (req, res) => {
   const { email, code } = req.body;
   const now = new Date();
@@ -470,7 +559,6 @@ router.post("/borrarpass", async (req, res) => {
   }
 
   try {
-    // 1. Buscar código activo, sin expirar y que coincida con email/código
     const recoveryRecord = await req.db.collection("recovery_codes").findOne({
       email: email.toLowerCase().trim(),
       code: code,
@@ -481,9 +569,7 @@ router.post("/borrarpass", async (req, res) => {
       return res.status(401).json({ message: "Código inválido o ya utilizado." });
     }
 
-    // 2. Verificar expiración
     if (recoveryRecord.expiresAt < now) {
-      // Marcar como inactivo si expiró
       await req.db.collection("recovery_codes").updateOne(
         { _id: recoveryRecord._id },
         { $set: { active: false, revokedAt: now, reason: "expired" } }
@@ -491,24 +577,17 @@ router.post("/borrarpass", async (req, res) => {
       return res.status(401).json({ message: "Código expirado. Solicita uno nuevo." });
     }
 
-    // 3. Marcar el código como inactivo (consumido)
     await req.db.collection("recovery_codes").updateOne(
       { _id: recoveryRecord._id },
       { $set: { active: false, revokedAt: now, reason: "consumed" } }
     );
 
-    // 4. Obtener el ID del usuario
-    // Podemos usar el userId que guardamos en el recoveryRecord
     const userId = recoveryRecord.userId;
 
     if (!userId) {
       return res.status(404).json({ message: "Error interno: ID de usuario no encontrado." });
     }
 
-    // Opcional: Borrar el campo pass temporalmente para forzar el cambio, o simplemente redirigir
-    // Dado que el flujo es redirigir a `/set-password?userId=<uid>`, no borraremos la pass aquí.
-
-    // 5. Retornar el UID del usuario (como string)
     return res.json({ success: true, uid: userId });
 
   } catch (err) {
@@ -517,94 +596,278 @@ router.post("/borrarpass", async (req, res) => {
   }
 });
 
-
 router.post("/send-2fa-code", async (req, res) => {
-  // Asumimos que el token JWT ya autenticó y el ID de usuario está disponible en req.user._id
-  // Si usas tokens, el ID es la forma más segura de obtener el email
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) {
-    return res.status(401).json({ message: "No autorizado. Token requerido." });
-  }
-
-  // Nota: Deberías decodificar el token para obtener el userId.
-  // Usaremos un placeholder simplificado (obtener email de sesión/storage) como en tu React:
-  const userEmail = req.body.email || 'EMAIL_DEL_TOKEN'; // Obtener email real del token decodificado
-
-  // --- LÓGICA DE VERIFICACIÓN DEL USUARIO Y ENVÍO DE CÓDIGO ---
-
   try {
-    // En un entorno real, decodificas el token para obtener el ID del usuario:
-    // const decoded = jwt.verify(token, process.env.JWT_SECRET); 
-    // const user = await req.db.collection("usuarios").findOne({ _id: new ObjectId(decoded.id) });
+    const { email } = req.body;
 
-    // Usamos el email por simplicidad del ejemplo:
+    if (!email) {
+      return res.status(400).json({
+        message: "Email requerido."
+      });
+    }
+
     const user = await req.db.collection("usuarios").findOne({
-      mail: userEmail.toLowerCase().trim()
+      mail_index: createBlindIndex(email.toLowerCase().trim())
     });
 
     if (!user) {
-      // No revelamos si el email existe o no por seguridad, pero para este flujo
-      // asumimos que el usuario está logeado y debe existir.
-      return res.status(404).json({ message: "Usuario no encontrado." });
+      return res.status(404).json({
+        message: "Usuario no encontrado."
+      });
     }
 
     await generateAndSend2FACode(req.db, user, '2FA_SETUP');
 
-    // 5. Respuesta al cliente
-    res.status(200).json({ success: true, message: "Código de activación 2FA enviado a tu correo." });
-
+    res.status(200).json({
+      success: true,
+      message: "Código de activación 2FA enviado a tu correo."
+    });
   } catch (err) {
     console.error("Error en /send-2fa-code:", err);
-    res.status(500).json({ success: false, message: "Error interno al procesar la solicitud." });
+    res.status(500).json({
+      success: false,
+      message: "Error interno al procesar la solicitud."
+    });
   }
 });
 
 router.post("/verify-2fa-activation", async (req, res) => {
-  const { verificationCode } = req.body;
-  const token = req.headers.authorization?.split(" ")[1];
+  const { email, verificationCode } = req.body;
 
-  // Asumimos que obtienes el ID del usuario del token
-  const userId = req.body.email || 'ID_DEL_TOKEN'; // Obtener ID real del token decodificado
+  console.log("DEBUG verify-2fa-activation - Body recibido:", req.body);
 
-  if (!verificationCode || verificationCode.length !== 6 || !userId) {
-    return res.status(400).json({ success: false, message: "Datos incompletos o código inválido." });
+  if (!email || !verificationCode || verificationCode.length !== 6) {
+    return res.status(400).json({
+      success: false,
+      message: "Datos incompletos o código inválido."
+    });
   }
 
   try {
-    // 1. Buscar el código activo y no expirado
+    // Buscar usuario por email (usando blind index)
+    const user = await req.db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(email.toLowerCase().trim())
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Usuario no encontrado."
+      });
+    }
+
+    const userId = user._id.toString();
+
+    // Buscar código 2FA activo
     const codeRecord = await req.db.collection("2fa_codes").findOne({
-      userId: userId, // Usamos el ID de usuario autenticado
+      userId: userId,
       code: verificationCode,
       type: '2FA_SETUP',
       active: true,
-      expiresAt: { $gt: new Date() } // Debe ser mayor a la fecha/hora actual
+      expiresAt: { $gt: new Date() }
     });
 
     if (!codeRecord) {
-      return res.status(400).json({ success: false, message: "Código incorrecto o expirado." });
+      return res.status(400).json({
+        success: false,
+        message: "Código incorrecto o expirado."
+      });
     }
 
-    // 2. Marcar el código como usado/inactivo
+    // Marcar código como usado
     await req.db.collection("2fa_codes").updateOne(
       { _id: codeRecord._id },
       { $set: { active: false, usedAt: new Date() } }
     );
 
-    // 3. ACTUALIZAR EL ESTADO 2FA DEL USUARIO
+    // Actualizar estado 2FA del usuario
     await req.db.collection("usuarios").updateOne(
-      { mail: userId },
-      { $set: { twoFactorEnabled: true } } // ¡Importante!
+      { _id: new ObjectId(userId) },
+      { $set: { twoFactorEnabled: true } }
     );
 
-    // 4. Respuesta exitosa
-    res.status(200).json({ success: true, message: "Autenticación de Dos Factores activada exitosamente." });
-
+    res.status(200).json({
+      success: true,
+      message: "Autenticación de Dos Factores activada exitosamente."
+    });
   } catch (err) {
     console.error("Error en /verify-2fa-activation:", err);
-    res.status(500).json({ success: false, message: "Error interno en la verificación." });
+    res.status(500).json({
+      success: false,
+      message: "Error interno en la verificación."
+    });
   }
 });
 
+// RUTA /disable-2fa TOKENIZADA - COMPATIBLE CON FRONTEND ACTUAL
+router.post("/disable-2fa", async (req, res) => {
+  const { email } = req.body;
+  const authHeader = req.headers.authorization;
+
+  console.log("DEBUG disable-2fa tokenizada - Body recibido:", req.body);
+
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: "Email es requerido."
+    });
+  }
+
+  // ==================== 1. VALIDAR TOKEN EN HEADER ====================
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log("DEBUG: Falta Authorization header o formato incorrecto");
+    return res.status(401).json({
+      success: false,
+      message: "Token de autenticación requerido."
+    });
+  }
+
+  const sessionToken = authHeader.split(' ')[1];
+  
+  try {
+    // ==================== 2. BUSCAR TOKEN EN BD ====================
+    const tokenRecord = await req.db.collection("tokens").findOne({
+      token: sessionToken
+    });
+
+    if (!tokenRecord) {
+      console.log("DEBUG: Token no encontrado en BD");
+      return res.status(401).json({
+        success: false,
+        message: "Token inválido o sesión expirada."
+      });
+    }
+
+    // ==================== 3. VALIDAR ESTADO DEL TOKEN ====================
+    // Verificar si está activo
+    let activeDescifrado = "false";
+    try {
+      if (tokenRecord.active && tokenRecord.active.includes(':')) {
+        activeDescifrado = decrypt(tokenRecord.active);
+      }
+    } catch (error) {
+      console.error("Error descifrando active del token:", error);
+      return res.status(401).json({
+        success: false,
+        message: "Error en validación de token."
+      });
+    }
+
+    if (activeDescifrado !== "true") {
+      console.log("DEBUG: Token marcado como inactivo");
+      return res.status(401).json({
+        success: false,
+        message: "Sesión inactiva. Inicia sesión nuevamente."
+      });
+    }
+
+    // Verificar expiración
+    const now = new Date();
+    const expiresAt = new Date(tokenRecord.expiresAt);
+    if (expiresAt < now) {
+      console.log("DEBUG: Token expirado - ExpiresAt:", expiresAt, "Now:", now);
+      
+      // Desactivar token automáticamente
+      await req.db.collection("tokens").updateOne(
+        { token: sessionToken },
+        { $set: { active: encrypt("false"), revokedAt: now } }
+      );
+      
+      return res.status(401).json({
+        success: false,
+        message: "Sesión expirada. Inicia sesión nuevamente."
+      });
+    }
+
+    // ==================== 4. VERIFICAR QUE TOKEN CORRESPONDE AL EMAIL ====================
+    let tokenEmailDescifrado = "";
+    try {
+      if (tokenRecord.email && tokenRecord.email.includes(':')) {
+        tokenEmailDescifrado = decrypt(tokenRecord.email);
+      }
+    } catch (error) {
+      console.error("Error descifrando email del token:", error);
+      return res.status(401).json({
+        success: false,
+        message: "Error en validación de token."
+      });
+    }
+
+    const emailNormalizado = email.toLowerCase().trim();
+    
+    if (tokenEmailDescifrado !== emailNormalizado) {
+      console.log("DEBUG: Email no coincide - Token email:", tokenEmailDescifrado, "Body email:", emailNormalizado);
+      return res.status(401).json({
+        success: false,
+        message: "No tienes permisos para esta acción."
+      });
+    }
+
+    // ==================== 5. BUSCAR USUARIO ====================
+    const user = await req.db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(emailNormalizado)
+    });
+
+    if (!user) {
+      console.log("DEBUG: Usuario no encontrado en BD");
+      return res.status(404).json({
+        success: false,
+        message: "Usuario no encontrado."
+      });
+    }
+
+    if (!user.twoFactorEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: "El 2FA no está activado para este usuario."
+      });
+    }
+
+    // ==================== 6. DESHABILITAR 2FA ====================
+    const userId = user._id.toString();
+
+    // Actualizar estado
+    await req.db.collection("usuarios").updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { twoFactorEnabled: false } }
+    );
+
+    // Invalidar códigos 2FA activos
+    await req.db.collection("2fa_codes").updateMany(
+      { userId: userId, active: true },
+      { $set: { active: false, revokedAt: new Date(), reason: "2fa_disabled" } }
+    );
+
+    // ==================== 7. REGISTRAR ACCIÓN (OPCIONAL) ====================
+    try {
+      await req.db.collection("security_logs").insertOne({
+        action: "2FA_DISABLED",
+        userId: userId,
+        email: emailNormalizado,
+        timestamp: new Date(),
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+    } catch (logError) {
+      console.error("Error registrando en logs:", logError);
+      // No fallar la operación principal por un error de logs
+    }
+
+    console.log("DEBUG: 2FA deshabilitado exitosamente para:", emailNormalizado);
+
+    res.status(200).json({
+      success: true,
+      message: "Autenticación de Dos Factores desactivada exitosamente."
+    });
+
+  } catch (err) {
+    console.error("Error en /disable-2fa:", err);
+    res.status(500).json({
+      success: false,
+      message: "Error interno al desactivar 2FA."
+    });
+  }
+});
 
 router.get("/logins/todos", async (req, res) => {
   try {
@@ -615,7 +878,6 @@ router.get("/logins/todos", async (req, res) => {
   }
 });
 
-// VALIDATE - Consulta token desde DB
 router.post("/validate", async (req, res) => {
   const { token, email, cargo } = req.body;
 
@@ -623,51 +885,156 @@ router.post("/validate", async (req, res) => {
     return res.status(401).json({ valid: false, message: "Acceso inválido" });
 
   try {
-    const tokenRecord = await req.db.collection("tokens").findOne({ token, active: true });
-    if (!tokenRecord)
-      return res.status(401).json({ valid: false, message: "Token inválido o inexistente" });
+    console.log("Validando token:", {
+      token: token.substring(0, 10) + "...",
+      email,
+      cargo
+    });
 
-    const now = new Date();
-    const expiresAt = new Date(tokenRecord.expiresAt);
-    const createdAt = new Date(tokenRecord.createdAt);
+    // Buscar token (el campo 'token' no está cifrado)
+    const tokenRecord = await req.db.collection("tokens").findOne({
+      token
+    });
 
-    // 1. Verificar si expiró
-    const expired = expiresAt < now;
-
-    // 2. Verificar si es del mismo día calendario
-    const isSameDay =
-      createdAt.getFullYear() === now.getFullYear() &&
-      createdAt.getMonth() === now.getMonth() &&
-      createdAt.getDate() === now.getDate();
-
-    if (expired) {
-      // 🔹 Eliminar token viejo o expirado para no acumular
-      await req.db.collection("tokens").updateOne(
-        { token },
-        { $set: { active: false, revokedAt: new Date() } }
-      );
+    if (!tokenRecord) {
+      console.log("Token no encontrado en BD");
       return res.status(401).json({
         valid: false,
-        message: expired
-          && "Token expirado. Inicia sesión nuevamente."
+        message: "Token inválido o inexistente"
       });
     }
 
-    if (tokenRecord.email !== email.toLowerCase().trim())
-      return res.status(401).json({ valid: false, message: "Token no corresponde al usuario" });
+    console.log("Token encontrado en BD:", {
+      _id: tokenRecord._id,
+      email: tokenRecord.email?.substring(0, 20) + "...",
+      hasEmailIndex: !!tokenRecord.email_index,
+      active: tokenRecord.active?.substring(0, 20) + "...",
+      revokedAt: tokenRecord.revokedAt,
+      expiresAt: tokenRecord.expiresAt
+    });
 
-    if (tokenRecord.rol !== cargo)
-      return res.status(401).json({ valid: false, message: "Cargo no corresponde al usuario" });
+    // 1. Verificar si está activo (descifrar campo 'active')
+    let activeDescifrado = "false"; // Por defecto
 
-    return res.json({ valid: true, user: { email: email.toLowerCase().trim(), cargo } });
+    try {
+      if (tokenRecord.active && tokenRecord.active.includes(':')) {
+        activeDescifrado = decrypt(tokenRecord.active);
+        console.log("Active descifrado:", activeDescifrado);
+      }
+    } catch (error) {
+      console.error("Error descifrando active:", error);
+      return res.status(401).json({
+        valid: false,
+        message: "Error en formato del token"
+      });
+    }
+
+    if (activeDescifrado !== "true") {
+      console.log("Token NO está activo. Active descifrado:", activeDescifrado);
+      return res.status(401).json({
+        valid: false,
+        message: "Token inactivo o revocado"
+      });
+    }
+
+    console.log("Token está activo ✓");
+
+    // 2. Verificar expiración
+    const now = new Date();
+    const expiresAt = new Date(tokenRecord.expiresAt);
+
+    if (expiresAt < now) {
+      console.log("Token EXPIRADO. ExpiresAt:", expiresAt, "Now:", now);
+
+      // Desactivar token (cifrar como "false")
+      await req.db.collection("tokens").updateOne(
+        { token },
+        {
+          $set: {
+            active: encrypt("false"),
+            revokedAt: new Date()
+          }
+        }
+      );
+
+      return res.status(401).json({
+        valid: false,
+        message: "Token expirado. Inicia sesión nuevamente."
+      });
+    }
+
+    console.log("Token NO expirado ✓");
+
+    // 3. Verificar email del token
+    let tokenEmailDescifrado = "";
+    try {
+      if (tokenRecord.email && tokenRecord.email.includes(':')) {
+        tokenEmailDescifrado = decrypt(tokenRecord.email);
+        console.log("Email descifrado del token:", tokenEmailDescifrado);
+      }
+    } catch (error) {
+      console.error("Error descifrando email del token:", error);
+      return res.status(401).json({
+        valid: false,
+        message: "Error en formato del token"
+      });
+    }
+
+    const emailNormalizado = email.toLowerCase().trim();
+    if (tokenEmailDescifrado !== emailNormalizado) {
+      console.log("Email NO coincide. Token email:", tokenEmailDescifrado, "Request email:", emailNormalizado);
+      return res.status(401).json({
+        valid: false,
+        message: "Token no corresponde al usuario"
+      });
+    }
+
+    console.log("Email coincide ✓");
+
+    // 4. Verificar rol del token
+    let tokenRolDescifrado = "";
+    try {
+      if (tokenRecord.rol && tokenRecord.rol.includes(':')) {
+        tokenRolDescifrado = decrypt(tokenRecord.rol);
+        console.log("Rol descifrado del token:", tokenRolDescifrado);
+      }
+    } catch (error) {
+      console.error("Error descifrando rol del token:", error);
+      return res.status(401).json({
+        valid: false,
+        message: "Error en formato del token"
+      });
+    }
+
+    if (tokenRolDescifrado !== cargo) {
+      console.log("Rol NO coincide. Token rol:", tokenRolDescifrado, "Request cargo:", cargo);
+      return res.status(401).json({
+        valid: false,
+        message: "Cargo no corresponde al usuario"
+      });
+    }
+
+    console.log("Rol coincide ✓");
+    console.log("Token VALIDADO EXITOSAMENTE");
+
+    return res.json({
+      valid: true,
+      user: {
+        email: emailNormalizado,
+        cargo
+      }
+    });
+
   } catch (err) {
     console.error("Error validando token:", err);
-    res.status(500).json({ valid: false, message: "Error interno al validar token" });
+    res.status(500).json({
+      valid: false,
+      message: "Error interno al validar token",
+      error: err.message
+    });
   }
 });
 
-
-// LOGOUT - Elimina o desactiva token en DB
 router.post("/logout", async (req, res) => {
   const { token } = req.body;
   if (!token) return res.status(400).json({ success: false, message: "Token requerido" });
@@ -675,7 +1042,12 @@ router.post("/logout", async (req, res) => {
   try {
     await req.db.collection("tokens").updateOne(
       { token },
-      { $set: { active: false, revokedAt: new Date() } }
+      {
+        $set: {
+          active: encrypt("false"), // Cifrar como string "false"
+          revokedAt: new Date()
+        }
+      }
     );
     res.json({ success: true, message: "Sesión cerrada" });
   } catch (err) {
@@ -683,7 +1055,6 @@ router.post("/logout", async (req, res) => {
     res.status(500).json({ success: false, message: "Error interno al cerrar sesión" });
   }
 });
-
 
 router.post("/register", async (req, res) => {
   try {
@@ -694,12 +1065,17 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "El usuario ya existe" });
     }
 
+    const encrypt = require("../utils/seguridad.helper").encrypt;
+
     const newUser = {
       nombre: encrypt(nombre),
       apellido: encrypt(apellido),
       mail: encrypt(m),
       mail_index: createBlindIndex(m),
-      empresa, cargo, rol, pass: "",
+      empresa: encrypt(empresa),
+      cargo: encrypt(cargo),
+      rol,
+      pass: "",
       estado: estado || "pendiente",
       twoFactorEnabled: false,
       createdAt: new Date().toISOString(),
@@ -712,16 +1088,22 @@ router.post("/register", async (req, res) => {
       userId: result.insertedId.toString(),
       titulo: `Registro Exitoso!`,
       descripcion: `Bienvenid@ a nuestra plataforma Virtual Acciona!`,
-      prioridad: 2, color: "#7afb24ff", icono: "User",
+      prioridad: 2,
+      color: "#7afb24ff",
+      icono: "User",
     });
 
-    res.status(201).json({ success: true, message: "Usuario registrado", userId: result.insertedId });
+    res.status(201).json({
+      success: true,
+      message: "Usuario registrado",
+      userId: result.insertedId
+    });
   } catch (err) {
+    console.error("Error al registrar:", err);
     res.status(500).json({ error: "Error al registrar" });
   }
 });
 
-// POST - Cambiar contraseña (Requiere validación de contraseña anterior)
 router.post("/change-password", async (req, res) => {
   const { email, currentPassword, newPassword } = req.body;
 
@@ -730,34 +1112,34 @@ router.post("/change-password", async (req, res) => {
   }
 
   try {
-    // 1. Buscar usuario por email
-    const user = await req.db.collection("usuarios").findOne({ mail: email });
+    const user = await req.db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(email.toLowerCase().trim())
+    });
 
     if (!user) {
       return res.status(404).json({ success: false, message: "Usuario no encontrado" });
     }
 
-    // 2. Verificar contraseña actual (Pseudo-login)
-    if (user.pass !== currentPassword) {
+    if (!(await verifyPassword(user.pass, currentPassword))) {
       return res.status(401).json({ success: false, message: "La contraseña actual es incorrecta" });
     }
 
-    // 3. Validaciones de seguridad de la nueva contraseña
     if (newPassword.length < 8) {
       return res.status(400).json({ success: false, message: "La nueva contraseña debe tener al menos 8 caracteres" });
     }
 
-    // Evitar que la nueva sea igual a la anterior
-    if (user.pass === newPassword) {
+    const hashPassword = require("../utils/seguridad.helper").hashPassword;
+    const hashedNewPassword = await hashPassword(newPassword);
+
+    if (await verifyPassword(user.pass, newPassword)) {
       return res.status(400).json({ success: false, message: "La nueva contraseña no puede ser igual a la actual" });
     }
 
-    // 4. Actualizar contraseña
     const result = await req.db.collection("usuarios").updateOne(
       { _id: user._id },
       {
         $set: {
-          pass: newPassword,
+          pass: hashedNewPassword,
           updatedAt: new Date().toISOString()
         }
       }
@@ -767,19 +1149,15 @@ router.post("/change-password", async (req, res) => {
       return res.status(500).json({ success: false, message: "No se pudo actualizar la contraseña" });
     }
 
-    // 5. Registrar Notificación de seguridad
     const ipAddress = req.ip || req.connection.remoteAddress;
     await addNotification(req.db, {
       userId: user._id.toString(),
       titulo: `Cambio de Contraseña`,
       descripcion: `La contraseña fue actualizada exitosamente el ${new Date().toLocaleString()}. IP: ${ipAddress}`,
       prioridad: 2,
-      color: "#ffae00", // Color de advertencia/seguridad
+      color: "#ffae00",
       icono: "Shield",
     });
-
-    // Opcional: Revocar otros tokens si se desea forzar logout en otros dispositivos
-    // await req.db.collection("tokens").updateMany({ email: email }, { $set: { active: false } });
 
     res.json({ success: true, message: "Contraseña actualizada exitosamente" });
 
@@ -789,7 +1167,6 @@ router.post("/change-password", async (req, res) => {
   }
 });
 
-// PUT - Actualizar usuario por ID
 router.put("/users/:id", async (req, res) => {
   try {
     const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
@@ -799,21 +1176,26 @@ router.put("/users/:id", async (req, res) => {
       return res.status(400).json({ error: "Todos los campos son obligatorios" });
     }
 
-    // El email solo puede ser cambiado si no existe en otro usuario (excluyendo el actual)
+    const encrypt = require("../utils/seguridad.helper").encrypt;
+    const userEmail = mail.toLowerCase().trim();
+    const mailIndex = createBlindIndex(userEmail);
+
     const existingUser = await req.db.collection("usuarios").findOne({
-      mail: mail.toLowerCase().trim(),
+      mail_index: mailIndex,
       _id: { $ne: new ObjectId(userId) }
     });
+
     if (existingUser) {
       return res.status(400).json({ error: "El email ya está en uso por otro usuario" });
     }
 
     const updateData = {
-      nombre,
-      apellido,
-      mail: mail.toLowerCase().trim(),
-      empresa,
-      cargo,
+      nombre: encrypt(nombre),
+      apellido: encrypt(apellido),
+      mail: encrypt(userEmail),
+      mail_index: mailIndex,
+      empresa: encrypt(empresa),
+      cargo: encrypt(cargo),
       rol,
       estado,
       updatedAt: new Date().toISOString()
@@ -828,11 +1210,20 @@ router.put("/users/:id", async (req, res) => {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    // Revocar tokens activos si el usuario fue modificado
-    ahora = new Date();
+    const ahora = new Date();
+    // Desactivar token usando email_index (compatible con cifrado)
+    const emailIndex = createBlindIndex(userEmail);
     await req.db.collection("tokens").updateOne(
-      { email: mail.toLowerCase().trim(), active: true },
-      { $set: { active: false, revokedAt: ahora } }
+      {
+        email_index: emailIndex,
+        active: encrypt("true")
+      },
+      {
+        $set: {
+          active: encrypt("false"),
+          revokedAt: ahora
+        }
+      }
     );
 
     res.json({
@@ -849,7 +1240,6 @@ router.put("/users/:id", async (req, res) => {
     res.status(500).json({ error: "Error interno al actualizar usuario" });
   }
 });
-
 
 router.delete("/users/:id", async (req, res) => {
   try {
@@ -869,7 +1259,6 @@ router.delete("/users/:id", async (req, res) => {
   }
 });
 
-
 router.post("/set-password", async (req, res) => {
   try {
     const { userId, password } = req.body;
@@ -877,14 +1266,12 @@ router.post("/set-password", async (req, res) => {
       return res.status(400).json({ error: "UserId y contraseña son requeridos" });
     }
 
-    // NUEVA VALIDACIÓN DE CONTRASEÑA EN BACKEND
     if (password.length < 8) {
       return res.status(400).json({
         error: "La contraseña debe tener al menos 8 caracteres"
       });
     }
 
-    // Validar que tenga letras y números
     const hasLetter = /[a-zA-Z]/.test(password);
     const hasNumber = /[0-9]/.test(password);
 
@@ -894,14 +1281,12 @@ router.post("/set-password", async (req, res) => {
       });
     }
 
-    // Validación adicional de seguridad (opcional pero recomendado)
     if (password.length > 64) {
       return res.status(400).json({
         error: "La contraseña es demasiado larga"
       });
     }
 
-    // Evitar contraseñas comunes (lista básica)
     const commonPasswords = ['12345678', 'password', 'contraseña', 'admin123', 'qwerty123'];
     if (commonPasswords.includes(password.toLowerCase())) {
       return res.status(400).json({
@@ -917,18 +1302,9 @@ router.post("/set-password", async (req, res) => {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    if (existingUser.estado !== "pendiente") {
-      // Permitimos que este endpoint sea usado para setear contraseña en un flujo de recuperación
-      // Si el usuario ya está activo, asumimos que este endpoint es para setear una nueva contraseña.
-      // Se podría añadir lógica para diferenciar si viene de recuperación (borrarpass) o de activación inicial (register).
-
-      // Si el flujo es solo para activación inicial, descomentar la línea de abajo y comentar la de arriba
-      // return res.status(400).json({
-      //   error: "La contraseña ya fue establecida. Si necesitas cambiarla, usa /change-password."
-      // });
-    }
-
+    const hashPassword = require("../utils/seguridad.helper").hashPassword;
     const hashed = await hashPassword(password);
+
     const result = await req.db.collection("usuarios").updateOne(
       { _id: new ObjectId(userId) },
       { $set: { pass: hashed, estado: "activo", updatedAt: new Date().toISOString() } }
@@ -954,69 +1330,123 @@ router.post("/set-password", async (req, res) => {
   }
 });
 
-// EMPRESAS ENDPOINTS
-
-// GET - Obtener todas las empresas
 router.get("/empresas/todas", async (req, res) => {
   try {
     const empresas = await req.db.collection("empresas").find().toArray();
-    res.json(empresas);
+
+    const empresasDescifradas = empresas.map(emp => {
+      // Descifrar campos de texto
+      const empresaDescifrada = {
+        _id: emp._id,
+        nombre: decrypt(emp.nombre),
+        rut: decrypt(emp.rut),
+        direccion: decrypt(emp.direccion),
+        encargado: decrypt(emp.encargado),
+        rut_encargado: decrypt(emp.rut_encargado),
+        createdAt: emp.createdAt,
+        updatedAt: emp.updatedAt,
+        logo: null
+      };
+
+      // Si tiene logo, procesarlo
+      if (emp.logo && emp.logo.fileData) {
+        try {
+          // El fileData está cifrado como Base64, necesitamos descifrarlo
+          const fileDataDescifrado = decrypt(emp.logo.fileData);
+
+          empresaDescifrada.logo = {
+            fileName: emp.logo.fileName,
+            fileData: fileDataDescifrado, // Base64 descifrado
+            fileSize: emp.logo.fileSize,
+            mimeType: emp.logo.mimeType,
+            uploadedAt: emp.logo.uploadedAt
+          };
+        } catch (error) {
+          console.error('Error procesando logo para empresa', emp._id, error);
+          // Mantener metadata pero sin fileData
+          empresaDescifrada.logo = {
+            fileName: emp.logo.fileName,
+            fileSize: emp.logo.fileSize,
+            mimeType: emp.logo.mimeType,
+            uploadedAt: emp.logo.uploadedAt,
+            error: "No se pudo descifrar"
+          };
+        }
+      } else if (emp.logo) {
+        // Si hay logo metadata pero no fileData (por si acaso)
+        empresaDescifrada.logo = {
+          fileName: emp.logo.fileName,
+          fileSize: emp.logo.fileSize,
+          mimeType: emp.logo.mimeType,
+          uploadedAt: emp.logo.uploadedAt,
+          note: "Sin datos de imagen"
+        };
+      }
+
+      return empresaDescifrada;
+    });
+
+    res.json(empresasDescifradas);
   } catch (err) {
-    console.error("Error obteniendo empresas:", err);
+    console.error("Error al obtener empresas:", err);
     res.status(500).json({ error: "Error al obtener empresas" });
   }
 });
 
-// GET - Obtener empresa por ID
 router.get("/empresas/:id", async (req, res) => {
   try {
     const empresa = await req.db.collection("empresas").findOne({
       _id: new ObjectId(req.params.id)
     });
 
-    if (!empresa) {
-      return res.status(404).json({ error: "Empresa no encontrada" });
+    if (!empresa) return res.status(404).json({ error: "Empresa no encontrada" });
+
+    const descifrada = {
+      ...empresa,
+      nombre: decrypt(empresa.nombre),
+      rut: decrypt(empresa.rut),
+      direccion: decrypt(empresa.direccion),
+      encargado: decrypt(empresa.encargado),
+      rut_encargado: decrypt(empresa.rut_encargado)
+    };
+
+    if (descifrada.logo && descifrada.logo.fileData) {
+      descifrada.logo.fileData = decrypt(descifrada.logo.fileData);
     }
 
-    res.json(empresa);
+    res.json(descifrada);
   } catch (err) {
-    console.error("Error obteniendo empresa:", err);
     res.status(500).json({ error: "Error al obtener empresa" });
   }
 });
 
-// POST - Registrar nueva empresa
 router.post("/empresas/register", upload.single('logo'), async (req, res) => {
   try {
-    console.log("Debug: Iniciando registro de empresa");
-    console.log("Debug: Datos recibidos:", req.body);
-
     const { nombre, rut, direccion, encargado, rut_encargado } = req.body;
+    if (!nombre || !rut) return res.status(400).json({ error: "Nombre y RUT obligatorios" });
 
-    if (!nombre || !rut) {
-      return res.status(400).json({ error: "Nombre y RUT son obligatorios" });
-    }
+    const nombreLimpio = nombre.trim();
+    const rutLimpio = rut.trim();
 
     const empresaExistente = await req.db.collection("empresas").findOne({
       $or: [
-        { nombre: nombre.trim() },
-        { rut: rut.trim() }
+        { nombre_index: createBlindIndex(nombreLimpio) },
+        { rut_index: createBlindIndex(rutLimpio) }
       ]
     });
 
     if (empresaExistente) {
-      const campoDuplicado = empresaExistente.nombre === nombre.trim() ? 'nombre' : 'RUT';
-      return res.status(400).json({
-        error: `Ya existe una empresa con el mismo ${campoDuplicado}`
-      });
+      return res.status(400).json({ error: "Ya existe una empresa con ese nombre o RUT" });
     }
 
     const empresaData = {
-      nombre: nombre.trim(),
-      rut: rut.trim(),
-      direccion: direccion ? direccion.trim() : '',
-      encargado: encargado ? encargado.trim() : '',
-      rut_encargado: rut_encargado ? rut_encargado.trim() : '',
+      nombre: encrypt(nombreLimpio),
+      nombre_index: createBlindIndex(nombreLimpio),
+      rut: encrypt(rutLimpio),
+      rut_index: createBlindIndex(rutLimpio),
+      direccion: encrypt(direccion || ''),
+      encargado: encrypt(encargado || ''),
+      rut_encargado: encrypt(rut_encargado || ''),
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -1024,7 +1454,7 @@ router.post("/empresas/register", upload.single('logo'), async (req, res) => {
     if (req.file) {
       empresaData.logo = {
         fileName: req.file.originalname,
-        fileData: req.file.buffer,
+        fileData: encrypt(req.file.buffer.toString('base64')),
         fileSize: req.file.size,
         mimeType: req.file.mimetype,
         uploadedAt: new Date()
@@ -1032,47 +1462,33 @@ router.post("/empresas/register", upload.single('logo'), async (req, res) => {
     }
 
     const result = await req.db.collection("empresas").insertOne(empresaData);
-
-    console.log("Debug: Empresa registrada exitosamente, ID:", result.insertedId);
-
-    const nuevaEmpresa = await req.db.collection("empresas").findOne({
-      _id: result.insertedId
-    });
-
-    res.status(201).json({
-      message: "Empresa registrada exitosamente",
-      empresa: nuevaEmpresa
-    });
+    res.status(201).json({ success: true, id: result.insertedId });
 
   } catch (err) {
-    console.error("Error registrando empresa:", err);
-
-    if (err.code === 11000) {
-      return res.status(400).json({ error: "Empresa duplicada" });
-    }
-
-    res.status(500).json({ error: "Error al registrar empresa: " + err.message });
+    res.status(500).json({ error: "Error al registrar: " + err.message });
   }
 });
 
-// PUT - Actualizar empresa
 router.put("/empresas/:id", upload.single('logo'), async (req, res) => {
   try {
     const { nombre, rut, direccion, encargado, rut_encargado } = req.body;
+    const id = new ObjectId(req.params.id);
 
     const updateData = {
-      nombre: nombre.trim(),
-      rut: rut.trim(),
-      direccion: direccion ? direccion.trim() : '',
-      encargado: encargado ? encargado.trim() : '',
-      rut_encargado: rut_encargado ? rut_encargado.trim() : '',
+      nombre: encrypt(nombre.trim()),
+      nombre_index: createBlindIndex(nombre.trim()),
+      rut: encrypt(rut.trim()),
+      rut_index: createBlindIndex(rut.trim()),
+      direccion: encrypt(direccion || ''),
+      encargado: encrypt(encargado || ''),
+      rut_encargado: encrypt(rut_encargado || ''),
       updatedAt: new Date()
     };
 
     if (req.file) {
       updateData.logo = {
         fileName: req.file.originalname,
-        fileData: req.file.buffer,
+        fileData: encrypt(req.file.buffer.toString('base64')),
         fileSize: req.file.size,
         mimeType: req.file.mimetype,
         uploadedAt: new Date()
@@ -1081,46 +1497,245 @@ router.put("/empresas/:id", upload.single('logo'), async (req, res) => {
       updateData.logo = null;
     }
 
-    const result = await req.db.collection("empresas").updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updateData }
-    );
+    const result = await req.db.collection("empresas").updateOne({ _id: id }, { $set: updateData });
+    if (result.matchedCount === 0) return res.status(404).json({ error: "No encontrada" });
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ error: "Empresa no encontrada" });
-    }
-
-    const empresaActualizada = await req.db.collection("empresas").findOne({
-      _id: new ObjectId(req.params.id)
-    });
-
-    res.json({
-      message: "Empresa actualizada exitosamente",
-      empresa: empresaActualizada
-    });
-
+    res.json({ success: true, message: "Empresa actualizada" });
   } catch (err) {
-    console.error("Error actualizando empresa:", err);
-    res.status(500).json({ error: "Error al actualizar empresa" });
+    res.status(500).json({ error: "Error al actualizar" });
   }
 });
 
-// DELETE - Eliminar empresa
 router.delete("/empresas/:id", async (req, res) => {
   try {
-    const result = await req.db.collection("empresas").deleteOne({
-      _id: new ObjectId(req.params.id)
-    });
+    const result = await req.db.collection("empresas").deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).json({ error: "No encontrada" });
+    res.json({ message: "Empresa eliminada exitosamente" });
+  } catch (err) {
+    res.status(500).json({ error: "Error al eliminar" });
+  }
+});
 
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: "Empresa no encontrada" });
+router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
+  try {
+    const empresas = await req.db.collection("empresas").find().toArray();
+    let cont = 0;
+    let logosProcesados = 0;
+    let logosConError = 0;
+    let logosYaCifrados = 0;
+
+    console.log(`Iniciando migración de ${empresas.length} empresas...`);
+
+    for (let emp of empresas) {
+      const updates = {};
+      let procesado = false;
+
+      console.log(`\nProcesando empresa ${emp._id}:`);
+
+      // 1. Cifrar campos de texto
+      if (emp.nombre && !emp.nombre.includes(':')) {
+        updates.nombre = encrypt(emp.nombre);
+        updates.nombre_index = createBlindIndex(emp.nombre);
+        procesado = true;
+        console.log(`  ✓ Nombre cifrado`);
+      }
+
+      if (emp.rut && !emp.rut.includes(':')) {
+        updates.rut = encrypt(emp.rut);
+        updates.rut_index = createBlindIndex(emp.rut);
+        procesado = true;
+        console.log(`  ✓ RUT cifrado`);
+      }
+
+      if (emp.direccion && !emp.direccion.includes(':')) {
+        updates.direccion = encrypt(emp.direccion);
+        procesado = true;
+        console.log(`  ✓ Dirección cifrada`);
+      }
+
+      if (emp.encargado && !emp.encargado.includes(':')) {
+        updates.encargado = encrypt(emp.encargado);
+        procesado = true;
+        console.log(`  ✓ Encargado cifrado`);
+      }
+
+      if (emp.rut_encargado && !emp.rut_encargado.includes(':')) {
+        updates.rut_encargado = encrypt(emp.rut_encargado);
+        procesado = true;
+        console.log(`  ✓ RUT encargado cifrado`);
+      }
+
+      // 2. Cifrar logo (LA PARTE IMPORTANTE)
+      if (emp.logo && emp.logo.fileData) {
+        console.log(`  Logo encontrado: ${emp.logo.fileName}`);
+
+        // Verificar si ya está cifrado
+        if (typeof emp.logo.fileData === 'string' && emp.logo.fileData.includes(':')) {
+          console.log(`  ⚠ Logo ya cifrado, saltando`);
+          logosYaCifrados++;
+          continue;
+        }
+
+        try {
+          let base64Str;
+
+          // MANEJO DEL BINARY (igual que el endpoint PUT)
+          if (emp.logo.fileData && emp.logo.fileData.buffer) {
+            // Caso 1: Es un Binary de MongoDB con buffer
+            console.log(`  Tipo: Binary con buffer`);
+            base64Str = Buffer.from(emp.logo.fileData.buffer).toString('base64');
+          }
+          else if (emp.logo.fileData._bsontype === 'Binary') {
+            // Caso 2: Es un Binary de MongoDB (driver viejo)
+            console.log(`  Tipo: Binary (_bsontype)`);
+            base64Str = emp.logo.fileData.toString('base64');
+          }
+          else if (Buffer.isBuffer(emp.logo.fileData)) {
+            // Caso 3: Es un Buffer puro
+            console.log(`  Tipo: Buffer`);
+            base64Str = emp.logo.fileData.toString('base64');
+          }
+          else if (typeof emp.logo.fileData === 'string') {
+            // Caso 4: Ya es string Base64
+            console.log(`  Tipo: String Base64`);
+
+            // Verificar si ya es Base64 válido
+            const isBase64 = /^[A-Za-z0-9+/]+=*$/.test(emp.logo.fileData);
+            if (isBase64) {
+              base64Str = emp.logo.fileData;
+            } else {
+              console.log(`  ⚠ String no es Base64 válido, intentando convertir...`);
+              // Intentar tratar como binary string
+              base64Str = Buffer.from(emp.logo.fileData, 'binary').toString('base64');
+            }
+          }
+          else {
+            console.log(`  ❌ Tipo no reconocido:`, typeof emp.logo.fileData, emp.logo.fileData);
+            logosConError++;
+            continue;
+          }
+
+          // Verificar que tenemos Base64 válido
+          if (!base64Str || !/^[A-Za-z0-9+/]+=*$/.test(base64Str.substring(0, 100))) {
+            console.log(`  ❌ Base64 no válido generado`);
+            logosConError++;
+            continue;
+          }
+
+          console.log(`  Base64 generado, longitud: ${base64Str.length}`);
+
+          // CIFRAR (igual que el endpoint PUT)
+          const fileDataCifrado = encrypt(base64Str);
+
+          // Verificar cifrado
+          if (!fileDataCifrado || !fileDataCifrado.includes(':')) {
+            console.log(`  ❌ Cifrado falló`);
+            logosConError++;
+            continue;
+          }
+
+          updates["logo.fileData"] = fileDataCifrado;
+          logosProcesados++;
+          procesado = true;
+          console.log(`  ✓ Logo cifrado exitosamente`);
+
+        } catch (error) {
+          console.error(`  ❌ Error procesando logo:`, error.message);
+          logosConError++;
+          // No actualizar el logo si hay error
+        }
+      }
+
+      // Actualizar en BD si hay cambios
+      if (procesado && Object.keys(updates).length > 0) {
+        try {
+          await req.db.collection("empresas").updateOne(
+            { _id: emp._id },
+            { $set: updates }
+          );
+          cont++;
+          console.log(`  ✅ Empresa actualizada en BD`);
+        } catch (dbError) {
+          console.error(`  ❌ Error actualizando BD:`, dbError.message);
+        }
+      } else {
+        console.log(`  ⏭️ Sin cambios, saltando`);
+      }
     }
 
-    res.json({ message: "Empresa eliminada exitosamente" });
+    console.log(`\n=== MIGRACIÓN COMPLETADA ===`);
+
+    res.json({
+      success: true,
+      message: `Empresas migradas: ${cont}/${empresas.length}`,
+      estadisticas: {
+        totalEmpresas: empresas.length,
+        empresasProcesadas: cont,
+        logosProcesados,
+        logosConError,
+        logosYaCifrados,
+        empresasSinCambios: empresas.length - cont
+      },
+      nota: "Los logos ahora están cifrados igual que en el endpoint PUT /empresas/:id"
+    });
 
   } catch (err) {
-    console.error("Error eliminando empresa:", err);
-    res.status(500).json({ error: "Error al eliminar empresa" });
+    console.error('Error en migración V3:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      stack: err.stack
+    });
+  }
+});
+
+router.get("/mantenimiento/migrar-tokens-pqc", async (req, res) => {
+  try {
+    const tokens = await req.db.collection("tokens").find().toArray();
+    let cont = 0;
+
+    for (let tokenDoc of tokens) {
+      const updates = {};
+
+      if (tokenDoc.email && !tokenDoc.email.includes(':')) {
+        updates.email = encrypt(tokenDoc.email);
+        updates.email_index = createBlindIndex(tokenDoc.email);
+      }
+
+      if (tokenDoc.rol && !tokenDoc.rol.includes(':')) {
+        updates.rol = encrypt(tokenDoc.rol);
+      }
+
+      if (tokenDoc.active !== undefined && tokenDoc.active !== null) {
+        if (typeof tokenDoc.active === 'string' && tokenDoc.active.includes(':')) {
+          // Ya está cifrado, no hacer nada
+        }
+        else if (typeof tokenDoc.active === 'boolean') {
+          const activeStr = tokenDoc.active.toString();
+          updates.active = encrypt(activeStr);
+        }
+        else if (typeof tokenDoc.active === 'string' && !tokenDoc.active.includes(':')) {
+          updates.active = encrypt(tokenDoc.active);
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await req.db.collection("tokens").updateOne({ _id: tokenDoc._id }, { $set: updates });
+        cont++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Tokens migrados: ${cont}/${tokens.length}`,
+      total: tokens.length,
+      migrados: cont,
+      nota: "Se añadió email_index para búsquedas por email"
+    });
+
+  } catch (err) {
+    console.error('Error migrando tokens:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
