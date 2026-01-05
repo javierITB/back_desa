@@ -82,6 +82,24 @@ const uploadMultiple = multer({
   }
 });
 
+// Helper para verificar token en cualquier request
+const verifyRequest = async (req) => {
+  let token = req.headers.authorization?.split(" ")[1];
+
+  // Fallback: buscar en body.user.token
+  if (!token && req.body?.user?.token) token = req.body.user.token;
+
+  // Fallback: buscar en query param
+  if (!token && req.query?.token) token = req.query.token;
+
+  if (!token) return { ok: false, error: "Token no proporcionado" };
+
+  const valid = await validarToken(req.db, token);
+  if (!valid.ok) return { ok: false, error: valid.reason };
+
+  return { ok: true, data: valid.data };
+};
+
 const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, questions) => {
 
   /**
@@ -198,7 +216,7 @@ const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, qu
   // Descifrar datos del usuario si están cifrados
   let nombreUsuarioDescifrado = usuario.nombre;
   let empresaDescifrada = usuario.empresa;
-  
+
   try {
     if (usuario.nombre && usuario.nombre.includes(':')) {
       nombreUsuarioDescifrado = decrypt(usuario.nombre);
@@ -291,8 +309,8 @@ router.post("/", async (req, res) => {
       if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
       // Las empresas en 'form.companies' probablemente están en texto plano o son ObjectIds
-      const empresaAutorizada = form.companies?.includes(empresaDescifrada) || 
-                                form.companies?.includes("Todas");
+      const empresaAutorizada = form.companies?.includes(empresaDescifrada) ||
+        form.companies?.includes("Todas");
       if (!empresaAutorizada) {
         return res.status(403).json({ error: `La empresa ${empresaDescifrada} no está autorizada.` });
       }
@@ -356,7 +374,7 @@ router.post("/", async (req, res) => {
       descripcion: adjuntos.length > 0 ? `Incluye ${adjuntos.length} archivo(s)` : "Revisar en panel.",
       prioridad: 2,
       color: "#bb8900ff",
-       icono: "CheckCircle",
+      icono: "CheckCircle",
       actionUrl: `/Tickets?id=${result.insertedId}`,
     };
     await addNotification(req.db, { filtro: { rol: "Admin" }, ...notifData });
@@ -389,9 +407,72 @@ router.post("/", async (req, res) => {
   }
 });
 
+// OBTENER DATOS DE ARCHIVOS APROBADOS
+router.get("/data-approved/:responseId", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const { responseId } = req.params;
+    const approvedDoc = await req.db.collection("aprobados").findOne({ responseId: responseId });
+
+    if (!approvedDoc) return res.status(404).json({ error: "Documento aprobado no encontrado" });
+
+    if (!approvedDoc.correctedFiles || approvedDoc.correctedFiles.length === 0) {
+      return res.status(404).json({ error: "Archivos corregidos no disponibles" });
+    }
+
+    const filesInfo = approvedDoc.correctedFiles.map(file => ({
+      fileName: file.fileName,
+      fileSize: file.fileSize,
+      mimeType: file.mimeType,
+      uploadedAt: file.uploadedAt,
+      order: file.order || 1,
+      tipo: file.tipo
+    }));
+
+    res.json({
+      correctedFiles: filesInfo,
+      approvedAt: approvedDoc.approvedAt,
+      formTitle: approvedDoc.formTitle,
+      totalFiles: filesInfo.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error interno: " + err.message });
+  }
+});
+
+// Verificar si existe PDF firmado
+router.get("/:responseId/has-client-signature", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const { responseId } = req.params;
+    const signature = await req.db.collection("firmados").findOne({ responseId: responseId }, {
+      projection: { "clientSignedPdf.fileName": 1, "clientSignedPdf.uploadedAt": 1, status: 1 }
+    });
+
+    if (!signature) return res.json({ exists: false });
+
+    res.json({
+      exists: true,
+      signature: {
+        fileName: signature.clientSignedPdf.fileName,
+        uploadedAt: signature.clientSignedPdf.uploadedAt,
+        status: signature.status
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error verificando firma: " + err.message });
+  }
+});
+
 // Obtener adjuntos de una respuesta específica
 router.get("/:id/adjuntos", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const { id } = req.params;
 
     const adjuntos = await req.db.collection("adjuntos")
@@ -408,6 +489,8 @@ router.get("/:id/adjuntos", async (req, res) => {
 // Subir adjunto individual - MISMO NOMBRE PARA FRONTEND
 router.post("/:id/adjuntos", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const { id } = req.params;
     const { adjunto, index, total } = req.body;
 
@@ -485,6 +568,8 @@ router.post("/:id/adjuntos", async (req, res) => {
 
 router.get("/:id/adjuntos/:index", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const { id, index } = req.params;
 
     console.log("Descargando adjunto:", { id, index });
@@ -540,12 +625,14 @@ router.get("/:id/adjuntos/:index", async (req, res) => {
 
 router.get("/", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const answers = await req.db.collection("soporte").find().toArray();
-    
+
     // Descifrar datos de usuario en cada respuesta
     const answersDescifrados = answers.map(answer => {
       const answerCopy = { ...answer };
-      
+
       if (answerCopy.user && typeof answerCopy.user === 'object') {
         try {
           // Descifrar campos del usuario si están cifrados
@@ -568,10 +655,10 @@ router.get("/", async (req, res) => {
           console.error('Error descifrando datos de usuario en respuesta:', error);
         }
       }
-      
+
       return answerCopy;
     });
-    
+
     res.json(answersDescifrados);
   } catch (err) {
     res.status(500).json({ error: "Error al obtener formularios" });
@@ -580,10 +667,12 @@ router.get("/", async (req, res) => {
 
 router.get("/mail/:mail", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const cleanMail = req.params.mail.toLowerCase().trim();
     // Usar Blind Index para buscar usuario
     const mailSearchHash = createBlindIndex(cleanMail);
-    
+
     const user = await req.db.collection("usuarios").findOne({ mail_index: mailSearchHash });
 
     if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
@@ -598,7 +687,7 @@ router.get("/mail/:mail", async (req, res) => {
     // Descifrar datos de usuario en cada respuesta
     const answersProcessed = answers.map(answer => {
       const answerCopy = { ...answer };
-      
+
       if (answerCopy.user && typeof answerCopy.user === 'object') {
         try {
           // Descifrar campos del usuario si están cifrados
@@ -621,7 +710,7 @@ router.get("/mail/:mail", async (req, res) => {
           console.error('Error descifrando datos de usuario en respuesta:', error);
         }
       }
-      
+
       return {
         _id: answerCopy._id,
         formId: answerCopy.formId,
@@ -644,6 +733,8 @@ router.get("/mail/:mail", async (req, res) => {
 
 router.get("/mini", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const answers = await req.db.collection("soporte")
       .find({})
       .project({
@@ -666,7 +757,7 @@ router.get("/mini", async (req, res) => {
       // Descifrar campos de usuario
       let nombreDescifrado = answer.user?.nombre || "No especificado";
       let empresaDescifrada = answer.user?.empresa || "No especificado";
-      
+
       try {
         if (nombreDescifrado.includes(':')) {
           nombreDescifrado = decrypt(nombreDescifrado);
@@ -707,6 +798,8 @@ router.get("/mini", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const form = await req.db.collection("soporte")
       .findOne({ _id: new ObjectId(req.params.id) });
 
@@ -714,7 +807,7 @@ router.get("/:id", async (req, res) => {
 
     // Descifrar datos de usuario si están cifrados
     const formDescifrado = { ...form };
-    
+
     if (formDescifrado.user && typeof formDescifrado.user === 'object') {
       try {
         if (formDescifrado.user.nombre && formDescifrado.user.nombre.includes(':')) {
@@ -747,6 +840,8 @@ router.get("/:id", async (req, res) => {
 //actualizar respuesta
 router.put("/:id", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const result = await req.db.collection("soporte").findOneAndUpdate(
       { _id: new ObjectId(req.params.id) },
       { $set: { ...req.body, updatedAt: new Date() } },
@@ -763,6 +858,8 @@ router.put("/:id", async (req, res) => {
 //eliminar respuesta
 router.delete("/:id", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const responseId = req.params.id;
 
     // Eliminar de todas las colecciones relacionadas
@@ -805,8 +902,11 @@ router.delete("/:id", async (req, res) => {
 });
 
 // 14. Cambiar estado de respuesta (avanzar o retroceder)
+// 14. Cambiar estado de respuesta (avanzar o retroceder)
 router.put("/:id/status", async (req, res) => {
   try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
     const { id } = req.params;
     const { status, assignedTo } = req.body;
 
