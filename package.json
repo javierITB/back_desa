@@ -10,7 +10,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
+  "type": "CommonJS",
   "dependencies": {
     "argon2": "^0.44.0",
     "cors": "^2.8.5",
