@@ -6,7 +6,7 @@ const { addNotification } = require("../utils/notificaciones.helper");
 const { generarAnexoDesdeRespuesta } = require("../utils/generador.helper");
 const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper");
 const { validarToken } = require("../utils/validarToken.js");
-const { createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
+const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
@@ -82,71 +82,145 @@ const uploadMultiple = multer({
   }
 });
 
+// Helper para verificar token en cualquier request
+const verifyRequest = async (req) => {
+  let token = req.headers.authorization?.split(" ")[1]; // Bearer <token>
+
+  // Fallback: buscar en body.user.token (legacy)
+  if (!token && req.body?.user?.token) token = req.body.user.token;
+
+  // Fallback: buscar en query param (para descargas/GET simples)
+  if (!token && req.query?.token) token = req.query.token;
+
+  if (!token) return { ok: false, error: "Token no proporcionado" };
+
+  const valid = await validarToken(req.db, token);
+  if (!valid.ok) return { ok: false, error: valid.reason };
+
+  return { ok: true, data: valid.data };
+};
+
 router.use(express.json({ limit: '4mb' }));
 
 // En el endpoint POST principal (/) - SOLO FORMATO ESPECÍFICO
 router.post("/", async (req, res) => {
   try {
     const { formId, user, responses, formTitle, adjuntos = [], mail: correoRespaldo } = req.body;
-    
-    // El usuario que viene del frontend ya debería estar descifrado en su sesión, 
-    // pero para la lógica interna usamos sus datos.
-    const usuario = user?.nombre; 
+
+    // Importar solo tus funciones existentes
+    const { encrypt } = require('../utils/seguridad.helper');
+
+    // El usuario que viene del frontend ya debería estar descifrado en su sesión
+    const usuario = user?.nombre;
     const empresa = user?.empresa;
     const userId = user?.uid;
     const token = user?.token;
 
-    console.log("=== INICIO GUARDAR RESPUESTA ===");
+    console.log("=== INICIO GUARDAR RESPUESTA (PQC) ===");
 
+    // Validar token
     const tokenValido = await validarToken(req.db, token);
     if (!tokenValido.ok) {
       return res.status(401).json({ error: tokenValido.reason });
     }
 
+    // Verificar formulario
     const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
     if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
+    // Validar empresa autorizada
     const empresaAutorizada = form.companies?.includes(empresa) || form.companies?.includes("Todas");
     if (!empresaAutorizada) {
       return res.status(403).json({ error: `La empresa ${empresa} no está autorizada.` });
     }
 
-    // Insertar respuesta principal. 
-    // Nota: El objeto 'user' aquí se guarda como viene, pero el mail se busca por Blind Index si fuera necesario.
+    // CIFRAR LOS DATOS SENSIBLES ANTES DE GUARDAR
+    console.log("Cifrando datos sensibles...");
+
+    // Función simple para cifrar un objeto completo campo por campo
+    const cifrarObjeto = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      const resultado = {};
+      for (const key in obj) {
+        const valor = obj[key];
+
+        if (typeof valor === 'string' && valor.trim() !== '' && !valor.includes(':')) {
+          // Cifrar strings que no estén ya cifrados
+          resultado[key] = encrypt(valor);
+        } else if (typeof valor === 'object' && valor !== null) {
+          // Si es objeto o array, procesar recursivamente
+          if (Array.isArray(valor)) {
+            resultado[key] = valor.map(item => {
+              if (typeof item === 'string' && item.trim() !== '' && !item.includes(':')) {
+                return encrypt(item);
+              } else if (typeof item === 'object' && item !== null) {
+                return cifrarObjeto(item);
+              }
+              return item;
+            });
+          } else {
+            resultado[key] = cifrarObjeto(valor);
+          }
+        } else {
+          // Otros tipos (number, boolean, null) se mantienen igual
+          resultado[key] = valor;
+        }
+      }
+      return resultado;
+    };
+
+    // 1. Cifrar objeto 'user' campo por campo
+    const userCifrado = cifrarObjeto(user);
+    console.log("✓ Objeto 'user' cifrado");
+
+    // 2. Cifrar objeto 'responses' campo por campo
+    const responsesCifrado = cifrarObjeto(responses);
+    console.log("✓ Objeto 'responses' cifrado");
+
+    // Guardar respuesta con datos CIFRADOS
     const result = await req.db.collection("respuestas").insertOne({
       formId,
-      user, 
-      responses,
+      user: userCifrado,  // ← CIFRADO campo por campo
+      responses: responsesCifrado,  // ← CIFRADO campo por campo
       formTitle,
       mail: correoRespaldo,
       status: "pendiente",
-      createdAt: new Date()
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
 
+    console.log(`✅ Respuesta guardada con ID: ${result.insertedId}`);
+
+    // Manejar adjuntos si existen
     if (adjuntos.length > 0) {
       await req.db.collection("adjuntos").insertOne({
         responseId: result.insertedId,
         submittedAt: new Date().toISOString(),
         adjuntos: []
       });
+      console.log(`✅ Documento adjuntos creado`);
     }
 
-    // Enviar correo de respaldo
+    // Enviar correo de respaldo (usamos datos descifrados del user original)
     if (correoRespaldo && correoRespaldo.trim() !== '') {
       await enviarCorreoRespaldo(correoRespaldo, formTitle, user, responses, form.questions);
+      console.log("✓ Correo de respaldo enviado");
     }
 
-    // Notificaciones (RRHH y Admin)
+    // Notificaciones (RRHH y Admin) - usar datos descifrados
     const notifData = {
       titulo: `${usuario} de la empresa ${empresa} ha respondido el formulario ${formTitle}`,
       descripcion: adjuntos.length > 0 ? `Incluye ${adjuntos.length} archivo(s)` : "Revisar en panel.",
       prioridad: 2,
       color: "#bb8900ff",
-      icono: "form",
+      icono: "Edit",
       actionUrl: `/RespuestasForms?id=${result.insertedId}`,
     };
+
     await addNotification(req.db, { filtro: { cargo: "RRHH" }, ...notifData });
     await addNotification(req.db, { filtro: { cargo: "admin" }, ...notifData });
+    console.log("✓ Notificaciones a RRHH y Admin enviadas");
 
     // Notificación al usuario
     await addNotification(req.db, {
@@ -154,25 +228,41 @@ router.post("/", async (req, res) => {
       titulo: "Formulario completado",
       descripcion: `El formulario ${formTitle} fue completado correctamente.`,
       prioridad: 2,
-      icono: "CheckCircle",
+      icono: "Edit",
       color: "#006e13ff",
       actionUrl: `/?id=${result.insertedId}`,
     });
+    console.log("✓ Notificación al usuario enviada");
 
+    // Generar documento anexo (usar datos descifrados)
     try {
       await generarAnexoDesdeRespuesta(responses, result.insertedId.toString(), req.db, form.section, {
         nombre: usuario,
         empresa: empresa,
         uid: userId,
       }, formId, formTitle);
+      console.log("✓ Documento anexo generado");
     } catch (error) {
       console.error("Error generando documento:", error.message);
     }
 
-    res.json({ _id: result.insertedId, formId, user, responses, formTitle, mail: correoRespaldo });
+    // Respuesta al frontend con datos DESCIFRADOS (como espera el frontend)
+    res.json({
+      _id: result.insertedId,
+      formId,
+      user,  // ← Datos descifrados (lo que el frontend espera)
+      responses,  // ← Datos descifrados
+      formTitle,
+      mail: correoRespaldo,
+      message: "Respuesta guardada exitosamente con cifrado PQC"
+    });
 
   } catch (err) {
-    res.status(500).json({ error: "Error al guardar respuesta: " + err.message });
+    console.error("Error al guardar respuesta PQC:", err);
+    res.status(500).json({
+      error: "Error al guardar respuesta: " + err.message,
+      step: "cifrado_pqc"
+    });
   }
 });
 
@@ -191,7 +281,6 @@ router.post("/admin", async (req, res) => {
     if (!tokenValido.ok) return res.status(401).json({ error: tokenValido.reason });
 
     // --- BÚSQUEDA PQC DEL USUARIO DESTINATARIO ---
-    // Buscamos por mail_index porque el mail original está cifrado
     const userDestinatario = await req.db.collection("usuarios").findOne({
       mail_index: createBlindIndex(correoRespaldo),
     });
@@ -200,22 +289,58 @@ router.post("/admin", async (req, res) => {
       return res.status(404).json({ error: `Destinatario no encontrado con el correo: ${correoRespaldo}` });
     }
 
-    // Desciframos los datos para construir el objeto de respuesta correctamente
+    // Desciframos los datos del usuario para construir el objeto
     const destinatarioUserObject = {
       uid: userDestinatario._id.toString(),
-      nombre: decrypt(userDestinatario.nombre),
-      empresa: userDestinatario.empresa, // Si empresa no está cifrada
+      nombre: userDestinatario.nombre.includes(':')
+        ? decrypt(userDestinatario.nombre)
+        : userDestinatario.nombre,
+      empresa: destinatarioEmpresa, // Usamos la empresa del formulario
       mail: correoRespaldo,
     };
 
     const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
     if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
+    // Función para cifrar objetos recursivamente
+    const cifrarObjeto = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      const resultado = {};
+      for (const key in obj) {
+        const valor = obj[key];
+
+        if (typeof valor === 'string' && valor.trim() !== '' && !valor.includes(':')) {
+          resultado[key] = encrypt(valor);
+        } else if (typeof valor === 'object' && valor !== null) {
+          if (Array.isArray(valor)) {
+            resultado[key] = valor.map(item => {
+              if (typeof item === 'string' && item.trim() !== '' && !item.includes(':')) {
+                return encrypt(item);
+              } else if (typeof item === 'object' && item !== null) {
+                return cifrarObjeto(item);
+              }
+              return item;
+            });
+          } else {
+            resultado[key] = cifrarObjeto(valor);
+          }
+        } else {
+          resultado[key] = valor;
+        }
+      }
+      return resultado;
+    };
+
+    // CIFRAR DATOS ANTES DE GUARDAR
+    const userCifrado = cifrarObjeto(destinatarioUserObject);
+    const responsesCifrado = cifrarObjeto(responses);
+
     const now = new Date();
     const result = await req.db.collection("respuestas").insertOne({
       formId,
-      user: destinatarioUserObject,
-      responses,
+      user: userCifrado,  // ← CIFRADO
+      responses: responsesCifrado,  // ← CIFRADO
       formTitle,
       mail: correoRespaldo,
       status: "pendiente",
@@ -232,6 +357,7 @@ router.post("/admin", async (req, res) => {
       });
     }
 
+    // Para el correo, usar datos DESCIFRADOS
     if (correoRespaldo) {
       await enviarCorreoRespaldo(correoRespaldo, formTitle, destinatarioUserObject, responses, form.questions);
     }
@@ -254,12 +380,28 @@ router.post("/admin", async (req, res) => {
     });
 
     try {
-      await generarAnexoDesdeRespuesta(responses, result.insertedId.toString(), req.db, form.section, destinatarioUserObject, formId, formTitle);
+      await generarAnexoDesdeRespuesta(
+        responses,  // Datos descifrados para generar documento
+        result.insertedId.toString(),
+        req.db,
+        form.section,
+        destinatarioUserObject,  // Datos descifrados
+        formId,
+        formTitle
+      );
     } catch (error) {
       console.error("Error generando documento:", error.message);
     }
 
-    res.json({ _id: result.insertedId, formId, user: destinatarioUserObject, responses, formTitle, mail: correoRespaldo });
+    // Responder con datos DESCIFRADOS al frontend
+    res.json({
+      _id: result.insertedId,
+      formId,
+      user: destinatarioUserObject,  // Descifrado
+      responses,  // Descifrado
+      formTitle,
+      mail: correoRespaldo
+    });
 
   } catch (err) {
     res.status(500).json({ error: "Error Admin: " + err.message });
@@ -270,6 +412,10 @@ router.post("/admin", async (req, res) => {
 router.get("/:id/adjuntos", async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     const adjuntos = await req.db.collection("adjuntos")
       .findOne({ responseId: new ObjectId(id) });
@@ -287,6 +433,10 @@ router.post("/:id/adjuntos", async (req, res) => {
   try {
     const { id } = req.params;
     const { adjunto, index, total } = req.body;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     console.log(`Subiendo adjunto ${index + 1} de ${total} para respuesta:`, id);
 
@@ -360,9 +510,14 @@ router.post("/:id/adjuntos", async (req, res) => {
   }
 });
 
+// Obtiener y descargar un adjunto específico
 router.get("/:id/adjuntos/:index", async (req, res) => {
   try {
     const { id, index } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     console.log("Descargando adjunto:", { id, index });
 
@@ -415,69 +570,223 @@ router.get("/:id/adjuntos/:index", async (req, res) => {
   }
 });
 
+// Obtener todas las respuestas
 router.get("/", async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     const answers = await req.db.collection("respuestas").find().toArray();
-    res.json(answers);
+
+    // Importar decrypt
+    const { decrypt } = require('../utils/seguridad.helper');
+
+    // Descifrar cada respuesta
+    const answersDescifradas = answers.map(answer => {
+      const descifrarCampo = (valor) => {
+        if (typeof valor === 'string' && valor.includes(':')) {
+          return decrypt(valor);
+        }
+        return valor;
+      };
+
+      const descifrarObjeto = (obj) => {
+        if (!obj || typeof obj !== 'object') return obj;
+
+        const resultado = {};
+        for (const key in obj) {
+          const valor = obj[key];
+          resultado[key] = descifrarCampo(valor);
+        }
+        return resultado;
+      };
+
+      const answerDescifrado = { ...answer };
+
+      if (answerDescifrado.user) {
+        answerDescifrado.user = descifrarObjeto(answerDescifrado.user);
+      }
+
+      if (answerDescifrado.responses) {
+        answerDescifrado.responses = descifrarObjeto(answerDescifrado.responses);
+      }
+
+      return answerDescifrado;
+    });
+
+    res.json(answersDescifradas);
   } catch (err) {
     res.status(500).json({ error: "Error al obtener formularios" });
   }
 });
 
+// Obtener respuestas por email
 router.get("/mail/:mail", async (req, res) => {
   try {
     const cleanMail = req.params.mail.toLowerCase().trim();
-    // No buscamos por "user.mail" directo porque ese valor en respuestas 
-    // podría ser plano o cifrado según cuando se guardó, pero el Blind Index 
-    // en la colección de usuarios es nuestra fuente de verdad.
-    
-    // Primero validamos si el usuario existe para obtener su UID
-    const user = await req.db.collection("usuarios").findOne({ mail_index: createBlindIndex(cleanMail) });
-    
-    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
 
-    // Ahora buscamos en respuestas por el UID del usuario (que es inmutable)
-    const answers = await req.db.collection("respuestas").find({ "user.uid": user._id.toString() }).toArray();
+    // Buscar usuario por Blind Index (el mail está cifrado en la BD)
+    const user = await req.db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(cleanMail)
+    });
 
-    if (!answers || answers.length === 0) {
-      return res.status(404).json({ error: "No se encontraron formularios" });
+    if (!user) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+        mailBuscado: cleanMail
+      });
     }
 
-    if (!answers || answers.length === 0) {
-      return res.status(404).json({ error: "No se encontraron formularios para este email" });
+    console.log(`Usuario encontrado: ${user._id}, mail_index: ${user.mail_index}`);
+
+    // Descifrar el nombre del usuario para logging
+    let nombreUsuario = "Usuario";
+    if (user.nombre && user.nombre.includes(':')) {
+      try {
+        nombreUsuario = decrypt(user.nombre);
+        console.log(`Nombre descifrado: ${nombreUsuario}`);
+      } catch (decryptError) {
+        console.error("Error descifrando nombre:", decryptError);
+      }
     }
 
-    // Procesar las respuestas en JavaScript
+    // Buscar respuestas por el UID del usuario (campo no cifrado)
+    const answers = await req.db.collection("respuestas").find({
+      "user.uid": user._id.toString()
+    }).toArray();
+
+    if (!answers || answers.length === 0) {
+      return res.json({
+        message: "No se encontraron formularios para este usuario",
+        usuario: nombreUsuario,
+        total: 0,
+        respuestas: []
+      });
+    }
+
+    console.log(`Encontradas ${answers.length} respuestas para usuario ${user._id}`);
+
+    // Función para descifrar campos recursivamente
+    const descifrarCampo = (valor) => {
+      if (typeof valor === 'string' && valor.includes(':')) {
+        try {
+          return decrypt(valor);
+        } catch (error) {
+          console.error("Error descifrando campo:", error);
+          return "[Error de descifrado]";
+        }
+      }
+      return valor;
+    };
+
+    const descifrarObjeto = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      if (Array.isArray(obj)) {
+        return obj.map(item => descifrarCampo(item));
+      }
+
+      const resultado = {};
+      for (const key in obj) {
+        const valor = obj[key];
+
+        if (typeof valor === 'string') {
+          resultado[key] = descifrarCampo(valor);
+        } else if (typeof valor === 'object' && valor !== null) {
+          resultado[key] = descifrarObjeto(valor);
+        } else {
+          resultado[key] = valor;
+        }
+      }
+      return resultado;
+    };
+
+    // Descifrar cada respuesta
     const answersProcessed = answers.map(answer => {
-      let trabajador = "No especificado";
+      const answerDescifrada = { ...answer };
 
-      if (answer.responses) {
-        trabajador = answer.responses["Nombre del trabajador"] ||
-          answer.responses["NOMBRE DEL TRABAJADOR"] ||
-          answer.responses["nombre del trabajador"]
+      // 1. Descifrar el objeto 'user' completo
+      if (answerDescifrada.user) {
+        answerDescifrada.user = descifrarObjeto(answerDescifrada.user);
+      }
+
+      // 2. Descifrar el objeto 'responses' completo
+      if (answerDescifrada.responses) {
+        answerDescifrada.responses = descifrarObjeto(answerDescifrada.responses);
+      }
+
+      // 3. Extraer trabajador de los responses ya descifrados
+      let trabajador = "No especificado";
+      if (answerDescifrada.responses) {
+        // Buscar en varios formatos posibles del campo
+        trabajador = answerDescifrada.responses["Nombre del trabajador"] ||
+          answerDescifrada.responses["NOMBRE DEL TRABAJADOR"] ||
+          answerDescifrada.responses["nombre del trabajador"] ||
+          answerDescifrada.responses["Nombre del Trabajador"] ||
+          answerDescifrada.responses["Nombre trabajador"] ||
+          answerDescifrada.responses["Nombre"] ||
+          answerDescifrada.responses["nombre"] ||
+          "No especificado";
+      }
+
+      // 4. Descifrar otros campos sensibles si existen
+      if (answerDescifrada.mail && answerDescifrada.mail.includes(':')) {
+        answerDescifrada.mail = descifrarCampo(answerDescifrada.mail);
       }
 
       return {
-        _id: answer._id,
-        formId: answer.formId,
-        formTitle: answer.formTitle,
+        _id: answerDescifrada._id,
+        formId: answerDescifrada.formId,
+        formTitle: answerDescifrada.formTitle,
         trabajador: trabajador,
-        user: answer.user,
-        status: answer.status,
-        createdAt: answer.createdAt,
-        approvedAt: answer.approvedAt,
-        updatedAt: answer.updatedAt
+        user: answerDescifrada.user,
+        status: answerDescifrada.status,
+        createdAt: answerDescifrada.createdAt,
+        approvedAt: answerDescifrada.approvedAt,
+        updatedAt: answerDescifrada.updatedAt,
+        signedAt: answerDescifrada.signedAt,
+        finalizedAt: answerDescifrada.finalizedAt,
+        // Mantener otros campos relevantes
+        hasCorrection: answerDescifrada.hasCorrection,
+        correctionFileName: answerDescifrada.correctionFileName,
+        // Datos del formulario para referencia
+        totalFields: answerDescifrada.responses ? Object.keys(answerDescifrada.responses).length : 0
       };
     });
 
-    res.json(answersProcessed);
+    // Ordenar por fecha de creación (más recientes primero)
+    answersProcessed.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    res.json({
+      success: true,
+      usuario: nombreUsuario,
+      mail: cleanMail,
+      total: answersProcessed.length,
+      respuestas: answersProcessed,
+      metadata: {
+        usuarioId: user._id,
+        buscadoPor: "mail_index",
+        fechaConsulta: new Date().toISOString()
+      }
+    });
+
   } catch (err) {
-    res.status(500).json({ error: "Error al obtener por email" });
+    console.error("Error en GET /mail/:mail:", err);
+    res.status(500).json({
+      error: "Error al obtener formularios por email: " + err.message,
+      step: "busqueda_mail_pqc"
+    });
   }
 });
 
+// Obtener respuestas en formato mini
 router.get("/mini", async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     const answers = await req.db.collection("respuestas")
       .find({})
       .project({
@@ -499,23 +808,27 @@ router.get("/mini", async (req, res) => {
       let trabajador = "No especificado";
 
       if (answer.responses) {
-        trabajador = answer.responses["Nombre del trabajador"] ||
+        trabajador = decrypt(
+          answer.responses["Nombre del trabajador"] ||
           answer.responses["NOMBRE DEL TRABAJADOR"] ||
           answer.responses["nombre del trabajador"] ||
           answer.responses["Nombre del Trabajador"] ||
           answer.responses["Nombre Del trabajador "] ||
-          "No especificado";
+          "No especificado"
+        );
       }
 
       let rutTrabajador = "No especificado";
 
       if (answer.responses) {
-        rutTrabajador = answer.responses["RUT del trabajador"] ||
+        rutTrabajador = decrypt(
+          answer.responses["RUT del trabajador"] ||
           answer.responses["RUT DEL TRABAJADOR"] ||
           answer.responses["rut del trabajador"] ||
           answer.responses["Rut del Trabajador"] ||
           answer.responses["Rut Del trabajador "] ||
-          "No especificado";
+          "No especificado"
+        );
       }
 
       return {
@@ -525,7 +838,10 @@ router.get("/mini", async (req, res) => {
         trabajador: trabajador,
         rutTrabajador: rutTrabajador,
         submittedAt: answer.submittedAt,
-        user: answer.user,
+        user: answer.user ? {
+          nombre: decrypt(answer.user.nombre),
+          empresa: decrypt(answer.user.empresa)
+        } : answer.user,
         status: answer.status,
         createdAt: answer.createdAt,
         adjuntosCount: answer.adjuntosCount || 0
@@ -539,22 +855,240 @@ router.get("/mini", async (req, res) => {
   }
 });
 
+// Obtener respuesta por ID - Versión simplificada
 router.get("/:id", async (req, res) => {
   try {
-    const form = await req.db.collection("respuestas")
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const respuesta = await req.db.collection("respuestas")
       .findOne({ _id: new ObjectId(req.params.id) });
 
-    if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
+    if (!respuesta) return res.status(404).json({ error: "Formulario no encontrado" });
 
-    res.json(form);
+    // Importar decrypt
+    const { decrypt } = require('../utils/seguridad.helper');
+
+    // Función simple para manejar campos cifrados/descifrados
+    const procesarCampo = (valor) => {
+      if (typeof valor === 'string' && valor.includes(':')) {
+        try {
+          return decrypt(valor);
+        } catch (error) {
+          console.warn("Campo con formato cifrado pero error al descifrar");
+          return valor; // Mantener original
+        }
+      }
+      return valor;
+    };
+
+    // Procesar la respuesta
+    const respuestaProcesada = { ...respuesta };
+
+    // Procesar user
+    if (respuestaProcesada.user) {
+      const userProcesado = {};
+      for (const key in respuestaProcesada.user) {
+        userProcesado[key] = procesarCampo(respuestaProcesada.user[key]);
+      }
+      respuestaProcesada.user = userProcesado;
+    }
+
+    // Procesar responses (recursivo simple)
+    const procesarResponses = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      if (Array.isArray(obj)) {
+        return obj.map(item => procesarCampo(item));
+      }
+
+      const resultado = {};
+      for (const key in obj) {
+        const valor = obj[key];
+
+        if (typeof valor === 'string') {
+          resultado[key] = procesarCampo(valor);
+        } else if (typeof valor === 'object' && valor !== null) {
+          resultado[key] = procesarResponses(valor);
+        } else {
+          resultado[key] = valor;
+        }
+      }
+      return resultado;
+    };
+
+    if (respuestaProcesada.responses) {
+      respuestaProcesada.responses = procesarResponses(respuestaProcesada.responses);
+    }
+
+    res.json(respuestaProcesada);
 
   } catch (err) {
-    res.status(500).json({ error: "Error al obtener formulario" });
+    res.status(500).json({ error: "Error al obtener formulario: " + err.message });
   }
 });
 
+//actualizar respuesta
+router.put("/:id", async (req, res) => {
+  try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const { user, responses, ...rest } = req.body;
+
+    // Preparar objeto de actualización
+    const updateData = {
+      ...rest,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Función para cifrar objetos recursivamente
+    const cifrarObjeto = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      if (Array.isArray(obj)) {
+        return obj.map(item => {
+          if (typeof item === 'string' && item.trim() !== '' && !item.includes(':')) {
+            return encrypt(item);
+          } else if (typeof item === 'object' && item !== null) {
+            return cifrarObjeto(item);
+          }
+          return item;
+        });
+      }
+
+      const resultado = {};
+      for (const key in obj) {
+        const valor = obj[key];
+
+        if (typeof valor === 'string' && valor.trim() !== '' && !valor.includes(':')) {
+          // Cifrar strings que no estén ya cifrados
+          resultado[key] = encrypt(valor);
+        } else if (typeof valor === 'object' && valor !== null) {
+          resultado[key] = cifrarObjeto(valor);
+        } else {
+          resultado[key] = valor;
+        }
+      }
+      return resultado;
+    };
+
+    // 1. Si viene 'user' en la actualización, CIFRARLO antes de guardar
+    if (user && typeof user === 'object') {
+      console.log("Cifrando objeto 'user' para actualización...");
+      updateData.user = cifrarObjeto(user);
+    }
+
+    // 2. Si viene 'responses' en la actualización, CIFRARLO antes de guardar
+    if (responses && typeof responses === 'object') {
+      console.log("Cifrando objeto 'responses' para actualización...");
+      updateData.responses = cifrarObjeto(responses);
+    }
+
+    console.log("Datos a actualizar (cifrados):", Object.keys(updateData));
+
+    // Actualizar en la base de datos
+    const result = await req.db.collection("respuestas").findOneAndUpdate(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updateData },
+      { returnDocument: "after" }
+    );
+
+    if (!result.value) {
+      console.log("Respuesta no encontrada para ID:", req.params.id);
+      return res.status(404).json({ error: "Formulario no encontrado" });
+    }
+
+    console.log("✅ Respuesta actualizada exitosamente");
+
+    // Función para descifrar para la respuesta al frontend
+    const descifrarObjeto = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      if (Array.isArray(obj)) {
+        return obj.map(item => {
+          if (typeof item === 'string' && item.includes(':')) {
+            try {
+              return decrypt(item);
+            } catch (error) {
+              console.error("Error descifrando array item:", error);
+              return item;
+            }
+          } else if (typeof item === 'object' && item !== null) {
+            return descifrarObjeto(item);
+          }
+          return item;
+        });
+      }
+
+      const resultado = {};
+      for (const key in obj) {
+        const valor = obj[key];
+
+        if (typeof valor === 'string' && valor.includes(':')) {
+          try {
+            resultado[key] = decrypt(valor);
+          } catch (error) {
+            console.error(`Error descifrando campo ${key}:`, error);
+            resultado[key] = valor; // Mantener cifrado si hay error
+          }
+        } else if (typeof valor === 'object' && valor !== null) {
+          resultado[key] = descifrarObjeto(valor);
+        } else {
+          resultado[key] = valor;
+        }
+      }
+      return resultado;
+    };
+
+    // Preparar respuesta DESCIFRADA para el frontend
+    const respuestaActualizada = { ...result.value };
+
+    // Descifrar user si está cifrado
+    if (respuestaActualizada.user && typeof respuestaActualizada.user === 'object') {
+      respuestaActualizada.user = descifrarObjeto(respuestaActualizada.user);
+    }
+
+    // Descifrar responses si están cifrados
+    if (respuestaActualizada.responses && typeof respuestaActualizada.responses === 'object') {
+      respuestaActualizada.responses = descifrarObjeto(respuestaActualizada.responses);
+    }
+
+    // Descifrar otros campos cifrados si existen
+    if (respuestaActualizada.mail && respuestaActualizada.mail.includes(':')) {
+      respuestaActualizada.mail = decrypt(respuestaActualizada.mail);
+    }
+
+    res.json({
+      success: true,
+      message: "Respuesta actualizada exitosamente",
+      data: respuestaActualizada,
+      metadata: {
+        actualizadoEl: new Date().toISOString(),
+        camposActualizados: Object.keys(updateData).filter(k => k !== 'updatedAt'),
+        userActualizado: !!user,
+        responsesActualizado: !!responses
+      }
+    });
+
+  } catch (err) {
+    console.error("Error actualizando respuesta PQC:", err);
+    res.status(500).json({
+      error: "Error al actualizar formulario: " + err.message,
+      step: "actualizacion_pqc"
+    });
+  }
+});
+
+// Obtener respuestas por sección
 router.get("/section/:section", async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     const forms = await req.db
       .collection("respuestas")
       .find({ section: req.params.section })
@@ -613,6 +1147,10 @@ router.put("/public/:id", async (req, res) => {
 //eliminar respuesta
 router.delete("/:id", async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     const responseId = req.params.id;
 
     // Eliminar de todas las colecciones relacionadas
@@ -657,6 +1195,10 @@ router.delete("/:id", async (req, res) => {
 //solicitar de mensajes
 router.get("/:formId/chat/admin", async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     const { formId } = req.params;
 
     let query;
@@ -681,8 +1223,13 @@ router.get("/:formId/chat/admin", async (req, res) => {
   }
 });
 
+//solicitar de mensajes generales
 router.get("/:formId/chat/", async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     const { formId } = req.params;
 
     let query;
@@ -714,45 +1261,193 @@ router.get("/:formId/chat/", async (req, res) => {
 
 //enviar mensaje
 router.post("/chat", async (req, res) => {
-    try {
-      const { formId, autor, mensaje, admin } = req.body;
-      if (!autor || !mensaje || !formId) return res.status(400).json({ error: "Faltan campos" });
-  
-      const nuevoMensaje = { autor, mensaje, leido: false, fecha: new Date(), admin: admin || false };
-  
-      let query = ObjectId.isValid(formId) ? { $or: [{ _id: new ObjectId(formId) }, { formId }] } : { formId };
-      const respuesta = await req.db.collection("respuestas").findOne(query);
-      if (!respuesta) return res.status(404).json({ error: "Respuesta no encontrada" });
-  
-      await req.db.collection("respuestas").updateOne({ _id: respuesta._id }, { $push: { mensajes: nuevoMensaje } });
-  
-      if (respuesta?.user?.nombre === autor) {
-        const notifChat = {
-          filtro: { cargo: "RRHH" },
-          titulo: "Nuevo mensaje en formulario",
-          descripcion: `${autor} ha enviado un mensaje.`,
-          icono: "Edit", color: "#45577eff",
-          actionUrl: `/RespuestasForms?id=${respuesta._id}`,
-        };
-        await addNotification(req.db, notifChat);
-        await addNotification(req.db, { ...notifChat, filtro: { cargo: "admin" } });
-      } else {
-        await addNotification(req.db, {
-          userId: respuesta.user.uid,
-          titulo: "Nuevo mensaje recibido",
-          descripcion: `${autor} le ha enviado un mensaje.`,
-          icono: "MessageCircle", color: "#45577eff",
-          actionUrl: `/?id=${respuesta._id}`,
-        });
+  try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const { formId, autor, mensaje, admin, sendToEmail } = req.body;
+    if (!autor || !mensaje || !formId) return res.status(400).json({ error: "Faltan campos" });
+
+    const nuevoMensaje = { autor, mensaje, leido: false, fecha: new Date(), admin: admin || false };
+
+    let query = ObjectId.isValid(formId) ? { $or: [{ _id: new ObjectId(formId) }, { formId }] } : { formId };
+    const respuesta = await req.db.collection("respuestas").findOne(query);
+    if (!respuesta) return res.status(404).json({ error: "Respuesta no encontrada" });
+
+    await req.db.collection("respuestas").updateOne({ _id: respuesta._id }, { $push: { mensajes: nuevoMensaje } });
+
+    // ENVIAR CORREO SI ESTÁ MARCADO EL CHECKBOX Y NO ES MENSAJE DE ADMIN
+    if (sendToEmail === true && admin !== true) {
+      try {
+        // OBTENER DATOS PARA EL CORREO
+        let userEmail = null;
+        let formName = "el formulario";
+        let userName = autor;
+        let respuestaId = respuesta._id.toString();
+
+        // OBTENER EMAIL DEL USUARIO (CLIENTE) DESDE LA RESPUESTA
+        if (respuesta.user && respuesta.user.mail) {
+          userEmail = respuesta.user.mail;
+          userName = respuesta.user.nombre || autor;
+        }
+
+        // OBTENER NOMBRE DEL FORMULARIO
+        if (respuesta.formId) {
+          const form = await req.db.collection("forms").findOne({
+            _id: new ObjectId(respuesta.formId)
+          });
+          if (form && form.title) {
+            formName = form.title;
+          }
+        } else if (respuesta._contexto && respuesta._contexto.formTitle) {
+          formName = respuesta._contexto.formTitle;
+        }
+
+        // ENVIAR CORREO SI TENEMOS EMAIL
+        if (userEmail) {
+          const baseUrl = process.env.PORTAL_URL || "https://infodesa.vercel.app";
+          const responseUrl = `${baseUrl}/preview?type=messages&id=${respuestaId}`;
+
+          const emailHtml = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+      <meta charset="UTF-8">
+      <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #4f46e5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; }
+          .button { 
+              display: inline-block; 
+              background-color: #4f46e5; 
+              color: white !important;  /* ← ESTA ES LA LÍNEA CLAVE */
+              padding: 12px 24px; 
+              text-decoration: none; 
+              border-radius: 6px; 
+              font-weight: bold; 
+              margin-top: 20px; 
+              border: none;
+              cursor: pointer;
+              text-align: center;
+          }
+          .button:hover { 
+              background-color: #4338ca; 
+              color: white !important;
+          }
+          .message-box { background-color: #f0f9ff; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #4f46e5; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }
+          .title { color: #1f2937; font-size: 20px; font-weight: bold; margin-bottom: 20px; }
+          .hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
+      </style>
+  </head>
+  <body>
+      <div class="container">
+          <div class="header">
+              <h1>Acciona Centro de Negocios</h1>
+          </div>
+          <div class="content">
+              <h2 class="title">Tienes un nuevo mensaje en la plataforma de Recursos Humanos</h2>
+              
+              <p>Estimado/a <strong>${userName}</strong>,</p>
+              
+              <div class="message-box">
+                  <p><strong>Formulario:</strong> ${formName}</p>
+                  <p><strong>Fecha y hora:</strong> ${new Date().toLocaleDateString('es-CL', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })}</p>
+              </div>
+              
+              <p>Para ver los detalles de la solicitud y responder al mensaje, haz clic en el siguiente botón:</p>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                  <a href="${responseUrl}" class="button" style="color: white !important; text-decoration: none;">
+                      Ver detalles de la solicitud
+                  </a>
+              </div>
+              
+              <div class="hr"></div>
+              
+              <p style="font-size: 14px; color: #6b7280;">
+                  Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                  <a href="${responseUrl}" style="color: #4f46e5; word-break: break-all;">${responseUrl}</a>
+              </p>
+              
+              <div class="footer">
+                  <p>Este es un mensaje automático de la plataforma de Recursos Humanos de Acciona Centro de Negocios.</p>
+                  <p>Una vez en la plataforma, puedes acceder a los mensajes desde la sección de chat.</p>
+                  <p>Por favor, no responder a este correo.</p>
+                  <p>© ${new Date().getFullYear()} Acciona Centro de Negocios Spa.</p>
+              </div>
+          </div>
+      </div>
+  </body>
+  </html>
+`;
+
+          // USAR LA MISMA FUNCIÓN DE ENVÍO DE CORREOS QUE EN upload-corrected-files
+          const { sendEmail } = require("../utils/mail.helper");
+
+          await sendEmail({
+            to: userEmail,
+            subject: `📋 Nuevo mensaje - Plataforma RRHH - ${formName}`,
+            html: emailHtml
+          });
+
+          console.log(`Correo enviado exitosamente a: ${userEmail}`);
+          console.log(`URL de respuesta: ${responseUrl}`);
+        }
+      } catch (emailError) {
+        console.error("Error enviando correo:", emailError);
+        // Continuamos aunque falle el correo, no afecta la respuesta del mensaje
       }
-      res.json({ message: "Mensaje enviado", data: nuevoMensaje });
-    } catch (err) {
-      res.status(500).json({ error: "Error en chat" });
     }
+
+    // NOTIFICACIONES (lógica original mantenida)
+    if (respuesta?.user?.nombre === autor) {
+      const notifChat = {
+        filtro: { cargo: "RRHH" },
+        titulo: "Nuevo mensaje en formulario",
+        descripcion: `${autor} ha enviado un mensaje.`,
+        icono: "MessageCircle", color: "#45577eff",
+        actionUrl: `/RespuestasForms?id=${respuesta._id}`,
+      };
+      await addNotification(req.db, notifChat);
+      await addNotification(req.db, { ...notifChat, filtro: { cargo: "admin" } });
+    } else {
+      await addNotification(req.db, {
+        userId: respuesta.user.uid,
+        titulo: "Nuevo mensaje recibido",
+        descripcion: `${autor} le ha enviado un mensaje.`,
+        icono: "MessageCircle", color: "#45577eff",
+        actionUrl: `/?id=${respuesta._id}`,
+      });
+    }
+
+    res.json({
+      message: "Mensaje enviado",
+      data: nuevoMensaje,
+      emailSent: sendToEmail === true && admin !== true
+    });
+  } catch (err) {
+    console.error("Error en chat:", err);
+    res.status(500).json({ error: "Error en chat" });
+  }
 });
 
+// Marcar todos los mensajes como leídos
 router.put("/chat/marcar-leidos", async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     const result = await req.db.collection("respuestas").updateMany(
       { "mensajes.leido": false },
       { $set: { "mensajes.$[].leido": true } }
@@ -771,6 +1466,10 @@ router.put("/chat/marcar-leidos", async (req, res) => {
 // Subir corrección PDF (se mantiene por compatibilidad)
 router.post("/:id/upload-correction", upload.single('correctedFile'), async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     if (!req.file) return res.status(400).json({ error: "No se subió ningún archivo" });
 
     const respuesta = await req.db.collection("respuestas").findOne({ _id: new ObjectId(req.params.id) });
@@ -817,9 +1516,14 @@ router.post("/:id/upload-correction", upload.single('correctedFile'), async (req
   }
 });
 
+// Cambiar estado a finalizado
 router.get("/:id/finalized", async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: "ID de respuesta inválido" });
@@ -864,9 +1568,78 @@ router.get("/:id/finalized", async (req, res) => {
   }
 });
 
+// Endpoint de mantenimiento único para limpiar archivos de respuestas ya archivadas
+router.get("/mantenimiento/limpiar-archivos-archivados", async (req, res) => {
+  try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    // 1. Buscar todas las respuestas que ya están en estado "archivado"
+    const respuestasArchivadas = await req.db
+      .collection("respuestas")
+      .find({ status: "archivado" }, { projection: { _id: 1 } })
+      .toArray();
+
+    if (respuestasArchivadas.length === 0) {
+      return res.json({
+        success: true,
+        message: "No se encontraron respuestas archivadas para limpiar.",
+        stats: { aprobados: 0, adjuntos: 0, docxs: 0 }
+      });
+    }
+
+    // 2. Extraer los IDs en formato String y ObjectId
+    const idsString = respuestasArchivadas.map(r => r._id.toString());
+    const idsObjectId = respuestasArchivadas.map(r => r._id);
+
+    // 3. Ejecutar la eliminación masiva en las colecciones de archivos
+    // Usamos $in para borrar todos los documentos cuyos responseId coincidan con la lista
+    const [delAprobados, delAdjuntos, delDocxs] = await Promise.all([
+      req.db.collection("aprobados").deleteMany({
+        responseId: { $in: idsString }
+      }),
+      req.db.collection("adjuntos").deleteMany({
+        responseId: { $in: idsObjectId }
+      }),
+      req.db.collection("docxs").deleteMany({
+        responseId: { $in: idsString }
+      })
+    ]);
+
+    const stats = {
+      respuestasProcesadas: respuestasArchivadas.length,
+      documentosEliminados: {
+        aprobados: delAprobados.deletedCount,
+        adjuntos: delAdjuntos.deletedCount,
+        docxs: delDocxs.deletedCount
+      }
+    };
+
+    console.log("Limpieza masiva de archivos archivados completada:", stats);
+
+    res.json({
+      success: true,
+      message: "Limpieza de histórico completada con éxito",
+      stats
+    });
+
+  } catch (err) {
+    console.error("Error en la limpieza masiva de archivos:", err);
+    res.status(500).json({
+      error: "Error durante el proceso de limpieza: " + err.message
+    });
+  }
+});
+
+// Cambiar estado a archivado
 router.get("/:id/archived", async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: "ID de respuesta inválido" });
@@ -881,6 +1654,7 @@ router.get("/:id/archived", async (req, res) => {
       return res.status(404).json({ error: "Respuesta no encontrada" });
     }
 
+    // 1. Actualizar el estado a archivado
     const updateResult = await req.db.collection("respuestas").updateOne(
       { _id: new ObjectId(id) },
       {
@@ -896,27 +1670,49 @@ router.get("/:id/archived", async (req, res) => {
       return res.status(404).json({ error: "No se pudo actualizar la respuesta" });
     }
 
-    console.log(`Respuesta ${id} actualizada a estado: archivado`);
+    const cleanupResults = await Promise.all([
+      // Eliminar de aprobados (usa responseId como string u objeto según tu flujo)
+      req.db.collection("aprobados").deleteMany({ responseId: id }),
 
+      // Eliminar de adjuntos (suele usar ObjectId por la estructura anterior)
+      req.db.collection("adjuntos").deleteMany({ responseId: new ObjectId(id) }),
+
+      // Eliminar de docxs (usa responseId habitualmente como string)
+      req.db.collection("docxs").deleteMany({ responseId: id })
+    ]);
+
+    console.log(`Respuesta ${id} archivada. Limpieza completada:`, {
+      aprobados: cleanupResults[0].deletedCount,
+      adjuntos: cleanupResults[1].deletedCount,
+      docxs: cleanupResults[2].deletedCount
+    });
+
+    // Respuesta final al cliente
     res.json({
       success: true,
-      message: "Respuesta archivada correctamente",
+      message: "Respuesta archivada y archivos relacionados eliminados correctamente",
       status: "archivado",
-      responseId: id
+      responseId: id,
+      cleanup: {
+        aprobados: cleanupResults[0].deletedCount,
+        adjuntos: cleanupResults[1].deletedCount,
+        docxs: cleanupResults[2].deletedCount
+      }
     });
 
   } catch (err) {
-    console.error("Error archivando respuesta:", err);
+    console.error("Error archivando respuesta y limpiando colecciones:", err);
     res.status(500).json({ error: "Error archivando respuesta: " + err.message });
   }
 });
 
-// ============ NUEVOS ENDPOINTS PARA MÚLTIPLES ARCHIVOS ============
-
-// 1. SUBIR MÚLTIPLES ARCHIVOS CORREGIDOS
-// Cambia el endpoint para recibir archivos uno por uno
+// Subir múltiples archivos corregidos
 router.post("/upload-corrected-files", async (req, res) => {
   try {
+    // Verificar token (antes de procesar uploads si es posible, o dentro del callback)
+    // Nota: Como usamos uploadMultiple.array, multer procesa primero. 
+    // Podríamos verificar el token dentro del callback, ya que req.body estará poblado ahí.
+
     console.log("=== DEBUG BACKEND - HEADERS ===");
     console.log("Content-Type:", req.headers['content-type']);
 
@@ -925,6 +1721,11 @@ router.post("/upload-corrected-files", async (req, res) => {
         console.error("Error en uploadMultiple:", err);
         return res.status(400).json({ error: err.message });
       }
+
+      // Verificar token AHORA que tenemos acceso a req y body (aunque body puede estar vacío si es form-data puro sin campos de texto previos)
+      // Pero verifyRequest mira headers también.
+      const auth = await verifyRequest(req);
+      if (!auth.ok) return res.status(401).json({ error: auth.error });
 
       // VERIFICAR SI SE RECIBIERON FILES
       console.log("Files recibidos:", req.files ? req.files.length : 'NONE');
@@ -948,7 +1749,66 @@ router.post("/upload-corrected-files", async (req, res) => {
         });
       }
 
-      // PROCESAR CADA ARCHIVO (por si llegan múltiples en una petición)
+      // OBTENER DATOS DEL USUARIO Y FORMULARIO
+      let userEmail = null;
+      let formName = "el formulario";
+      let userName = "Usuario";
+      let userId = null;
+
+      try {
+        // Buscar la respuesta en la base de datos
+        const response = await req.db.collection("respuestas").findOne({
+          _id: new ObjectId(responseId)
+        });
+
+        console.log("=== DEBUG USUARIO ===");
+        console.log("Respuesta encontrada:", response ? "SÍ" : "NO");
+
+        if (response) {
+          // OBTENER EMAIL Y NOMBRE DEL USUARIO DESDE LA RESPUESTA
+          // El email está en texto plano en response.user.mail
+          if (response.user && response.user.mail) {
+            userEmail = response.user.mail;
+            userName = response.user.nombre || "Usuario";
+            userId = response.user.uid;
+
+            console.log("✅ Email obtenido de response.user.mail:", userEmail);
+            console.log("✅ Nombre obtenido:", userName);
+            console.log("✅ User ID obtenido:", userId);
+          } else {
+            console.log("⚠️ No se encontró response.user.mail en la respuesta");
+            console.log("Estructura de response.user:", response.user);
+          }
+
+          // OBTENER NOMBRE DEL FORMULARIO
+          if (response.formId) {
+            const form = await req.db.collection("forms").findOne({
+              _id: new ObjectId(response.formId)
+            });
+
+            if (form && form.title) {
+              formName = form.title;
+              console.log("✅ Nombre del formulario obtenido de DB:", formName);
+            } else {
+              // Fallback: usar formTitle del _contexto si existe
+              if (response._contexto && response._contexto.formTitle) {
+                formName = response._contexto.formTitle;
+                console.log("✅ Usando formTitle de _contexto:", formName);
+              }
+            }
+          } else if (response._contexto && response._contexto.formTitle) {
+            // Si no hay formId, usar el del contexto
+            formName = response._contexto.formTitle;
+            console.log("✅ Usando formTitle de _contexto (sin formId):", formName);
+          }
+        } else {
+          console.log("❌ No se encontró la respuesta con ID:", responseId);
+        }
+      } catch (userInfoError) {
+        console.error("Error obteniendo información del usuario/formulario:", userInfoError);
+      }
+
+      // PROCESAR CADA ARCHIVO
       for (const file of files) {
         console.log(`Procesando archivo: ${file.originalname}, size: ${file.size}`);
 
@@ -962,13 +1822,12 @@ router.post("/upload-corrected-files", async (req, res) => {
           order: parseInt(index) + 1 || 1
         };
 
-        // BUSCAR O CREAR DOCUMENTO
+        // BUSCAR O CREAR DOCUMENTO EN LA DB
         const existingApproval = await req.db.collection("aprobados").findOne({
           responseId: responseId
         });
 
         if (existingApproval) {
-          // USAR findOneAndUpdate para retornar el documento actualizado
           const result = await req.db.collection("aprobados").findOneAndUpdate(
             { responseId: responseId },
             {
@@ -977,7 +1836,7 @@ router.post("/upload-corrected-files", async (req, res) => {
             },
             { returnDocument: 'after' }
           );
-          console.log(`Archivo agregado. Total ahora:`, result.value?.correctedFiles?.length);
+          console.log(`✅ Archivo agregado a DB. Total ahora:`, result.value?.correctedFiles?.length);
         } else {
           await req.db.collection("aprobados").insertOne({
             responseId: responseId,
@@ -987,26 +1846,116 @@ router.post("/upload-corrected-files", async (req, res) => {
             approvedAt: null,
             approvedBy: null
           });
-          console.log(`Nuevo documento creado con 1 archivo`);
+          console.log(`✅ Nuevo documento creado en DB con 1 archivo`);
         }
+      }
+
+      // ✅ ENVIAR CORREO AL USUARIO DESPUÉS DE SUBIR A LA DB
+      let emailSent = false;
+      if (userEmail) {
+        try {
+          const { sendEmail } = require("../utils/mail.helper");
+          const portalUrl = process.env.PORTAL_URL || "https://infoacciona.cl";
+          const responseUrl = `${portalUrl}/preview?type=details&id=${responseId}`;
+
+
+          const emailHtml = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                    .header { background-color: #4f46e5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                    .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; }
+                    .button { display: inline-block; background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 20px; }
+                    .details { background-color: #f0f9ff; padding: 15px; border-radius: 6px; margin: 20px 0; }
+                    .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>Acciona Centro de Negocios</h1>
+                    </div>
+                    <div class="content">
+                        <h2>📄 Documentos aprobados disponibles</h2>
+                        <p>Estimado/a <strong>${userName}</strong>,</p>
+                        
+                        <div class="details">
+                            <p><strong>Formulario:</strong> ${formName}</p>
+                            <p><strong>Fecha de recepción:</strong> ${new Date().toLocaleDateString('es-CL')}</p>
+                            <p><strong>N° de respuesta:</strong> ${responseId}</p>
+                        </div>
+                        
+                        <p>Se han cargado documentos aprobados correspondientes a tu respuesta. 
+                        Ya puedes revisarlos y proceder con la firma digital.</p>
+                        
+                        <a href="${responseUrl}" class="button">
+                            🔍 Ver documentos en el portal
+                        </a>
+                        
+                        <p><small>O copia este enlace en tu navegador:<br>
+                        ${responseUrl}</small></p>
+                        
+                        <div class="footer">
+                            <p>Este es un mensaje automático. Si tienes dudas, contacta a tu ejecutivo.</p>
+                            <p>© ${new Date().getFullYear()} Acciona Centro de Negocios Spa.</p>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+          `;
+
+          console.log("📧 Enviando correo a:", userEmail);
+          console.log("📧 Asunto: Documentos aprobados disponibles - ${formName} - Acciona");
+
+          await sendEmail({
+            to: userEmail,
+            subject: `📄 Documentos aprobados disponibles - ${formName} - Acciona`,
+            html: emailHtml
+          });
+
+          emailSent = true;
+          console.log(`Correo enviado exitosamente a: ${userEmail}`);
+
+        } catch (emailError) {
+          console.error("Error enviando correo:", emailError);
+          // Continuamos aunque falle el correo
+        }
+      } else {
+        console.log("No se pudo obtener el email del usuario, no se envía correo");
+        console.log("response.user.mail era:", userEmail);
       }
 
       res.json({
         success: true,
-        message: `Archivo(s) subido(s) exitosamente`,
-        filesProcessed: files.length
+        message: `Archivo(s) subido(s) exitosamente a la base de datos`,
+        filesProcessed: files.length,
+        emailSent: emailSent,
+        uploadedToDB: true,
+        userNotified: emailSent
       });
     });
   } catch (error) {
     console.error('Error completo:', error);
-    res.status(500).json({ error: `Error: ${error.message}` });
+    res.status(500).json({
+      error: `Error: ${error.message}`,
+      uploadedToDB: false
+    });
   }
 });
 
-// 2. OBTENER TODOS LOS ARCHIVOS CORREGIDOS DE UNA RESPUESTA
+// OBTENER TODOS LOS ARCHIVOS CORREGIDOS DE UNA RESPUESTA
 router.get("/corrected-files/:responseId", async (req, res) => {
   try {
     const { responseId } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     const approvedDoc = await req.db.collection("aprobados").findOne({
       responseId: responseId
@@ -1052,11 +2001,15 @@ router.get("/corrected-files/:responseId", async (req, res) => {
   }
 });
 
-// 3. DESCARGAR ARCHIVO CORREGIDO ESPECÍFICO
+// DESCARGAR ARCHIVO CORREGIDO ESPECÍFICO
 router.get("/download-corrected-file/:responseId", async (req, res) => {
   try {
     const { responseId } = req.params;
     const { fileName, index } = req.query;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     const approvedDoc = await req.db.collection("aprobados").findOne({
       responseId: responseId
@@ -1097,11 +2050,15 @@ router.get("/download-corrected-file/:responseId", async (req, res) => {
   }
 });
 
-// 4. ELIMINAR ARCHIVO CORREGIDO ESPECÍFICO
+// ELIMINAR ARCHIVO CORREGIDO ESPECÍFICO
 router.delete("/delete-corrected-file/:responseId", async (req, res) => {
   try {
     const { responseId } = req.params;
     const { fileName } = req.body;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     if (!fileName) {
       return res.status(400).json({ error: "fileName es requerido" });
@@ -1238,7 +2195,7 @@ router.delete("/delete-corrected-file/:responseId", async (req, res) => {
   }
 });
 
-// 5. APROBAR FORMULARIO CON MÚLTIPLES ARCHIVOS (MODIFICADO)
+// APROBAR FORMULARIO CON MÚLTIPLES ARCHIVOS (MODIFICADO)
 router.post("/:id/approve", async (req, res) => {
   try {
     const responseId = req.params.id;
@@ -1310,7 +2267,7 @@ router.post("/:id/approve", async (req, res) => {
       titulo: "Documento Aprobado",
       descripcion: `Se ha aprobado el documento asociado al formulario ${respuesta.formTitle} con ${approvedDoc.correctedFiles.length} archivo(s)`,
       prioridad: 2,
-      icono: 'file-text',
+      icono: 'FileText',
       color: '#47db34ff',
       actionUrl: `/?id=${responseId}`,
     });
@@ -1331,7 +2288,7 @@ router.post("/:id/approve", async (req, res) => {
   }
 });
 
-// 6. OBTENER DATOS DE ARCHIVOS APROBADOS (MODIFICADO)
+// OBTENER DATOS DE ARCHIVOS APROBADOS (MODIFICADO)
 router.get("/data-approved/:responseId", async (req, res) => {
   try {
     const { responseId } = req.params;
@@ -1379,11 +2336,15 @@ router.get("/data-approved/:responseId", async (req, res) => {
   }
 });
 
-// 7. DESCARGAR PDF APROBADO - CORREGIDO
+// DESCARGAR PDF APROBADO - CORREGIDO
 router.get("/download-approved-pdf/:responseId", async (req, res) => {
   try {
     const { responseId } = req.params;
     const { index } = req.query;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     console.log("Descargando PDF aprobado para:", responseId, "index:", index);
 
@@ -1443,10 +2404,15 @@ router.get("/download-approved-pdf/:responseId", async (req, res) => {
   }
 });
 
-// 8. ELIMINAR CORRECCIÓN (MODIFICADO)
+// ELIMINAR CORRECCIÓN (MODIFICADO)
 router.delete("/:id/remove-correction", async (req, res) => {
   try {
     const responseId = req.params.id;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     console.log("=== INICIO REMOVE-CORRECTION PARA MÚLTIPLES ARCHIVOS ===", responseId);
 
     const existingSignature = await req.db.collection("firmados").findOne({
@@ -1514,10 +2480,14 @@ router.delete("/:id/remove-correction", async (req, res) => {
   }
 });
 
-// 9. Subir PDF firmado por cliente a colección firmados y cambiar estado de respuesta a 'firmado'
+// Subir PDF firmado por cliente a colección firmados y cambiar estado de respuesta a 'firmado'
 router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), async (req, res) => {
   try {
     const { responseId } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     if (!req.file) {
       return res.status(400).json({ error: "No se subió ningún archivo" });
@@ -1596,10 +2566,14 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
   }
 });
 
-// 10. Obtener PDF firmado por cliente SIN cambiar estado - CORREGIDO
+// Obtener PDF firmado por cliente SIN cambiar estado - CORREGIDO
 router.get("/:responseId/client-signature", async (req, res) => {
   try {
     const { responseId } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     console.log(`Descargando documento firmado para: ${responseId}`);
 
@@ -1658,10 +2632,14 @@ router.get("/:responseId/client-signature", async (req, res) => {
   }
 });
 
-// 11. Eliminar PDF firmado por cliente y volver al estado 'aprobado'
+// Eliminar PDF firmado por cliente y volver al estado 'aprobado'
 router.delete("/:responseId/client-signature", async (req, res) => {
   try {
     const { responseId } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     const deleteResult = await req.db.collection("firmados").deleteOne({
       responseId: responseId
@@ -1692,7 +2670,7 @@ router.delete("/:responseId/client-signature", async (req, res) => {
   }
 });
 
-// 12. Verificar si existe PDF firmado para una respuesta específica
+// Verificar si existe PDF firmado para una respuesta específica
 router.get("/:responseId/has-client-signature", async (req, res) => {
   try {
     const { responseId } = req.params;
@@ -1728,10 +2706,14 @@ router.get("/:responseId/has-client-signature", async (req, res) => {
   }
 });
 
-// 13. Endpoint para regenerar documento desde respuestas existentes
+// Endpoint para regenerar documento desde respuestas existentes
 router.post("/:id/regenerate-document", async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     console.log(`Regenerando documento para respuesta: ${id}`);
 
@@ -1754,15 +2736,49 @@ router.post("/:id/regenerate-document", async (req, res) => {
     console.log(`Regenerando documento para formulario: ${form.title}`);
 
     try {
+      // Si el usuario en la respuesta tiene datos cifrados, descifrarlos
+      let nombreUsuario = respuesta.user?.nombre;
+      let empresaUsuario = respuesta.user?.empresa;
+      let uidUsuario = respuesta.user?.uid;
+      let mailUsuario = respuesta.user?.mail;
+
+      // Intentar descifrar el nombre si parece estar cifrado
+      if (nombreUsuario && nombreUsuario.includes(':')) {
+        try {
+          nombreUsuario = decrypt(nombreUsuario);
+        } catch (decryptError) {
+          console.log("No se pudo descifrar nombre de usuario:", decryptError);
+        }
+      }
+
+      // Intentar descifrar la empresa si parece estar cifrada
+      if (empresaUsuario && empresaUsuario.includes(':')) {
+        try {
+          empresaUsuario = decrypt(empresaUsuario);
+        } catch (decryptError) {
+          console.log("No se pudo descifrar empresa de usuario:", decryptError);
+        }
+      }
+
+      // Intentar descifrar el mail si parece estar cifrado
+      if (mailUsuario && mailUsuario.includes(':')) {
+        try {
+          mailUsuario = decrypt(mailUsuario);
+        } catch (decryptError) {
+          console.log("No se pudo descifrar mail de usuario:", decryptError);
+        }
+      }
+
       await generarAnexoDesdeRespuesta(
         respuesta.responses,
         respuesta._id.toString(),
         req.db,
         form.section,
         {
-          nombre: respuesta.user?.nombre,
-          empresa: respuesta.user?.empresa,
-          uid: respuesta.user?.uid
+          nombre: nombreUsuario,
+          empresa: empresaUsuario,
+          uid: uidUsuario,
+          mail: mailUsuario
         },
         respuesta.formId,
         respuesta.formTitle
@@ -1790,11 +2806,15 @@ router.post("/:id/regenerate-document", async (req, res) => {
   }
 });
 
-// 14. Cambiar estado de respuesta (avanzar o retroceder)
+// Cambiar estado de respuesta (avanzar o retroceder)
 router.put("/:id/status", async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: "ID de respuesta inválido" });
@@ -1872,6 +2892,166 @@ router.put("/:id/status", async (req, res) => {
   } catch (err) {
     console.error("Error cambiando estado:", err);
     res.status(500).json({ error: "Error cambiando estado: " + err.message });
+  }
+});
+
+// MANTENIMIENTO: Migrar respuestas existentes para cifrado PQC
+router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
+  try {
+    // Importar helpers de seguridad
+    const { encrypt } = require('../utils/seguridad.helper');
+
+    const respuestas = await req.db.collection("respuestas").find().toArray();
+    let cont = 0;
+    let totalCamposCifrados = 0;
+    let errores = 0;
+
+    console.log(`Iniciando migración PQC de ${respuestas.length} respuestas...`);
+    console.log("⚠️  Solo se cifrarán los objetos 'user' y 'responses'\n");
+
+    // Función para cifrar todos los strings en un objeto/array
+    const cifrarObjetoCompleto = (obj) => {
+      if (!obj || typeof obj !== 'object') {
+        return { objeto: obj, cifrados: 0 };
+      }
+
+      let cifrados = 0;
+
+      if (Array.isArray(obj)) {
+        const nuevoArray = [];
+        for (const item of obj) {
+          if (typeof item === 'string' && item.trim() !== '' && !item.includes(':')) {
+            nuevoArray.push(encrypt(item));
+            cifrados++;
+          } else if (typeof item === 'object' && item !== null) {
+            const { objeto: itemCifrado, cifrados: itemCifrados } = cifrarObjetoCompleto(item);
+            nuevoArray.push(itemCifrado);
+            cifrados += itemCifrados;
+          } else {
+            nuevoArray.push(item);
+          }
+        }
+        return { objeto: nuevoArray, cifrados };
+      }
+
+      const nuevoObj = {};
+      for (const key in obj) {
+        const valor = obj[key];
+
+        if (typeof valor === 'string' && valor.trim() !== '') {
+          if (valor.includes(':')) {
+            // Ya está cifrado
+            nuevoObj[key] = valor;
+          } else {
+            // Cifrar siempre
+            nuevoObj[key] = encrypt(valor);
+            cifrados++;
+          }
+        } else if (typeof valor === 'object' && valor !== null) {
+          const { objeto: valorCifrado, cifrados: valorCifrados } = cifrarObjetoCompleto(valor);
+          nuevoObj[key] = valorCifrado;
+          cifrados += valorCifrados;
+        } else {
+          nuevoObj[key] = valor;
+        }
+      }
+
+      return { objeto: nuevoObj, cifrados };
+    };
+
+    // Procesar cada respuesta
+    for (let respuesta of respuestas) {
+      console.log(`\nProcesando respuesta ${respuesta._id}:`);
+      const updates = {};
+      let cambios = false;
+      let camposEstaRespuesta = 0;
+
+      try {
+        // 1. SOLO CIFRAR 'user' COMPLETO
+        if (respuesta.user && typeof respuesta.user === 'object') {
+          console.log(`  Cifrando objeto 'user'...`);
+          const { objeto: userCifrado, cifrados: userCifrados } = cifrarObjetoCompleto(respuesta.user);
+
+          if (userCifrados > 0) {
+            updates.user = userCifrado;
+            cambios = true;
+            camposEstaRespuesta += userCifrados;
+            console.log(`  ✓ user: ${userCifrados} campos cifrados`);
+          } else {
+            console.log(`  ⚠ user: ya cifrado o sin texto`);
+          }
+        }
+
+        // 2. SOLO CIFRAR 'responses' COMPLETO
+        if (respuesta.responses && typeof respuesta.responses === 'object') {
+          console.log(`  Cifrando objeto 'responses'...`);
+          const { objeto: responsesCifrado, cifrados: responsesCifrados } = cifrarObjetoCompleto(respuesta.responses);
+
+          if (responsesCifrados > 0) {
+            updates.responses = responsesCifrado;
+            cambios = true;
+            camposEstaRespuesta += responsesCifrados;
+            console.log(`  ✓ responses: ${responsesCifrados} campos cifrados`);
+          } else {
+            console.log(`  ⚠ responses: ya cifrado o sin texto`);
+          }
+        }
+
+        // 3. NO CIFRAR '_contexto' (si existe, lo dejamos igual)
+        if (respuesta._contexto) {
+          console.log(`  ⏭️ _contexto: NO se cifra (se mantiene igual)`);
+          // No hacemos nada con _contexto
+        }
+
+        // 4. NO CIFRAR campos del nivel principal
+        // formId, formTitle, status, fechas, etc. se mantienen SIN CIFRAR
+
+        // Actualizar en BD solo si hubo cambios en user o responses
+        if (cambios && Object.keys(updates).length > 0) {
+          // Solo añadir updatedAt
+          updates.updatedAt = new Date().toISOString();
+
+          await req.db.collection("respuestas").updateOne(
+            { _id: respuesta._id },
+            { $set: updates }
+          );
+
+          cont++;
+          totalCamposCifrados += camposEstaRespuesta;
+          console.log(`  ✅ Guardado: ${camposEstaRespuesta} campos cifrados en total`);
+        } else {
+          console.log(`  ⏭️ Sin cambios necesarios`);
+        }
+
+      } catch (error) {
+        console.error(`  ❌ Error procesando respuesta:`, error.message);
+        errores++;
+      }
+    }
+
+    console.log(`\n=== MIGRACIÓN COMPLETADA ===`);
+
+    res.json({
+      success: true,
+      message: `Migración PQC completada: ${cont}/${respuestas.length} respuestas actualizadas`,
+      estadisticas: {
+        totalRespuestas: respuestas.length,
+        respuestasActualizadas: cont,
+        respuestasSinCambios: respuestas.length - cont,
+        totalCamposCifrados: totalCamposCifrados,
+        promedioCamposPorRespuesta: cont > 0 ? (totalCamposCifrados / cont).toFixed(2) : 0,
+        erroresEncontrados: errores
+      },
+      nota: "Solo se cifraron los objetos 'user' y 'responses'. Campos como status, formId, fechas se mantienen sin cifrar."
+    });
+
+  } catch (err) {
+    console.error('Error en migración PQC:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      stack: err.stack
+    });
   }
 });
 
