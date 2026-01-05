@@ -11,6 +11,21 @@ const { encrypt, createBlindIndex, verifyPassword, decrypt } = require("../utils
 const getAhoraChile = () => {
   const d = new Date();
   return new Date(d.toLocaleString("en-US", { timeZone: "America/Santiago" }));
+  return new Date(d.toLocaleString("en-US", { timeZone: "America/Santiago" }));
+};
+
+const verifyRequest = async (req) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    throw { status: 401, message: "No autorizado" };
+  }
+  const token = authHeader.split(" ")[1];
+  const { validarToken } = require("../utils/validarToken");
+  const validation = await validarToken(req.db, token);
+  if (!validation.ok) {
+    throw { status: 401, message: "Acceso denegado: " + validation.reason };
+  }
+  return validation.data;
 };
 
 const TOKEN_EXPIRATION = 12 * 1000 * 60 * 60;
@@ -138,6 +153,7 @@ const desactivarTokenPorEmail = async (db, email) => {
 
 router.get("/", async (req, res) => {
   try {
+    await verifyRequest(req);
     const usuarios = await req.db.collection("usuarios").find().toArray();
 
     if (!usuarios || usuarios.length === 0) {
@@ -167,6 +183,7 @@ router.get("/", async (req, res) => {
 
 router.get("/solicitud", async (req, res) => {
   try {
+    await verifyRequest(req);
     const usuarios = await req.db
       .collection("usuarios")
       .find({}, { projection: { nombre: 1, apellido: 1, mail: 1, empresa: 1 } })
@@ -188,6 +205,7 @@ router.get("/solicitud", async (req, res) => {
 
 router.get("/:mail", async (req, res) => {
   try {
+    await verifyRequest(req);
     const cleanMail = req.params.mail.toLowerCase().trim();
 
     const usr = await req.db
@@ -212,6 +230,7 @@ router.get("/:mail", async (req, res) => {
 
 router.get("/full/:mail", async (req, res) => {
   try {
+    await verifyRequest(req);
     const { mail } = req.params;
     const mailIndex = createBlindIndex(mail.toLowerCase().trim());
 
@@ -273,7 +292,6 @@ router.post("/login", async (req, res) => {
     });
 
     if (!user || !(await verifyPassword(user.pass, password))) {
-      
       return res.status(401).json({ success: false, message: "Credenciales inválidas" });
     }
 
@@ -724,7 +742,7 @@ router.post("/disable-2fa", async (req, res) => {
   }
 
   const sessionToken = authHeader.split(' ')[1];
-  
+
   try {
     // ==================== 2. BUSCAR TOKEN EN BD ====================
     const tokenRecord = await req.db.collection("tokens").findOne({
@@ -767,13 +785,13 @@ router.post("/disable-2fa", async (req, res) => {
     const expiresAt = new Date(tokenRecord.expiresAt);
     if (expiresAt < now) {
       console.log("DEBUG: Token expirado - ExpiresAt:", expiresAt, "Now:", now);
-      
+
       // Desactivar token automáticamente
       await req.db.collection("tokens").updateOne(
         { token: sessionToken },
         { $set: { active: encrypt("false"), revokedAt: now } }
       );
-      
+
       return res.status(401).json({
         success: false,
         message: "Sesión expirada. Inicia sesión nuevamente."
@@ -795,7 +813,7 @@ router.post("/disable-2fa", async (req, res) => {
     }
 
     const emailNormalizado = email.toLowerCase().trim();
-    
+
     if (tokenEmailDescifrado !== emailNormalizado) {
       console.log("DEBUG: Email no coincide - Token email:", tokenEmailDescifrado, "Body email:", emailNormalizado);
       return res.status(401).json({
@@ -872,9 +890,11 @@ router.post("/disable-2fa", async (req, res) => {
 
 router.get("/logins/todos", async (req, res) => {
   try {
+    await verifyRequest(req);
     const tkn = await req.db.collection("ingresos").find().toArray();
     res.json(tkn);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
     res.status(500).json({ error: "Error al obtener ingresos" });
   }
 });
@@ -1059,6 +1079,8 @@ router.post("/logout", async (req, res) => {
 
 router.post("/register", async (req, res) => {
   try {
+    const auth = await verifyRequest(req); // Requiere admin
+    // Opcional: validar rol de admin aqui si es necesario
     const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
     const m = mail.toLowerCase().trim();
 
@@ -1170,6 +1192,7 @@ router.post("/change-password", async (req, res) => {
 
 router.put("/users/:id", async (req, res) => {
   try {
+    await verifyRequest(req);
     const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
     const userId = req.params.id;
 
@@ -1244,6 +1267,7 @@ router.put("/users/:id", async (req, res) => {
 
 router.delete("/users/:id", async (req, res) => {
   try {
+    await verifyRequest(req);
     const result = await req.db.collection("usuarios").deleteOne({
       _id: new ObjectId(req.params.id)
     });
@@ -1333,6 +1357,7 @@ router.post("/set-password", async (req, res) => {
 
 router.get("/empresas/todas", async (req, res) => {
   try {
+    await verifyRequest(req);
     const empresas = await req.db.collection("empresas").find().toArray();
 
     const empresasDescifradas = empresas.map(emp => {
@@ -1396,6 +1421,7 @@ router.get("/empresas/todas", async (req, res) => {
 
 router.get("/empresas/:id", async (req, res) => {
   try {
+    await verifyRequest(req);
     const empresa = await req.db.collection("empresas").findOne({
       _id: new ObjectId(req.params.id)
     });
@@ -1423,6 +1449,7 @@ router.get("/empresas/:id", async (req, res) => {
 
 router.post("/empresas/register", upload.single('logo'), async (req, res) => {
   try {
+    await verifyRequest(req);
     const { nombre, rut, direccion, encargado, rut_encargado } = req.body;
     if (!nombre || !rut) return res.status(400).json({ error: "Nombre y RUT obligatorios" });
 
@@ -1472,6 +1499,7 @@ router.post("/empresas/register", upload.single('logo'), async (req, res) => {
 
 router.put("/empresas/:id", upload.single('logo'), async (req, res) => {
   try {
+    await verifyRequest(req);
     const { nombre, rut, direccion, encargado, rut_encargado } = req.body;
     const id = new ObjectId(req.params.id);
 
@@ -1509,10 +1537,12 @@ router.put("/empresas/:id", upload.single('logo'), async (req, res) => {
 
 router.delete("/empresas/:id", async (req, res) => {
   try {
+    await verifyRequest(req);
     const result = await req.db.collection("empresas").deleteOne({ _id: new ObjectId(req.params.id) });
     if (result.deletedCount === 0) return res.status(404).json({ error: "No encontrada" });
     res.json({ message: "Empresa eliminada exitosamente" });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message });
     res.status(500).json({ error: "Error al eliminar" });
   }
 });
