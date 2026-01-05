@@ -277,10 +277,20 @@ Generado el: ${fecha}
 
 router.use(express.json({ limit: '4mb' }));
 
-// En el endpoint POST principal (/) - SOLO FORMATO ESPECÍFICO
-router.post("/", async (req, res) => {
+router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
   try {
-    const { formId, user, responses, formTitle, adjuntos = [], mail: correoRespaldo } = req.body;
+    // Cuando viene como FormData, los campos JSON vienen como strings
+    let { formId, user, responses, formTitle, mail: correoRespaldo } = req.body;
+
+    // Parsear campos JSON si vienen como strings (caso FormData)
+    if (typeof user === 'string') {
+      try { user = JSON.parse(user); } catch (e) { console.error("Error parsing user:", e); }
+    }
+    if (typeof responses === 'string') {
+      try { responses = JSON.parse(responses); } catch (e) { console.error("Error parsing responses:", e); }
+    }
+
+    const adjuntosFiles = req.files || [];
 
     // El usuario que viene del frontend ya debería estar descifrado en su sesión, 
     // pero para la lógica interna usamos sus datos.
@@ -328,11 +338,20 @@ router.post("/", async (req, res) => {
       createdAt: new Date()
     });
 
-    if (adjuntos.length > 0) {
+    // Guardar adjuntos si existen
+    if (adjuntosFiles.length > 0) {
+      const processedAdjuntos = adjuntosFiles.map(file => ({
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+        buffer: file.buffer, // Guardar buffer en BDD (considerar GridFS para archivos grandes)
+        uploadedAt: new Date().toISOString()
+      }));
+
       await req.db.collection("adjuntos").insertOne({
         responseId: result.insertedId,
         submittedAt: new Date().toISOString(),
-        adjuntos: []
+        adjuntos: processedAdjuntos
       });
     }
 
@@ -371,7 +390,7 @@ router.post("/", async (req, res) => {
 
     const notifData = {
       titulo: `${nombreUsuarioDescifrado} de la empresa ${empresaDescifrada} ha levantado un ticket de soporte`,
-      descripcion: adjuntos.length > 0 ? `Incluye ${adjuntos.length} archivo(s)` : "Revisar en panel.",
+      descripcion: adjuntosFiles.length > 0 ? `Incluye ${adjuntosFiles.length} archivo(s)` : "Revisar en panel.",
       prioridad: 2,
       color: "#bb8900ff",
       icono: "CheckCircle",
@@ -677,8 +696,26 @@ router.get("/mail/:mail", async (req, res) => {
 
     if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
 
-    // Ahora buscamos en respuestas por el UID del usuario
-    const answers = await req.db.collection("soporte").find({ "user.uid": user._id.toString() }).toArray();
+    // Ahora buscamos en respuestas por el UID del usuario usando aggregate para traer adjuntos
+    const answers = await req.db.collection("soporte").aggregate([
+      { $match: { "user.uid": user._id.toString() } },
+      {
+        $lookup: {
+          from: "adjuntos",
+          localField: "_id",
+          foreignField: "responseId",
+          as: "adjuntosDoc"
+        }
+      },
+      {
+        $addFields: {
+          // El lookup retorna un array, tomamos el primer elemento (documento de adjuntos)
+          // y de ese documento extraemos su campo 'adjuntos' que es el array de archivos
+          adjuntos: { $ifNull: [{ $arrayElemAt: ["$adjuntosDoc.adjuntos", 0] }, []] }
+        }
+      },
+      { $project: { adjuntosDoc: 0 } }
+    ]).toArray();
 
     if (!answers || answers.length === 0) {
       return res.status(404).json({ error: "No se encontraron formularios" });
