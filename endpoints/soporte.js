@@ -902,7 +902,6 @@ router.delete("/:id", async (req, res) => {
 });
 
 // 14. Cambiar estado de respuesta (avanzar o retroceder)
-// 14. Cambiar estado de respuesta (avanzar o retroceder)
 router.put("/:id/status", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
