@@ -809,6 +809,7 @@ router.get("/mini", async (req, res) => {
     const skip = (page - 1) * limit;
 
     const collection = req.db.collection("respuestas");
+    const { decrypt } = require('../utils/seguridad.helper');
 
     // Filtro para NO traer archivados
     const query = { status: { $ne: "archivado" } };
@@ -825,31 +826,65 @@ router.get("/mini", async (req, res) => {
         })
         .toArray(),
       collection.countDocuments(query),
-      collection.countDocuments({ status: "archivado" }) // Contador rápido para Stats
+      collection.countDocuments({ status: "archivado" })
     ]);
 
-    const { decrypt } = require('../utils/seguridad.helper');
     const answersProcessed = answers.map(answer => {
-      // ... (Lógica de descifrado que ya tienes para trabajador, rut, etc.)
-      return { 
-        /* objeto mapeado igual al que ya usas */ 
+      // Helper interno para descifrado seguro
+      const getDecrypted = (keys) => {
+        for (let key of keys) {
+          if (answer.responses && answer.responses[key]) {
+            try {
+              return decrypt(answer.responses[key]);
+            } catch (e) { return answer.responses[key]; }
+          }
+        }
+        return "No especificado";
+      };
+
+      const trabajador = getDecrypted([
+        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador", 
+        "Nombre del Trabajador", "Nombre Del trabajador "
+      ]);
+
+      const rutTrabajador = getDecrypted([
+        "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador", 
+        "Rut del Trabajador", "Rut Del trabajador "
+      ]);
+
+      // Normalización de usuario
+      let nombreUser = "Usuario Desconocido";
+      let empresaUser = "Empresa Desconocida";
+      
+      try {
+        if (answer.user?.nombre) nombreUser = decrypt(answer.user.nombre);
+        if (answer.user?.empresa) empresaUser = decrypt(answer.user.empresa);
+      } catch (e) {
+        nombreUser = answer.user?.nombre || nombreUser;
+        empresaUser = answer.user?.empresa || empresaUser;
+      }
+
+      return {
         _id: answer._id,
-        formTitle: answer.formTitle,
-        status: answer.status,
-        trabajador: trabajador, // variable del helper descifrado
+        formId: answer.formId,
+        formTitle: answer.formTitle || "Formulario",
+        trabajador: trabajador,
         rutTrabajador: rutTrabajador,
-        user: { 
-          nombre: decrypt(answer.user.nombre), 
-          empresa: decrypt(answer.user.empresa) 
-        },
-        createdAt: answer.createdAt
+        submittedAt: answer.submittedAt || answer.createdAt,
+        status: answer.status,
+        createdAt: answer.createdAt,
+        adjuntosCount: answer.adjuntosCount || 0,
+        user: {
+          nombre: nombreUser,
+          empresa: empresaUser
+        }
       };
     });
 
     res.json({
       success: true,
       data: answersProcessed,
-      archivedTotal: archivedCount, // Enviamos el total de archivados para el badge
+      archivedTotal: archivedCount,
       pagination: {
         total: totalCount,
         page: page,
@@ -858,6 +893,7 @@ router.get("/mini", async (req, res) => {
       }
     });
   } catch (err) {
+    console.error("Error en /mini:", err);
     res.status(500).json({ error: "Error al obtener formularios" });
   }
 });
@@ -873,22 +909,82 @@ router.get("/archivados", async (req, res) => {
     const skip = (page - 1) * limit;
 
     const collection = req.db.collection("respuestas");
+    const { decrypt } = require('../utils/seguridad.helper');
+
     const query = { status: "archivado" };
 
     const [answers, totalCount] = await Promise.all([
-      collection.find(query).sort({ updatedAt: -1 }).skip(skip).limit(limit).toArray(),
+      collection.find(query)
+        .sort({ updatedAt: -1 }) // Los archivados recientemente primero
+        .skip(skip)
+        .limit(limit)
+        .toArray(),
       collection.countDocuments(query)
     ]);
 
-    // ... (Mismo mapeo de descifrado que en /mini) ...
-    
+    const answersProcessed = answers.map(answer => {
+      const getDecrypted = (keys) => {
+        for (let key of keys) {
+          if (answer.responses && answer.responses[key]) {
+            try {
+              return decrypt(answer.responses[key]);
+            } catch (e) { return answer.responses[key]; }
+          }
+        }
+        return "No especificado";
+      };
+
+      const trabajador = getDecrypted([
+        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador", 
+        "Nombre del Trabajador", "Nombre Del trabajador "
+      ]);
+
+      const rutTrabajador = getDecrypted([
+        "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador", 
+        "Rut del Trabajador", "Rut Del trabajador "
+      ]);
+
+      let nombreUser = "Usuario Desconocido";
+      let empresaUser = "Empresa Desconocida";
+      
+      try {
+        if (answer.user?.nombre) nombreUser = decrypt(answer.user.nombre);
+        if (answer.user?.empresa) empresaUser = decrypt(answer.user.empresa);
+      } catch (e) {
+        nombreUser = answer.user?.nombre || nombreUser;
+        empresaUser = answer.user?.empresa || empresaUser;
+      }
+
+      return {
+        _id: answer._id,
+        formId: answer.formId,
+        formTitle: answer.formTitle || "Formulario",
+        trabajador: trabajador,
+        rutTrabajador: rutTrabajador,
+        submittedAt: answer.submittedAt || answer.createdAt,
+        status: answer.status,
+        createdAt: answer.createdAt,
+        adjuntosCount: answer.adjuntosCount || 0,
+        user: {
+          nombre: nombreUser,
+          empresa: empresaUser
+        }
+      };
+    });
+
     res.json({
       success: true,
-      data: answersProcessed, // mapeados con descifrado
-      pagination: { total: totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) }
+      data: answersProcessed,
+      pagination: {
+        total: totalCount,
+        page: page,
+        limit: limit,
+        totalPages: Math.ceil(totalCount / limit)
+      }
     });
   } catch (err) {
-    res.status(500).json({ error: "Error" });
+    console.error("Error en /archivados:", err);
+    res.status(500).json({ error: "Error al obtener archivados" });
   }
 });
 
