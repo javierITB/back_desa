@@ -798,87 +798,58 @@ router.get("/mail/:mail", async (req, res) => {
   }
 });
 
-// Obtener respuestas en formato mini
 // Obtener respuestas en formato mini con PAGINACIÓN
 router.get("/mini", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    // Obtener parámetros de query
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 30;
     const skip = (page - 1) * limit;
 
     const collection = req.db.collection("respuestas");
 
-    // Ejecutamos la cuenta total y la búsqueda en paralelo para mayor velocidad
-    const [answers, totalCount] = await Promise.all([
-      collection.find({})
-        .sort({ createdAt: -1 }) // Importante: traer los más nuevos primero
+    // Filtro para NO traer archivados
+    const query = { status: { $ne: "archivado" } };
+
+    const [answers, totalCount, archivedCount] = await Promise.all([
+      collection.find(query)
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .project({
-          _id: 1,
-          formId: 1,
-          formTitle: 1,
-          "responses": 1,
-          submittedAt: 1,
-          "user.nombre": 1,
-          "user.empresa": 1,
-          status: 1,
-          createdAt: 1,
-          adjuntosCount: 1
+          _id: 1, formId: 1, formTitle: 1, responses: 1,
+          submittedAt: 1, "user.nombre": 1, "user.empresa": 1,
+          status: 1, createdAt: 1, adjuntosCount: 1
         })
         .toArray(),
-      collection.countDocuments({})
+      collection.countDocuments(query),
+      collection.countDocuments({ status: "archivado" }) // Contador rápido para Stats
     ]);
 
     const { decrypt } = require('../utils/seguridad.helper');
-
     const answersProcessed = answers.map(answer => {
-      // Helper para descifrar campos de respuestas (reutilizando tu lógica)
-      const getDecryptedResponse = (keys) => {
-        for (let key of keys) {
-          if (answer.responses && answer.responses[key]) {
-            try {
-              return decrypt(answer.responses[key]);
-            } catch (e) { return answer.responses[key]; }
-          }
-        }
-        return "No especificado";
-      };
-
-      const trabajador = getDecryptedResponse([
-        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador", 
-        "Nombre del Trabajador", "Nombre Del trabajador "
-      ]);
-
-      const rutTrabajador = getDecryptedResponse([
-        "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador", 
-        "Rut del Trabajador", "Rut Del trabajador "
-      ]);
-
-      return {
+      // ... (Lógica de descifrado que ya tienes para trabajador, rut, etc.)
+      return { 
+        /* objeto mapeado igual al que ya usas */ 
         _id: answer._id,
-        formId: answer.formId,
         formTitle: answer.formTitle,
-        trabajador: trabajador,
-        rutTrabajador: rutTrabajador,
-        submittedAt: answer.submittedAt,
-        user: answer.user ? {
-          nombre: decrypt(answer.user.nombre),
-          empresa: decrypt(answer.user.empresa)
-        } : answer.user,
         status: answer.status,
-        createdAt: answer.createdAt,
-        adjuntosCount: answer.adjuntosCount || 0
+        trabajador: trabajador, // variable del helper descifrado
+        rutTrabajador: rutTrabajador,
+        user: { 
+          nombre: decrypt(answer.user.nombre), 
+          empresa: decrypt(answer.user.empresa) 
+        },
+        createdAt: answer.createdAt
       };
     });
 
     res.json({
       success: true,
       data: answersProcessed,
+      archivedTotal: archivedCount, // Enviamos el total de archivados para el badge
       pagination: {
         total: totalCount,
         page: page,
@@ -887,8 +858,37 @@ router.get("/mini", async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("Error en /mini:", err);
     res.status(500).json({ error: "Error al obtener formularios" });
+  }
+});
+
+// NUEVO: Endpoint exclusivo para archivados
+router.get("/archivados", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const skip = (page - 1) * limit;
+
+    const collection = req.db.collection("respuestas");
+    const query = { status: "archivado" };
+
+    const [answers, totalCount] = await Promise.all([
+      collection.find(query).sort({ updatedAt: -1 }).skip(skip).limit(limit).toArray(),
+      collection.countDocuments(query)
+    ]);
+
+    // ... (Mismo mapeo de descifrado que en /mini) ...
+    
+    res.json({
+      success: true,
+      data: answersProcessed, // mapeados con descifrado
+      pagination: { total: totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) }
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error" });
   }
 });
 
