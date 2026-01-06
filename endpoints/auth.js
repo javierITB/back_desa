@@ -281,129 +281,23 @@ router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.status(400).json({ 
-      success: false, 
-      bloqueado: false,
-      message: "Datos incompletos" 
-    });
+    return res.status(400).json({ success: false, message: "Datos incompletos" });
   }
 
   try {
     const normalizedEmail = email.toLowerCase().trim();
-    const now = new Date();
 
     const user = await req.db.collection("usuarios").findOne({
       mail_index: createBlindIndex(normalizedEmail)
     });
 
-    // Si el usuario NO existe
-    if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        bloqueado: false,
-        message: "Credenciales inválidas" 
-      });
+    if (!user || !(await verifyPassword(user.pass, password))) {
+      return res.status(401).json({ success: false, message: "Credenciales inválidas" });
     }
 
-    // Verificar bloqueo activo
-    if (user.estado === "bloqueado" && user.bloqueadoHasta && user.bloqueadoHasta > now) {
-      const restanteMs = new Date(user.bloqueadoHasta).getTime() - Date.now();
-      const minutos = Math.ceil(restanteMs / 60000);
-      return res.status(401).json({
-        success: false,
-        bloqueado: true,
-        bloqueadoHasta: user.bloqueadoHasta,
-        message: `Cuenta bloqueada. Espere ${minutos} minutos.`
-      });
-    }
-
-    // Bloqueo expirado - CORRECCIÓN 1: Actualizar objeto en memoria
-    if (user.estado === "bloqueado" && user.bloqueadoHasta && user.bloqueadoHasta <= now) {
-      await req.db.collection("usuarios").updateOne(
-        { _id: user._id },
-        { $set: { estado: "activo", intentosFallidos: 0, bloqueadoHasta: null } }
-      );
-      
-      // ACTUALIZAR OBJETO EN MEMORIA
-      user.estado = "activo";
-      user.intentosFallidos = 0;
-      user.bloqueadoHasta = null;
-    }
-
-    // Password incorrecta
-    if (!(await verifyPassword(user.pass, password))) {
-      const intentos = (user.intentosFallidos || 0) + 1;
-
-      // Si supera 5 intentos → INACTIVO
-      if (intentos >= 6) {
-        await req.db.collection("usuarios").updateOne(
-          { _id: user._id },
-          { $set: { estado: "inactivo", intentosFallidos: intentos } }
-        );
-
-        return res.status(401).json({
-          success: false,
-          bloqueado: true,
-          message: "Cuenta inactiva por demasiados intentos. Contacte al administrador."
-        });
-      }
-
-      // Bloqueos progresivos
-      if (BLOCK_TIMES[intentos]) {
-        const bloqueo = new Date(Date.now() + Number(BLOCK_TIMES[intentos]));
-
-
-        await req.db.collection("usuarios").updateOne(
-          { _id: user._id },
-          {
-            $set: {
-              estado: "bloqueado",
-              bloqueadoHasta: bloqueo,
-              intentosFallidos: intentos
-            }
-          }
-        );
-
-        // CORRECCIÓN 2: Tiempo real restante en lugar de fijo
-        const minutos = Math.ceil((bloqueo - Date.now()) / 60000);
-        return res.status(401).json({
-          success: false,
-          bloqueado: true,
-          bloqueadoHasta: bloqueo,
-          message: `Demasiados intentos fallidos. Cuenta bloqueada por ${minutos} minutos.`
-        });
-      }
-
-      // Actualizar intentos fallidos
-      await req.db.collection("usuarios").updateOne(
-        { _id: user._id },
-        { $set: { intentosFallidos: intentos } }
-      );
-
-      const intentosRestantes = 3 - (intentos % 3 || 3);
-      return res.status(401).json({
-        success: false,
-        bloqueado: false,
-        message: `Credenciales inválidas. ${intentosRestantes} ${intentosRestantes === 1 ? 'intento' : 'intentos'} restantes antes de bloqueo.`
-      });
-    }
-
-    // Resetear intentos en login exitoso (antes de 2FA)
-    await req.db.collection("usuarios").updateOne(
-      { _id: user._id },
-      { $set: { intentosFallidos: 0, estado: "activo", bloqueadoHasta: null } }
-    );
-
-    // ACTUALIZAR OBJETO EN MEMORIA después del reset
-    user.intentosFallidos = 0;
-    user.estado = "activo";
-    user.bloqueadoHasta = null;
-
-    // Verificar estado del usuario (ahora con objeto actualizado)
     if (user.estado === "pendiente") {
       return res.status(401).json({
         success: false,
-        bloqueado: false,
         message: "Usuario pendiente de activación. Revisa tu correo."
       });
     }
@@ -411,20 +305,7 @@ router.post("/login", async (req, res) => {
     if (user.estado === "inactivo") {
       return res.status(401).json({
         success: false,
-        bloqueado: true,
         message: "Usuario inactivo. Contacta al administrador."
-      });
-    }
-
-    if (user.estado === "bloqueado") {
-      // Ahora el objeto ya está actualizado, pero obtenemos datos frescos por si acaso
-      const usuarioActual = await req.db.collection("usuarios").findOne({ _id: user._id });
-      
-      return res.status(401).json({
-        success: false,
-        bloqueado: true,
-        bloqueadoHasta: usuarioActual?.bloqueadoHasta,
-        message: "Cuenta bloqueada temporalmente. Espere el tiempo indicado."
       });
     }
 
@@ -440,7 +321,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const ahoraChile = getAhoraChile();
+    const now = getAhoraChile();
 
     let finalToken = null;
     let expiresAt = null;
@@ -451,7 +332,7 @@ router.post("/login", async (req, res) => {
     if (existingToken) {
       // Descifrar expiresAt y verificar
       const expiresAtDescifrado = existingToken.expiresAt;
-      if (new Date(expiresAtDescifrado) > ahoraChile) {
+      if (new Date(expiresAtDescifrado) > now) {
         finalToken = existingToken.token;
         expiresAt = expiresAtDescifrado;
       } else {
@@ -487,7 +368,7 @@ router.post("/login", async (req, res) => {
       ipAddress,
       os: agent.os?.toString?.() || "Desconocido",
       browser: agent.toAgent?.() || "Desconocido",
-      ahoraChile
+      now
     });
 
     return res.json({
@@ -503,11 +384,7 @@ router.post("/login", async (req, res) => {
 
   } catch (err) {
     console.error("Error en login:", err);
-    return res.status(500).json({ 
-      success: false,
-      bloqueado: false,
-      message: "Error interno en login" 
-    });
+    return res.status(500).json({ error: "Error interno en login" });
   }
 });
 

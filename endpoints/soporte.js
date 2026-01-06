@@ -290,6 +290,8 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
       try { responses = JSON.parse(responses); } catch (e) { console.error("Error parsing responses:", e); }
     }
 
+    let { assignedTo, estimatedCompletionAt } = req.body;
+
     const adjuntosFiles = req.files || [];
 
     // El usuario que viene del frontend ya debería estar descifrado en su sesión, 
@@ -328,13 +330,19 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
       console.log(`Ticket creado: ${formId}`);
     }
 
+    const initialStatus = assignedTo ? "en_revision" : "pendiente";
+    const assignedAt = assignedTo ? new Date().toISOString() : null;
+
     const result = await req.db.collection("soporte").insertOne({
       formId,
       user,
       responses,
       formTitle,
       mail: correoRespaldo,
-      status: "pendiente",
+      status: initialStatus,
+      assignedTo,
+      assignedAt,
+      estimatedCompletionAt: estimatedCompletionAt || null,
       createdAt: new Date()
     });
 
@@ -383,10 +391,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
     }
 
     // Descifrar nombre para notificaciones si está cifrado
-    let nombreUsuarioDescifrado = usuario;
-    if (typeof usuario === 'string' && usuario.includes(':')) {
-      nombreUsuarioDescifrado = decrypt(usuario);
-    }
+    let nombreUsuarioDescifrado = usuario?.nombre || 'Usuario';  // ← SOLO CAMBIA ESTA LÍNEA
 
     const notifData = {
       titulo: `${nombreUsuarioDescifrado} de la empresa ${empresaDescifrada} ha levantado un ticket de soporte`,
@@ -458,32 +463,6 @@ router.get("/data-approved/:responseId", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: "Error interno: " + err.message });
-  }
-});
-
-// Verificar si existe PDF firmado
-router.get("/:responseId/has-client-signature", async (req, res) => {
-  try {
-    const auth = await verifyRequest(req);
-    if (!auth.ok) return res.status(401).json({ error: auth.error });
-
-    const { responseId } = req.params;
-    const signature = await req.db.collection("firmados").findOne({ responseId: responseId }, {
-      projection: { "clientSignedPdf.fileName": 1, "clientSignedPdf.uploadedAt": 1, status: 1 }
-    });
-
-    if (!signature) return res.json({ exists: false });
-
-    res.json({
-      exists: true,
-      signature: {
-        fileName: signature.clientSignedPdf.fileName,
-        uploadedAt: signature.clientSignedPdf.uploadedAt,
-        status: signature.status
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Error verificando firma: " + err.message });
   }
 });
 
@@ -785,6 +764,10 @@ router.get("/mini", async (req, res) => {
         status: 1,
         assignedTo: 1,
         createdAt: 1,
+        assignedAt: 1,
+        estimatedCompletionAt: 1,
+        approvedAt: 1,
+        finalizedAt: 1,
         adjuntosCount: 1
       })
       .toArray();
@@ -822,6 +805,10 @@ router.get("/mini", async (req, res) => {
         assignedTo: answer.assignedTo,
         responses: answer.responses,
         createdAt: answer.createdAt,
+        assignedAt: answer.assignedAt,
+        estimatedCompletionAt: answer.estimatedCompletionAt,
+        approvedAt: answer.approvedAt,
+        finalizedAt: answer.finalizedAt,
         adjuntosCount: answer.adjuntosCount || 0
       };
     });
