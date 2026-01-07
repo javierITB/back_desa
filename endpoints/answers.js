@@ -798,7 +798,7 @@ router.get("/mail/:mail", async (req, res) => {
   }
 });
 
-router.put("/mantenimiento/descifrar-soporte", async (req, res) => {
+router.get("/mantenimiento/descifrar-soporte", async (req, res) => {
   try {
     // 1. Verificar token/permisos de administrador (opcional pero recomendado)
     
