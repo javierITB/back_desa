@@ -16,12 +16,18 @@ const getAhoraChile = () => {
 
 const verifyRequest = async (req) => {
    const authHeader = req.headers.authorization;
+   console.log("authHeader:", authHeader);
+   console.log("authHeader starts with: bearear", authHeader?.startsWith("Bearer "));
    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       throw { status: 401, message: "No autorizado" };
    }
    const token = authHeader.split(" ")[1];
+
+   console.log("token", token);
    const { validarToken } = require("../utils/validarToken");
    const validation = await validarToken(req.db, token);
+   console.log("validation: ", validation.ok);
+   console.log("reason: ", validation.reason);
    if (!validation.ok) {
       throw { status: 401, message: "Acceso denegado: " + validation.reason };
    }
