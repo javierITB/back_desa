@@ -55,10 +55,11 @@ const normalizeFilename = (filename) => {
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: function (req, file, cb) {
-    if (file.mimetype === 'application/pdf') {
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Solo se permiten archivos PDF'), false);
+      cb(new Error('Formato no soportado. Use PDF, JPEG, PNG o WEBP'), false);
     }
   },
   limits: {
@@ -70,10 +71,11 @@ const upload = multer({
 const uploadMultiple = multer({
   storage: multer.memoryStorage(),
   fileFilter: function (req, file, cb) {
-    if (file.mimetype === 'application/pdf') {
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Solo se permiten archivos PDF'), false);
+      cb(new Error('Formato no soportado. Use PDF, JPEG, PNG o WEBP'), false);
     }
   },
   limits: {
