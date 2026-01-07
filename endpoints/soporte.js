@@ -780,6 +780,7 @@ router.get("/mini", async (req, res) => {
         approvedAt: 1,
         finalizedAt: 1,
         updatedAt: 1,
+        reviewedAt: 1,
         adjuntosCount: 1
       })
       .toArray();
@@ -819,6 +820,7 @@ router.get("/mini", async (req, res) => {
         createdAt: answer.createdAt,
         assignedAt: answer.assignedAt,
         estimatedCompletionAt: answer.estimatedCompletionAt,
+        reviewedAt: answer.reviewedAt,
         approvedAt: answer.approvedAt,
         finalizedAt: answer.finalizedAt,
         updatedAt: answer.updatedAt,
