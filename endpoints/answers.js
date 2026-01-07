@@ -798,40 +798,47 @@ router.get("/mail/:mail", async (req, res) => {
   }
 });
 
+// Obtener respuestas en formato mini
 // Obtener respuestas en formato mini con PAGINACIÓN
 router.get("/mini", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
+    // Obtener parámetros de query
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 30;
     const skip = (page - 1) * limit;
 
     const collection = req.db.collection("respuestas");
-    const { decrypt } = require('../utils/seguridad.helper');
 
-    // Filtro para NO traer archivados
-    const query = { status: { $ne: "archivado" } };
-
-    const [answers, totalCount, archivedCount] = await Promise.all([
-      collection.find(query)
-        .sort({ createdAt: -1 })
+    // Ejecutamos la cuenta total y la búsqueda en paralelo para mayor velocidad
+    const [answers, totalCount] = await Promise.all([
+      collection.find({})
+        .sort({ createdAt: -1 }) // Importante: traer los más nuevos primero
         .skip(skip)
         .limit(limit)
         .project({
-          _id: 1, formId: 1, formTitle: 1, responses: 1,
-          submittedAt: 1, "user.nombre": 1, "user.empresa": 1,
-          status: 1, createdAt: 1, adjuntosCount: 1
+          _id: 1,
+          formId: 1,
+          formTitle: 1,
+          "responses": 1,
+          submittedAt: 1,
+          "user.nombre": 1,
+          "user.empresa": 1,
+          status: 1,
+          createdAt: 1,
+          adjuntosCount: 1
         })
         .toArray(),
-      collection.countDocuments(query),
-      collection.countDocuments({ status: "archivado" })
+      collection.countDocuments({})
     ]);
 
+    const { decrypt } = require('../utils/seguridad.helper');
+
     const answersProcessed = answers.map(answer => {
-      // Helper interno para descifrado seguro
-      const getDecrypted = (keys) => {
+      // Helper para descifrar campos de respuestas (reutilizando tu lógica)
+      const getDecryptedResponse = (keys) => {
         for (let key of keys) {
           if (answer.responses && answer.responses[key]) {
             try {
@@ -842,49 +849,36 @@ router.get("/mini", async (req, res) => {
         return "No especificado";
       };
 
-      const trabajador = getDecrypted([
-        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador", 
+      const trabajador = getDecryptedResponse([
+        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador",
         "Nombre del Trabajador", "Nombre Del trabajador "
       ]);
 
-      const rutTrabajador = getDecrypted([
-        "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador", 
+      const rutTrabajador = getDecryptedResponse([
+        "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador",
         "Rut del Trabajador", "Rut Del trabajador "
       ]);
-
-      // Normalización de usuario
-      let nombreUser = "Usuario Desconocido";
-      let empresaUser = "Empresa Desconocida";
-      
-      try {
-        if (answer.user?.nombre) nombreUser = decrypt(answer.user.nombre);
-        if (answer.user?.empresa) empresaUser = decrypt(answer.user.empresa);
-      } catch (e) {
-        nombreUser = answer.user?.nombre || nombreUser;
-        empresaUser = answer.user?.empresa || empresaUser;
-      }
 
       return {
         _id: answer._id,
         formId: answer.formId,
-        formTitle: answer.formTitle || "Formulario",
+        formTitle: answer.formTitle,
         trabajador: trabajador,
         rutTrabajador: rutTrabajador,
-        submittedAt: answer.submittedAt || answer.createdAt,
+        submittedAt: answer.submittedAt,
+        user: answer.user ? {
+          nombre: decrypt(answer.user.nombre),
+          empresa: decrypt(answer.user.empresa)
+        } : answer.user,
         status: answer.status,
         createdAt: answer.createdAt,
-        adjuntosCount: answer.adjuntosCount || 0,
-        user: {
-          nombre: nombreUser,
-          empresa: empresaUser
-        }
+        adjuntosCount: answer.adjuntosCount || 0
       };
     });
 
     res.json({
       success: true,
       data: answersProcessed,
-      archivedTotal: archivedCount,
       pagination: {
         total: totalCount,
         page: page,
@@ -895,96 +889,6 @@ router.get("/mini", async (req, res) => {
   } catch (err) {
     console.error("Error en /mini:", err);
     res.status(500).json({ error: "Error al obtener formularios" });
-  }
-});
-
-// NUEVO: Endpoint exclusivo para archivados
-router.get("/archivados", async (req, res) => {
-  try {
-    const auth = await verifyRequest(req);
-    if (!auth.ok) return res.status(401).json({ error: auth.error });
-
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 30;
-    const skip = (page - 1) * limit;
-
-    const collection = req.db.collection("respuestas");
-    const { decrypt } = require('../utils/seguridad.helper');
-
-    const query = { status: "archivado" };
-
-    const [answers, totalCount] = await Promise.all([
-      collection.find(query)
-        .sort({ updatedAt: -1 }) // Los archivados recientemente primero
-        .skip(skip)
-        .limit(limit)
-        .toArray(),
-      collection.countDocuments(query)
-    ]);
-
-    const answersProcessed = answers.map(answer => {
-      const getDecrypted = (keys) => {
-        for (let key of keys) {
-          if (answer.responses && answer.responses[key]) {
-            try {
-              return decrypt(answer.responses[key]);
-            } catch (e) { return answer.responses[key]; }
-          }
-        }
-        return "No especificado";
-      };
-
-      const trabajador = getDecrypted([
-        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador", 
-        "Nombre del Trabajador", "Nombre Del trabajador "
-      ]);
-
-      const rutTrabajador = getDecrypted([
-        "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador", 
-        "Rut del Trabajador", "Rut Del trabajador "
-      ]);
-
-      let nombreUser = "Usuario Desconocido";
-      let empresaUser = "Empresa Desconocida";
-      
-      try {
-        if (answer.user?.nombre) nombreUser = decrypt(answer.user.nombre);
-        if (answer.user?.empresa) empresaUser = decrypt(answer.user.empresa);
-      } catch (e) {
-        nombreUser = answer.user?.nombre || nombreUser;
-        empresaUser = answer.user?.empresa || empresaUser;
-      }
-
-      return {
-        _id: answer._id,
-        formId: answer.formId,
-        formTitle: answer.formTitle || "Formulario",
-        trabajador: trabajador,
-        rutTrabajador: rutTrabajador,
-        submittedAt: answer.submittedAt || answer.createdAt,
-        status: answer.status,
-        createdAt: answer.createdAt,
-        adjuntosCount: answer.adjuntosCount || 0,
-        user: {
-          nombre: nombreUser,
-          empresa: empresaUser
-        }
-      };
-    });
-
-    res.json({
-      success: true,
-      data: answersProcessed,
-      pagination: {
-        total: totalCount,
-        page: page,
-        limit: limit,
-        totalPages: Math.ceil(totalCount / limit)
-      }
-    });
-  } catch (err) {
-    console.error("Error en /archivados:", err);
-    res.status(500).json({ error: "Error al obtener archivados" });
   }
 });
 
@@ -3003,12 +2907,57 @@ router.put("/:id/status", async (req, res) => {
       _id: new ObjectId(id)
     });
 
+    const descifrarObjeto = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      if (Array.isArray(obj)) {
+        return obj.map(item => {
+          if (typeof item === 'string' && item.includes(':')) {
+            try { return decrypt(item); } catch (error) { return item; }
+          } else if (typeof item === 'object' && item !== null) {
+            return descifrarObjeto(item);
+          }
+          return item;
+        });
+      }
+
+      const resultado = {};
+      for (const key in obj) {
+        const valor = obj[key];
+        if (typeof valor === 'string' && valor.includes(':')) {
+          try { resultado[key] = decrypt(valor); } catch (error) { resultado[key] = valor; }
+        } else if (typeof valor === 'object' && valor !== null) {
+          resultado[key] = descifrarObjeto(valor);
+        } else {
+          resultado[key] = valor;
+        }
+      }
+      return resultado;
+    };
+
+    // Descifrar campos sensibles antes de enviar al frontend
+    if (updatedResponse) {
+      if (updatedResponse.user && typeof updatedResponse.user === 'object') {
+        updatedResponse.user = descifrarObjeto(updatedResponse.user);
+      }
+      if (updatedResponse.responses && typeof updatedResponse.responses === 'object') {
+        updatedResponse.responses = descifrarObjeto(updatedResponse.responses);
+      }
+      if (updatedResponse.mail && typeof updatedResponse.mail === 'string' && updatedResponse.mail.includes(':')) {
+        try { updatedResponse.mail = decrypt(updatedResponse.mail); } catch (e) { }
+      }
+    }
+
     // Enviar notificación al usuario si aplica
     if (status === 'en_revision') {
       await addNotification(req.db, {
-        userId: respuesta?.user?.uid,
+        userId: respuesta?.user?.uid, // Usar el original 'respuesta' que puede tener uid sin descifrar, pero uid suele no estar cifrado en user.uid si es root? 
+        // Nota: Si respuesta.user.uid estaba cifrado, necesitamos usar el descifrado.
+        // Pero respuesta original (antes del update) tenía los datos raw.
+        // Mejor usamos updatedResponse.user.uid que ya intentamos descifrar.
+        userId: updatedResponse?.user?.uid || respuesta?.user?.uid,
         titulo: "Respuestas En Revisión",
-        descripcion: `Formulario ${respuesta.formTitle} ha cambiado su estado a En Revisión.`,
+        descripcion: `Formulario ${updatedResponse.formTitle} ha cambiado su estado a En Revisión.`,
         prioridad: 2,
         icono: 'FileText',
         color: '#00c6f8ff',

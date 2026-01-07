@@ -3,11 +3,38 @@ const router = express.Router();
 const { ObjectId } = require("mongodb");
 const { createBlindIndex } = require("../utils/seguridad.helper");
 
+// Importar TU función validarToken
+const { validarToken } = require("../utils/validarToken.js");
+
+// Helper para verificar token en cualquier request
+const verifyRequest = async (req) => {
+  let token = req.headers.authorization?.split(" ")[1];
+
+  // Fallback: buscar en body.user.token
+  if (!token && req.body?.user?.token) token = req.body.user.token;
+
+  // Fallback: buscar en query param
+  if (!token && req.query?.token) token = req.query.token;
+
+  if (!token) return { ok: false, error: "Token no proporcionado" };
+
+  const valid = await validarToken(req.db, token);
+  if (!valid.ok) return { ok: false, error: valid.reason };
+
+  return { ok: true, data: valid.data };
+};
+
 router.use(express.json({ limit: '4mb' }));
 
 // Crear o actualizar un formulario
 router.post("/", async (req, res) => {
   try {
+    // Validar token con el helper
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: tokenCheck.error });
+    }
+
     const data = req.body;
 
     // PROCESAR PREGUNTAS para asegurar configuraciones de archivos
@@ -66,6 +93,12 @@ router.post("/", async (req, res) => {
 // Listar todos los formularios
 router.get("/", async (req, res) => {
   try {
+    // Validar token con el helper
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: tokenCheck.error });
+    }
+
     const forms = await req.db.collection("forms").find().toArray();
     res.json(forms);
   } catch (err) {
@@ -76,6 +109,12 @@ router.get("/", async (req, res) => {
 // Obtener un formulario por ID (Mongo ObjectId)
 router.get("/:id", async (req, res) => {
   try {
+    // Validar token con el helper
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: tokenCheck.error });
+    }
+
     const form = await req.db
       .collection("forms")
       .findOne({ _id: new ObjectId(req.params.id) });
@@ -90,6 +129,12 @@ router.get("/:id", async (req, res) => {
 //Filtrado de forms por seccion y empresa en web clientes (ADAPTADO A SEGURIDAD PQC)
 router.get("/section/:section/:mail", async (req, res) => {
   try {
+    // Validar token con el helper
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: tokenCheck.error });
+    }
+
     const { section, mail } = req.params;
 
     // 1. Buscar la empresa asociada al usuario usando BLIND INDEX
@@ -136,6 +181,12 @@ router.get("/section/:section/:mail", async (req, res) => {
 // Actualizar un formulario
 router.put("/:id", async (req, res) => {
   try {
+    // Validar token con el helper
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: tokenCheck.error });
+    }
+
     const data = req.body;
 
     const processedQuestions = (data.questions || []).map(question => {
@@ -172,6 +223,12 @@ router.put("/:id", async (req, res) => {
 // Publicar un formulario
 router.put("/public/:id", async (req, res) => {
   try {
+    // Validar token con el helper
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: tokenCheck.error });
+    }
+
     const result = await req.db.collection("forms").findOneAndUpdate(
       { _id: new ObjectId(req.params.id) },
       {
@@ -197,6 +254,12 @@ router.put("/public/:id", async (req, res) => {
 // Eliminar un formulario
 router.delete("/:id", async (req, res) => {
   try {
+    // Validar token con el helper
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: tokenCheck.error });
+    }
+
     const result = await req.db
       .collection("forms")
       .deleteOne({ _id: new ObjectId(req.params.id) });
@@ -213,6 +276,14 @@ router.delete("/:id", async (req, res) => {
 
 router.post("/respuestas", async (req, res) => {
   try {
+    // Validar token opcionalmente con el helper
+    const tokenCheck = await verifyRequest(req);
+    // Si hay token pero es inválido, rechazamos
+    if (tokenCheck.error && tokenCheck.error !== "Token no proporcionado") {
+      return res.status(401).json({ error: tokenCheck.error });
+    }
+    // Si no hay token, continuamos (permite respuestas anónimas)
+    
     const result = await req.db.collection("respuestas").insertOne({
       ...req.body,
       createdAt: new Date()
