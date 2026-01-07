@@ -718,134 +718,47 @@ router.post("/verify-2fa-activation", async (req, res) => {
   }
 });
 
-// RUTA /disable-2fa TOKENIZADA - COMPATIBLE CON FRONTEND ACTUAL
+// RUTA /disable-2fa TOKENIZADA - CONSISTENTE CON EL RESTO
 router.post("/disable-2fa", async (req, res) => {
   const { email } = req.body;
-  const authHeader = req.headers.authorization;
 
   console.log("DEBUG disable-2fa tokenizada - Body recibido:", req.body);
 
   if (!email) {
-    return res.status(400).json({
-      success: false,
-      message: "Email es requerido."
-    });
+    return res.status(400).json({ error: "Bad request" });
   }
-
-  // ==================== 1. VALIDAR TOKEN EN HEADER ====================
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.log("DEBUG: Falta Authorization header o formato incorrecto");
-    return res.status(401).json({
-      success: false,
-      message: "Token de autenticación requerido."
-    });
-  }
-
-  const sessionToken = authHeader.split(' ')[1];
 
   try {
-    // ==================== 2. BUSCAR TOKEN EN BD ====================
-    const tokenRecord = await req.db.collection("tokens").findOne({
-      token: sessionToken
-    });
-
-    if (!tokenRecord) {
-      console.log("DEBUG: Token no encontrado en BD");
-      return res.status(401).json({
-        success: false,
-        message: "Token inválido o sesión expirada."
-      });
-    }
-
-    // ==================== 3. VALIDAR ESTADO DEL TOKEN ====================
-    // Verificar si está activo
-    let activeDescifrado = "false";
-    try {
-      if (tokenRecord.active && tokenRecord.active.includes(':')) {
-        activeDescifrado = decrypt(tokenRecord.active);
-      }
-    } catch (error) {
-      console.error("Error descifrando active del token:", error);
-      return res.status(401).json({
-        success: false,
-        message: "Error en validación de token."
-      });
-    }
-
-    if (activeDescifrado !== "true") {
-      console.log("DEBUG: Token marcado como inactivo");
-      return res.status(401).json({
-        success: false,
-        message: "Sesión inactiva. Inicia sesión nuevamente."
-      });
-    }
-
-    // Verificar expiración
-    const now = new Date();
-    const expiresAt = new Date(tokenRecord.expiresAt);
-    if (expiresAt < now) {
-      console.log("DEBUG: Token expirado - ExpiresAt:", expiresAt, "Now:", now);
-
-      // Desactivar token automáticamente
-      await req.db.collection("tokens").updateOne(
-        { token: sessionToken },
-        { $set: { active: encrypt("false"), revokedAt: now } }
-      );
-
-      return res.status(401).json({
-        success: false,
-        message: "Sesión expirada. Inicia sesión nuevamente."
-      });
-    }
-
-    // ==================== 4. VERIFICAR QUE TOKEN CORRESPONDE AL EMAIL ====================
-    let tokenEmailDescifrado = "";
-    try {
-      if (tokenRecord.email && tokenRecord.email.includes(':')) {
-        tokenEmailDescifrado = decrypt(tokenRecord.email);
-      }
-    } catch (error) {
-      console.error("Error descifrando email del token:", error);
-      return res.status(401).json({
-        success: false,
-        message: "Error en validación de token."
-      });
+    // ==================== 1. VALIDAR TOKEN (MISMA LÓGICA QUE TODAS) ====================
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     const emailNormalizado = email.toLowerCase().trim();
 
-    if (tokenEmailDescifrado !== emailNormalizado) {
-      console.log("DEBUG: Email no coincide - Token email:", tokenEmailDescifrado, "Body email:", emailNormalizado);
-      return res.status(401).json({
-        success: false,
-        message: "No tienes permisos para esta acción."
-      });
+    // ==================== 2. VERIFICAR CORRESPONDENCIA EMAIL ====================
+    if (tokenCheck.data.email !== emailNormalizado) {
+      console.log("DEBUG: Email no coincide - Token email:", tokenCheck.data.email, "Body email:", emailNormalizado);
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // ==================== 5. BUSCAR USUARIO ====================
+    // ==================== 3. BUSCAR USUARIO ====================
     const user = await req.db.collection("usuarios").findOne({
       mail_index: createBlindIndex(emailNormalizado)
     });
 
     if (!user) {
-      console.log("DEBUG: Usuario no encontrado en BD");
-      return res.status(404).json({
-        success: false,
-        message: "Usuario no encontrado."
-      });
+      return res.status(404).json({ error: "Not found" });
     }
 
     if (!user.twoFactorEnabled) {
-      return res.status(400).json({
-        success: false,
-        message: "El 2FA no está activado para este usuario."
-      });
+      return res.status(400).json({ error: "Bad request" });
     }
 
-    // ==================== 6. DESHABILITAR 2FA ====================
+    // ==================== 4. DESHABILITAR 2FA ====================
     const userId = user._id.toString();
 
-    // Actualizar estado
     await req.db.collection("usuarios").updateOne(
       { _id: new ObjectId(userId) },
       { $set: { twoFactorEnabled: false } }
@@ -857,7 +770,7 @@ router.post("/disable-2fa", async (req, res) => {
       { $set: { active: false, revokedAt: new Date(), reason: "2fa_disabled" } }
     );
 
-    // ==================== 7. REGISTRAR ACCIÓN (OPCIONAL) ====================
+    // ==================== 5. REGISTRAR ACCIÓN ====================
     try {
       await req.db.collection("security_logs").insertOne({
         action: "2FA_DISABLED",
@@ -869,22 +782,18 @@ router.post("/disable-2fa", async (req, res) => {
       });
     } catch (logError) {
       console.error("Error registrando en logs:", logError);
-      // No fallar la operación principal por un error de logs
     }
 
     console.log("DEBUG: 2FA deshabilitado exitosamente para:", emailNormalizado);
 
-    res.status(200).json({
+    res.status(200).json({ 
       success: true,
-      message: "Autenticación de Dos Factores desactivada exitosamente."
+      message: "2FA disabled successfully"
     });
 
   } catch (err) {
     console.error("Error en /disable-2fa:", err);
-    res.status(500).json({
-      success: false,
-      message: "Error interno al desactivar 2FA."
-    });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
