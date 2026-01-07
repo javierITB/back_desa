@@ -798,6 +798,82 @@ router.get("/mail/:mail", async (req, res) => {
   }
 });
 
+router.get("/mantenimiento/descifrar-soporte", async (req, res) => {
+  try {
+    // 1. Verificar token/permisos de administrador (opcional pero recomendado)
+    
+    // 2. Obtener todas las solicitudes de la colección soporte
+    const solicitudes = await req.db.collection("respuestas").find({}).toArray();
+    let actualizados = 0;
+    let errores = 0;
+
+    console.log(`Iniciando migración de descifrado para ${solicitudes.length} documentos...`);
+
+    // Helper para detectar y descifrar strings cifrados
+    const procesarCampo = (valor) => {
+      // Verificamos si es un string y si contiene el formato de cifrado (ej: incluye ':')
+      if (typeof valor === 'string' && valor.includes(':')) {
+        try {
+          return decrypt(valor);
+        } catch (e) {
+          console.error("Error al descifrar campo individual:", e.message);
+          return valor; // Mantener original si falla
+        }
+      }
+      return valor;
+    };
+
+    // 3. Iterar y actualizar
+    for (const solicitud of solicitudes) {
+      if (solicitud.user && typeof solicitud.user === 'object') {
+        const userOriginal = solicitud.user;
+        const userDescifrado = {};
+        let huboCambio = false;
+
+        // Lista de campos a procesar según tu estructura
+        const camposAProcesar = ['uid', 'nombre', 'empresa', 'mail', 'token'];
+
+        camposAProcesar.forEach(campo => {
+          if (userOriginal[campo]) {
+            const valorProcesado = procesarCampo(userOriginal[campo]);
+            if (valorProcesado !== userOriginal[campo]) {
+              huboCambio = true;
+            }
+            userDescifrado[campo] = valorProcesado;
+          }
+        });
+
+        if (huboCambio) {
+          await req.db.collection("respuestas").updateOne(
+            { _id: solicitud._id },
+            { 
+              $set: { 
+                user: { ...userOriginal, ...userDescifrado },
+                updatedAt: new Date() 
+              } 
+            }
+          );
+          actualizados++;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Proceso de descifrado completado",
+      stats: {
+        totalRevisados: solicitudes.length,
+        totalActualizados: actualizados,
+        errores: errores
+      }
+    });
+
+  } catch (err) {
+    console.error("Error en mantenimiento soporte:", err);
+    res.status(500).json({ error: "Error interno en el servidor: " + err.message });
+  }
+});
+
 // Obtener respuestas en formato mini
 // Obtener respuestas en formato mini con PAGINACIÓN
 router.get("/mini", async (req, res) => {
