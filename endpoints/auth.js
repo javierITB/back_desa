@@ -718,6 +718,9 @@ router.post("/disable-2fa", async (req, res) => {
    try {
       // ==================== 1. VALIDAR TOKEN (MISMA LÓGICA QUE TODAS) ====================
       const tokenCheck = await verifyRequest(req);
+
+      console.log("tokenCheck.ok:", tokenCheck.ok);
+
       if (!tokenCheck.ok) {
          return res.status(401).json({ error: "Unauthorized" });
       }
