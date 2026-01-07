@@ -352,7 +352,8 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
         fileName: file.originalname,
         mimeType: file.mimetype,
         size: file.size,
-        buffer: file.buffer, // Guardar buffer en BDD (considerar GridFS para archivos grandes)
+        fileData: `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+        buffer: file.buffer,
         uploadedAt: new Date().toISOString()
       }));
 
@@ -597,13 +598,20 @@ router.get("/:id/adjuntos/:index", async (req, res) => {
       return res.status(404).json({ error: "Estructura de archivo no válida" });
     }
 
-    if (!archivoAdjunto.fileData) {
+    if (!archivoAdjunto || (!archivoAdjunto.fileData && !archivoAdjunto.buffer)) {
       return res.status(404).json({ error: "Datos de archivo no disponibles" });
     }
 
-    // Extraer datos base64
-    const base64Data = archivoAdjunto.fileData.replace(/^data:[^;]+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
+    // Manejar both base64 (string) and Buffer (binary)
+    let buffer;
+    if (archivoAdjunto.buffer) {
+      // Si ya es un buffer BSON
+      buffer = archivoAdjunto.buffer.buffer || archivoAdjunto.buffer;
+    } else if (archivoAdjunto.fileData) {
+      // Si es base64 string
+      const base64Data = archivoAdjunto.fileData.replace(/^data:[^;]+;base64,/, '');
+      buffer = Buffer.from(base64Data, 'base64');
+    }
 
     // Configurar headers para descarga
     res.set({
@@ -620,6 +628,7 @@ router.get("/:id/adjuntos/:index", async (req, res) => {
     res.status(500).json({ error: "Error descargando archivo adjunto: " + err.message });
   }
 });
+
 
 router.get("/", async (req, res) => {
   try {
@@ -768,6 +777,7 @@ router.get("/mini", async (req, res) => {
         estimatedCompletionAt: 1,
         approvedAt: 1,
         finalizedAt: 1,
+        updatedAt: 1,
         adjuntosCount: 1
       })
       .toArray();
@@ -809,6 +819,7 @@ router.get("/mini", async (req, res) => {
         estimatedCompletionAt: answer.estimatedCompletionAt,
         approvedAt: answer.approvedAt,
         finalizedAt: answer.finalizedAt,
+        updatedAt: answer.updatedAt,
         adjuntosCount: answer.adjuntosCount || 0
       };
     });
