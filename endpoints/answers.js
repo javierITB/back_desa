@@ -803,7 +803,7 @@ router.get("/mantenimiento/descifrar-soporte", async (req, res) => {
     // 1. Verificar token/permisos de administrador (opcional pero recomendado)
     
     // 2. Obtener todas las solicitudes de la colección soporte
-    const solicitudes = await req.db.collection("soporte").find({}).toArray();
+    const solicitudes = await req.db.collection("respuestas").find({}).toArray();
     let actualizados = 0;
     let errores = 0;
 
@@ -844,7 +844,7 @@ router.get("/mantenimiento/descifrar-soporte", async (req, res) => {
         });
 
         if (huboCambio) {
-          await req.db.collection("soporte").updateOne(
+          await req.db.collection("respuestas").updateOne(
             { _id: solicitud._id },
             { 
               $set: { 
