@@ -31,7 +31,7 @@ const verifyRequest = async (req) => {
    if (!validation.ok) {
       throw { status: 401, message: "Acceso denegado: " + validation.reason };
    }
-   return validation.data;
+   return validation;
 };
 
 const TOKEN_EXPIRATION = 12 * 1000 * 60 * 60;
@@ -982,7 +982,7 @@ router.post("/logout", async (req, res) => {
 
 router.post("/register", async (req, res) => {
    try {
-      const auth = await verifyRequest(req); // Requiere admin
+      await verifyRequest(req); // Requiere admin
       // Opcional: validar rol de admin aqui si es necesario
       const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
       const m = mail.toLowerCase().trim();
