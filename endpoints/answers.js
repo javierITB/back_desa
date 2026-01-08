@@ -837,6 +837,86 @@ router.get("/mini", async (req, res) => {
       ]).toArray()
     ]);
 
+    // filtros en panel de respuestas 
+
+    router.get("/respuestas/filtros", async (req, res) => {
+      try {
+        const auth = await verifyRequest(req);
+        if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+        // 1. Obtener parámetros de query y filtros
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 30;
+        const skip = (page - 1) * limit;
+
+        const { status, company, search, startDate, endDate } = req.query;
+
+        // 2. Construir el objeto de búsqueda dinámico
+        let query = {};
+
+        // Filtro por Estado (según tu DB está en _contexto.status)
+        if (status) {
+          query["_contexto.status"] = status;
+        }
+
+        // Filtro por Empresa (según tu DB está en user.empresa)
+        if (company) {
+          query["user.empresa"] = { $regex: company, $options: "i" };
+        }
+
+        // Búsqueda general (Nombre del trabajador o Formulario)
+        if (search) {
+          query.$or = [
+            { "_contexto.formTitle": { $regex: search, $options: "i" } },
+            { "user.nombre": { $regex: search, $options: "i" } }
+          ];
+        }
+
+        // Filtro por fechas (createdAt)
+        if (startDate || endDate) {
+          query["_contexto.createdAt"] = {};
+          if (startDate) query["_contexto.createdAt"].$gte = new Date(startDate);
+          if (endDate) query["_contexto.createdAt"].$lte = new Date(endDate);
+        }
+
+        const collection = req.db.collection("respuestas");
+
+        // 3. Ejecutar consultas usando el objeto 'query' filtrado
+        const [answers, totalCount] = await Promise.all([
+          collection.find(query) // <-- Aplicamos el filtro aquí
+            .sort({ "_contexto.createdAt": -1 })
+            .skip(skip)
+            .limit(limit)
+            .project({
+              _id: 1,
+              formId: 1,
+              "responses": 1,
+              "user.nombre": 1,
+              "user.empresa": 1,
+              "user.mail": 1,
+              "_contexto.status": 1,
+              "_contexto.formTitle": 1,
+              "_contexto.createdAt": 1,
+            })
+            .toArray(),
+          collection.countDocuments(query) // <-- Y aquí para que la paginación sea correcta
+        ]);
+
+        res.json({
+          ok: true,
+          answers,
+          totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          currentPage: page
+        });
+
+      } catch (error) {
+        console.error("Error en /respuestas/filtros", error);
+        res.status(500).json({ error: "Error interno del servidor" });
+      }
+    });
+
+
     const { decrypt } = require('../utils/seguridad.helper');
 
     const answersProcessed = answers.map(answer => {
