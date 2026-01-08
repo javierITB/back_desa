@@ -3368,4 +3368,139 @@ router.post("/domicilio-virtual", async (req, res) => {
   }
 });
 
+// Endpoint para obtener formularios de domicilio_virtual
+router.get("/domicilio-virtual/mini", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const skip = (page - 1) * limit;
+
+    const collection = req.db.collection("domicilio_virtual");
+
+    const [answers, totalCount, statusCounts] = await Promise.all([
+      collection.find({})
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray(),
+      collection.countDocuments({}),
+      collection.aggregate([
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]).toArray()
+    ]);
+
+    const { decrypt } = require('../utils/seguridad.helper');
+
+    const answersProcessed = answers.map(answer => {
+      const getDecryptedResponse = (keys) => {
+        for (let key of keys) {
+          if (answer.responses && answer.responses[key]) {
+            try {
+              return decrypt(answer.responses[key]);
+            } catch (e) { return answer.responses[key]; }
+          }
+        }
+        return "No especificado";
+      };
+
+      const trabajador = getDecryptedResponse([
+        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador"
+      ]);
+      const rutTrabajador = getDecryptedResponse([
+        "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador"
+      ]);
+
+      return {
+        _id: answer._id,
+        formId: answer.formId,
+        formTitle: answer.formTitle,
+        trabajador,
+        rutTrabajador,
+        submittedAt: answer.submittedAt || answer.createdAt,
+        user: answer.user ? {
+          nombre: decrypt(answer.user.nombre),
+          empresa: decrypt(answer.user.empresa)
+        } : answer.user,
+        status: answer.status,
+        createdAt: answer.createdAt,
+        // Asumimos que no hay count de adjuntos por ahora en la colección principal
+        adjuntosCount: 0
+      };
+    });
+
+    res.json({
+      success: true,
+      data: answersProcessed,
+      pagination: {
+        total: totalCount,
+        page: page,
+        limit: limit,
+        totalPages: Math.ceil(totalCount / limit)
+      },
+      stats: {
+        total: totalCount,
+        pending: statusCounts.find(s => s._id === 'pendiente')?.count || 0,
+        inReview: statusCounts.find(s => s._id === 'en_revision')?.count || 0,
+        approved: statusCounts.find(s => s._id === 'aprobado')?.count || 0,
+        rejected: statusCounts.find(s => s._id === 'firmado')?.count || 0,
+        finalized: statusCounts.find(s => s._id === 'finalizado')?.count || 0,
+        archived: statusCounts.find(s => s._id === 'archivado')?.count || 0
+      }
+    });
+
+  } catch (err) {
+    console.error("Error en GET /domicilio-virtual/mini:", err);
+    res.status(500).json({ error: "Error interno al obtener domicilio virtual" });
+  }
+});
+
+// Endpoint para obtener UN formulario de domicilio_virtual por ID
+router.get("/domicilio-virtual/:id", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const { ObjectId } = require("mongodb");
+    const { decrypt } = require('../utils/seguridad.helper');
+
+    const answer = await req.db.collection("domicilio_virtual").findOne({
+      _id: new ObjectId(req.params.id)
+    });
+
+    if (!answer) return res.status(404).json({ error: "No encontrado" });
+
+    const getDecryptedResponse = (keys) => {
+      for (let key of keys) {
+        if (answer.responses && answer.responses[key]) {
+          try {
+            return decrypt(answer.responses[key]);
+          } catch (e) { return answer.responses[key]; }
+        }
+      }
+      return "No especificado";
+    };
+
+    const result = {
+      ...answer,
+      user: answer.user ? {
+        ...answer.user,
+        nombre: decrypt(answer.user.nombre),
+        rut: decrypt(answer.user.rut),
+        empresa: decrypt(answer.user.empresa),
+        mail: decrypt(answer.user.mail),
+        telefono: decrypt(answer.user.telefono)
+      } : null,
+    };
+
+    res.json(result);
+
+  } catch (err) {
+    console.error("Error en GET /domicilio-virtual/:id:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
 module.exports = router;
