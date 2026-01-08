@@ -19,7 +19,7 @@ const verifyRequest = async (req) => {
   if (!token) return { ok: false, error: "Unauthorized" };
 
   const valid = await validarToken(req.db, token);
-  if (!valid.ok) return { ok: false, error: "Unauthorized" }; 
+  if (!valid.ok) return { ok: false, error: "Unauthorized" };
 
   return { ok: true, data: valid.data };
 };
@@ -32,7 +32,7 @@ router.post("/", async (req, res) => {
     // Validar token con el helper
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) {
-      return res.status(401).json({ error: "Unauthorized" }); 
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     const data = req.body;
@@ -78,7 +78,7 @@ router.post("/", async (req, res) => {
       );
 
       if (!result) {
-        return res.status(404).json({ error: "Not found" }); 
+        return res.status(404).json({ error: "Not found" });
       }
 
       res.status(200).json(result.value || result);
@@ -86,7 +86,7 @@ router.post("/", async (req, res) => {
 
   } catch (err) {
     console.error("Error en POST /forms:", err);
-    res.status(500).json({ error: "Internal server error" }); 
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -102,7 +102,7 @@ router.get("/", async (req, res) => {
     const forms = await req.db.collection("forms").find().toArray();
     res.json(forms);
   } catch (err) {
-    res.status(500).json({ error: "Internal server error" }); 
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -112,7 +112,7 @@ router.get("/:id", async (req, res) => {
     // Validar token con el helper
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) {
-      return res.status(401).json({ error: "Unauthorized" }); 
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     const form = await req.db
@@ -132,29 +132,29 @@ router.get("/section/:section/:mail", async (req, res) => {
     // Validar token con el helper
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) {
-      return res.status(401).json({ error: "Unauthorized" }); 
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     const { section, mail } = req.params;
 
     // 1. Buscar la empresa asociada al usuario usando BLIND INDEX
-    const user = await req.db.collection("usuarios").findOne({ 
-      mail_index: createBlindIndex(mail) 
+    const user = await req.db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(mail)
     });
 
     if (!user || !user.empresa) {
-      return res.status(404).json({ error: "Not found" }); 
+      return res.status(404).json({ error: "Not found" });
     }
 
-    const empresaUsuario = user.empresa; 
+    const empresaUsuario = user.empresa;
 
     // 2. Definir la consulta de filtrado
     const query = {
       section: section,
-      status: "publicado", 
+      status: "publicado",
       $or: [
-        { companies: empresaUsuario }, 
-        { companies: "Todas" }         
+        { companies: empresaUsuario },
+        { companies: "Todas" }
       ],
     };
 
@@ -164,14 +164,14 @@ router.get("/section/:section/:mail", async (req, res) => {
       .find(query)
       .toArray();
 
-    if (!forms || forms.length === 0) { 
+    if (!forms || forms.length === 0) {
       return res.status(404).json({ error: "Not found" });
     }
 
     res.status(200).json(forms);
   } catch (err) {
     console.error("Error al obtener formularios filtrados:", err);
-    res.status(500).json({ error: "Internal server error" }); 
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -181,7 +181,7 @@ router.put("/:id", async (req, res) => {
     // Validar token con el helper
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) {
-      return res.status(401).json({ error: "Unauthorized" }); 
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     const data = req.body;
@@ -210,10 +210,10 @@ router.put("/:id", async (req, res) => {
       { returnDocument: "after" }
     );
 
-    if (!result) return res.status(404).json({ error: "Not found" }); 
+    if (!result) return res.status(404).json({ error: "Not found" });
     res.json(result.value || result);
   } catch (err) {
-    res.status(500).json({ error: "Internal server error" }); 
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -223,7 +223,7 @@ router.put("/public/:id", async (req, res) => {
     // Validar token con el helper
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) {
-      return res.status(401).json({ error: "Unauthorized" }); 
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     const result = await req.db.collection("forms").findOneAndUpdate(
@@ -238,13 +238,13 @@ router.put("/public/:id", async (req, res) => {
     );
 
     if (!result.value) {
-      return res.status(404).json({ error: "Not found" }); 
+      return res.status(404).json({ error: "Not found" });
     }
 
     res.status(200).json(result.value);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Internal server error" }); 
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -254,7 +254,7 @@ router.delete("/:id", async (req, res) => {
     // Validar token con el helper
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) {
-      return res.status(401).json({ error: "Unauthorized" }); 
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     const result = await req.db
@@ -262,12 +262,12 @@ router.delete("/:id", async (req, res) => {
       .deleteOne({ _id: new ObjectId(req.params.id) });
 
     if (result.deletedCount === 0) {
-      return res.status(404).json({ error: "Not found" }); 
+      return res.status(404).json({ error: "Not found" });
     }
 
-    res.status(200).json({ message: "Deleted" }); 
+    res.status(200).json({ message: "Deleted" });
   } catch (err) {
-    res.status(500).json({ error: "Internal server error" }); 
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -275,9 +275,9 @@ router.post("/respuestas", async (req, res) => {
   try {
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) {
-      return res.status(401).json({ error: "Unauthorized" }); 
+      return res.status(401).json({ error: "Unauthorized" });
     }
-    
+
     const result = await req.db.collection("respuestas").insertOne({
       ...req.body,
       createdAt: new Date()
@@ -285,7 +285,20 @@ router.post("/respuestas", async (req, res) => {
 
     res.json({ _id: result.insertedId, ...req.body });
   } catch (err) {
-    res.status(500).json({ error: "Internal server error" }); 
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/public-view/:id", async (req, res) => {
+  try {
+    const form = await req.db
+      .collection("forms")
+      .findOne({ _id: new ObjectId(req.params.id) });
+
+    if (!form) return res.status(404).json({ error: "Not found" });
+    res.json(form);
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
