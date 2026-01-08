@@ -837,85 +837,6 @@ router.get("/mini", async (req, res) => {
       ]).toArray()
     ]);
 
-    // filtros en panel de respuestas 
-
-    router.get("/respuestas/filtros", async (req, res) => {
-      try {
-        const auth = await verifyRequest(req);
-        if (!auth.ok) return res.status(401).json({ error: auth.error });
-
-        // 1. Obtener parámetros de query y filtros
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 30;
-        const skip = (page - 1) * limit;
-
-        const { status, company, search, startDate, endDate } = req.query;
-
-        // 2. Construir el objeto de búsqueda dinámico
-        let query = {};
-
-        // Filtro por Estado (según tu DB está en _contexto.status)
-        if (status) {
-          query["_contexto.status"] = status;
-        }
-
-        // Filtro por Empresa (según tu DB está en user.empresa)
-        if (company) {
-          query["user.empresa"] = { $regex: company, $options: "i" };
-        }
-
-        // Búsqueda general (Nombre del trabajador o Formulario)
-        if (search) {
-          query.$or = [
-            { "_contexto.formTitle": { $regex: search, $options: "i" } },
-            { "user.nombre": { $regex: search, $options: "i" } }
-          ];
-        }
-
-        // Filtro por fechas (createdAt)
-        if (startDate || endDate) {
-          query["_contexto.createdAt"] = {};
-          if (startDate) query["_contexto.createdAt"].$gte = new Date(startDate);
-          if (endDate) query["_contexto.createdAt"].$lte = new Date(endDate);
-        }
-
-        const collection = req.db.collection("respuestas");
-
-        // 3. Ejecutar consultas usando el objeto 'query' filtrado
-        const [answers, totalCount] = await Promise.all([
-          collection.find(query) // <-- Aplicamos el filtro aquí
-            .sort({ "_contexto.createdAt": -1 })
-            .skip(skip)
-            .limit(limit)
-            .project({
-              _id: 1,
-              formId: 1,
-              "responses": 1,
-              "user.nombre": 1,
-              "user.empresa": 1,
-              "user.mail": 1,
-              "_contexto.status": 1,
-              "_contexto.formTitle": 1,
-              "_contexto.createdAt": 1,
-            })
-            .toArray(),
-          collection.countDocuments(query) // <-- Y aquí para que la paginación sea correcta
-        ]);
-
-        res.json({
-          ok: true,
-          answers,
-          totalCount,
-          totalPages: Math.ceil(totalCount / limit),
-          currentPage: page
-        });
-
-      } catch (error) {
-        console.error("Error en /respuestas/filtros", error);
-        res.status(500).json({ error: "Error interno del servidor" });
-      }
-    });
-
 
     const { decrypt } = require('../utils/seguridad.helper');
 
@@ -983,6 +904,144 @@ router.get("/mini", async (req, res) => {
     res.status(500).json({ error: "Error al obtener formularios" });
   }
 });
+
+// ruta mini mejorada con capacidad de filtros 
+
+
+router.get("/respuestas/filtros", async (req, res) => {
+
+  const { decrypt } = require('../utils/seguridad.helper');
+
+
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    // 1. Obtener parámetros de paginación y filtros de la URL
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const skip = (page - 1) * limit;
+
+    const { status, company, search, startDate, endDate } = req.query;
+
+    // 2. Construir el objeto de búsqueda dinámico (La "Mejora")
+    let query = {};
+
+    if (status && status !== "") {
+      query["status"] = status;
+    }
+
+    if (company) {
+      query["user.empresa"] = { $regex: company, $options: "i" };
+    }
+
+    if (search) {
+      query.$or = [
+        { "formTitle": { $regex: search, $options: "i" } },
+        { "user.nombre": { $regex: search, $options: "i" } }
+      ];
+    }
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
+
+    const collection = req.db.collection("respuestas");
+
+    // 3. Ejecución en paralelo (Igual que /mini pero con 'query')
+    const [answers, totalCount, statusCounts] = await Promise.all([
+      collection.find(query)
+        .sort({ createdAt: -1 }) // Los más nuevos primero, igual que antes
+        .skip(skip)
+        .limit(limit)
+        .project({
+          _id: 1,
+          formId: 1,
+          formTitle: 1,
+          "responses": 1,
+          submittedAt: 1,
+          "user.nombre": 1,
+          "user.empresa": 1,
+          status: 1,
+          createdAt: 1,
+          adjuntosCount: 1
+        })
+        .toArray(),
+      collection.countDocuments(query),
+      collection.aggregate([
+        { $match: query }, // Filtramos los stats para que coincidan con la búsqueda
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]).toArray()
+    ]);
+
+    // 4. Lógica de descifrado y procesamiento (Tu lógica original de /mini)
+    const answersProcessed = answers.map(answer => {
+      const getDecryptedResponse = (keys) => {
+        for (let key of keys) {
+          if (answer.responses && answer.responses[key]) {
+            try {
+              return decrypt(answer.responses[key]);
+            } catch (e) { return answer.responses[key]; }
+          }
+        }
+        return "No especificado";
+      };
+
+      return {
+        _id: answer._id,
+        formId: answer.formId,
+        formTitle: answer.formTitle,
+        trabajador: getDecryptedResponse([
+          "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador",
+          "Nombre del Trabajador", "Nombre Del trabajador "
+        ]),
+        rutTrabajador: getDecryptedResponse([
+          "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador",
+          "Rut del Trabajador", "Rut Del trabajador "
+        ]),
+        submittedAt: answer.submittedAt,
+        user: answer.user ? {
+          nombre: decrypt(answer.user.nombre),
+          empresa: decrypt(answer.user.empresa)
+        } : answer.user,
+        // Añadimos estos campos para compatibilidad con RequestCard.jsx
+        submittedBy: answer.user ? decrypt(answer.user.nombre) : 'Usuario Desconocido',
+        company: answer.user ? decrypt(answer.user.empresa) : 'Empresa Desconocida',
+        status: answer.status,
+        createdAt: answer.createdAt,
+        adjuntosCount: answer.adjuntosCount || 0
+      };
+    });
+
+    // 5. Estructura de respuesta EXACTA a /mini
+    res.json({
+      success: true,
+      data: answersProcessed,
+      pagination: {
+        total: totalCount,
+        page: page,
+        limit: limit,
+        totalPages: Math.ceil(totalCount / limit)
+      },
+      stats: {
+        total: totalCount,
+        pending: statusCounts.find(s => s._id === 'pendiente')?.count || 0,
+        inReview: statusCounts.find(s => s._id === 'en_revision')?.count || 0,
+        approved: statusCounts.find(s => s._id === 'aprobado')?.count || 0,
+        rejected: statusCounts.find(s => s._id === 'firmado')?.count || 0,
+        finalized: statusCounts.find(s => s._id === 'finalizado')?.count || 0,
+        archived: statusCounts.find(s => s._id === 'archivado')?.count || 0
+      }
+    });
+
+  } catch (err) {
+    console.error("Error en /respuestas/filtros:", err);
+    res.status(500).json({ error: "Error al obtener formularios filtrados" });
+  }
+});
+
 
 // Obtener respuesta por ID - Versión simplificada
 router.get("/:id", async (req, res) => {
