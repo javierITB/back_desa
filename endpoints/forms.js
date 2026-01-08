@@ -289,6 +289,8 @@ router.post("/respuestas", async (req, res) => {
   }
 });
 
+
+// Endpoint para obtener un formulario sin token
 router.get("/public-view/:id", async (req, res) => {
   try {
     const form = await req.db
