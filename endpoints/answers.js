@@ -3442,12 +3442,14 @@ router.get("/domicilio-virtual/mini", async (req, res) => {
       },
       stats: {
         total: totalCount,
-        pending: statusCounts.find(s => s._id === 'pendiente')?.count || 0,
-        inReview: statusCounts.find(s => s._id === 'en_revision')?.count || 0,
-        approved: statusCounts.find(s => s._id === 'aprobado')?.count || 0,
-        rejected: statusCounts.find(s => s._id === 'firmado')?.count || 0,
-        finalized: statusCounts.find(s => s._id === 'finalizado')?.count || 0,
-        archived: statusCounts.find(s => s._id === 'archivado')?.count || 0
+        // Domicilio Virtual Statuses
+        documento_generado: statusCounts.find(s => s._id === 'documento_generado')?.count || 0,
+        solicitud_firmada: statusCounts.find(s => s._id === 'solicitud_firmada')?.count || 0,
+        informado_sii: statusCounts.find(s => s._id === 'informado_sii')?.count || 0,
+        dicom: statusCounts.find(s => s._id === 'dicom')?.count || 0,
+        dado_de_baja: statusCounts.find(s => s._id === 'dado_de_baja')?.count || 0,
+        // Mantener pendiente como inicio si aplica
+        pending: statusCounts.find(s => s._id === 'pendiente')?.count || 0
       }
     });
 
@@ -3494,6 +3496,27 @@ router.get("/domicilio-virtual/:id", async (req, res) => {
         telefono: decrypt(answer.user.telefono)
       } : null,
     };
+
+    // Descifrar responses
+    if (answer.responses) {
+      const decryptedResponses = {};
+      for (const [key, value] of Object.entries(answer.responses)) {
+        decryptedResponses[key] = decrypt(value);
+      }
+      result.responses = decryptedResponses;
+    }
+
+    // Buscar adjuntos
+    const adjuntosDoc = await req.db.collection("adjuntos").findOne({ responseId: answer._id });
+    if (adjuntosDoc && adjuntosDoc.adjuntos) {
+      // Mapear adjuntos para que coincidan con la estructura esperada por el frontend
+      result.adjuntos = adjuntosDoc.adjuntos.map(adj => ({
+        ...adj,
+        // Asegurar campos necesarios
+        fileName: adj.fileName || adj.name,
+        mimeType: adj.mimeType || adj.type
+      }));
+    }
 
     res.json(result);
 
