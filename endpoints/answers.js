@@ -908,7 +908,7 @@ router.get("/mini", async (req, res) => {
 // ruta mini mejorada con capacidad de filtros 
 
 
-router.get("/respuestas/filtros", async (req, res) => {
+router.get("/filtros", async (req, res) => {
 
   const { decrypt } = require('../utils/seguridad.helper');
 
