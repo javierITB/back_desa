@@ -3291,80 +3291,125 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
 // Endpoint para guardar en colección 'domicilio_virtual'
 router.post("/domicilio-virtual", async (req, res) => {
   try {
-    const { formId, user, responses, formTitle, adjuntos = [], mail: correoRespaldo } = req.body;
+    const { formId, responses, formTitle, adjuntos = [] } = req.body;
 
+    // Importar solo tus funciones existentes
     const { encrypt } = require('../utils/seguridad.helper');
-    const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper");
-    const { generarAnexoDesdeRespuesta } = require("../utils/generador.helper");
-    const { addNotification } = require("../utils/notificaciones.helper");
-    const { validarToken } = require("../utils/validarToken.js");
-
-    console.log("=== INICIO GUARDAR DOMICILIO VIRTUAL ===");
 
     // Verificar formulario
     const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
     if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-    // CIFRAR LOS DATOS SENSIBLES (Reutilizando lógica de cifrado simple)
+    // Validar empresa autorizada
+    const empresaAutorizada = form.companies?.includes(empresa) || form.companies?.includes("Todas");
+    if (!empresaAutorizada) {
+      return res.status(403).json({ error: `La empresa ${empresa} no está autorizada.` });
+    }
+
+    // CIFRAR LOS DATOS SENSIBLES ANTES DE GUARDAR
+    console.log("Cifrando datos sensibles...");
+
+    // Función simple para cifrar un objeto completo campo por campo
     const cifrarObjeto = (obj) => {
       if (!obj || typeof obj !== 'object') return obj;
-      const { encrypt } = require('../utils/seguridad.helper');
+
       const resultado = {};
       for (const key in obj) {
         const valor = obj[key];
+
         if (typeof valor === 'string' && valor.trim() !== '' && !valor.includes(':')) {
+          // Cifrar strings que no estén ya cifrados
           resultado[key] = encrypt(valor);
         } else if (typeof valor === 'object' && valor !== null) {
+          // Si es objeto o array, procesar recursivamente
           if (Array.isArray(valor)) {
-            resultado[key] = valor.map(item => (typeof item === 'string' && !item.includes(':')) ? encrypt(item) : item);
+            resultado[key] = valor.map(item => {
+              if (typeof item === 'string' && item.trim() !== '' && !item.includes(':')) {
+                return encrypt(item);
+              } else if (typeof item === 'object' && item !== null) {
+                return cifrarObjeto(item);
+              }
+              return item;
+            });
           } else {
             resultado[key] = cifrarObjeto(valor);
           }
         } else {
+          // Otros tipos (number, boolean, null) se mantienen igual
           resultado[key] = valor;
         }
       }
       return resultado;
     };
 
-    const userCifrado = cifrarObjeto(user);
+    // 2. Cifrar objeto 'responses' campo por campo
     const responsesCifrado = cifrarObjeto(responses);
+    console.log("Objeto 'responses' cifrado");
 
-    // Insertar en colección 'domicilio_virtual'
+    // Guardar respuesta con datos CIFRADOS
     const result = await req.db.collection("domicilio_virtual").insertOne({
       formId,
-      user: userCifrado,
-      responses: responsesCifrado,
+      responses: responsesCifrado,  // ← CIFRADO campo por campo
       formTitle,
-      mail: correoRespaldo,
       status: "pendiente",
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
-    console.log(`Domicilio Virtual guardado con ID: ${result.insertedId}`);
+    console.log(`Respuesta guardada con ID: ${result.insertedId}`);
 
+    // Manejar adjuntos si existen
     if (adjuntos.length > 0) {
       await req.db.collection("adjuntos").insertOne({
         responseId: result.insertedId,
         submittedAt: new Date().toISOString(),
         adjuntos: []
       });
+      console.log(`Documento adjuntos creado`);
     }
 
-    // Respuesta exitosa
+    // Notificaciones (RRHH y Admin) - usar datos descifrados
+    const notifData = {
+      titulo: `Alguien ha respondido en Domicilio Virtual: ${formTitle}`,
+      descripcion: adjuntos.length > 0 ? `Incluye ${adjuntos.length} archivo(s)` : "Revisar en panel.",
+      prioridad: 2,
+      color: "#bb8900ff",
+      icono: "Edit",
+      actionUrl: `/RespuestasForms?id=${result.insertedId}`,
+    };
+
+    await addNotification(req.db, { filtro: { cargo: "RRHH" }, ...notifData });
+    await addNotification(req.db, { filtro: { cargo: "admin" }, ...notifData });
+    console.log("✓ Notificaciones a RRHH y Admin enviadas");
+
+
+    // Generar documento anexo (usar datos descifrados)
+    try {
+      await generarAnexoDesdeRespuesta(responses, result.insertedId.toString(), req.db, form.section, {
+        nombre: null,
+        empresa: null,
+        uid: null,
+      }, formId, formTitle);
+      console.log("✓ Documento anexo generado");
+    } catch (error) {
+      console.error("Error generando documento:", error.message);
+    }
+
+    // Respuesta al frontend con datos DESCIFRADOS (como espera el frontend)
     res.json({
       _id: result.insertedId,
       formId,
-      user,
-      responses,
+      responses,  // ← Datos descifrados
       formTitle,
-      message: "Guardado en Domicilio Virtual exitosamente"
+      message: "Respuesta guardada exitosamente con cifrado PQC"
     });
 
   } catch (err) {
-    console.error("Error guardar domicilio virtual:", err);
-    res.status(500).json({ error: "Error interno: " + err.message });
+    console.error("Error al guardar respuesta PQC:", err);
+    res.status(500).json({
+      error: "Error al guardar respuesta: " + err.message,
+      step: "cifrado_pqc"
+    });
   }
 });
 
@@ -3501,7 +3546,11 @@ router.get("/domicilio-virtual/:id", async (req, res) => {
     if (answer.responses) {
       const decryptedResponses = {};
       for (const [key, value] of Object.entries(answer.responses)) {
-        decryptedResponses[key] = decrypt(value);
+        try {
+          decryptedResponses[key] = decrypt(value);
+        } catch (e) {
+          decryptedResponses[key] = value;
+        }
       }
       result.responses = decryptedResponses;
     }
@@ -3524,6 +3573,127 @@ router.get("/domicilio-virtual/:id", async (req, res) => {
     console.error("Error en GET /domicilio-virtual/:id:", err);
     res.status(500).json({ error: "Error interno" });
   }
+});
+
+// --- ENDPOINTS AUXILIARES PARA DOMICILIO VIRTUAL ---
+
+// 1. Obtener adjuntos
+router.get("/domicilio-virtual/:id/adjuntos", async (req, res) => {
+  try {
+    const { ObjectId } = require("mongodb");
+    const adjuntosDoc = await req.db.collection("adjuntos").findOne({
+      responseId: new ObjectId(req.params.id)
+    });
+
+    if (!adjuntosDoc || !adjuntosDoc.adjuntos) {
+      return res.json([]);
+    }
+    res.json(adjuntosDoc.adjuntos);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al obtener adjuntos" });
+  }
+});
+
+// 2. Descargar adjunto específico
+router.get("/domicilio-virtual/:id/adjuntos/:index", async (req, res) => {
+  try {
+    const { ObjectId, GridFSBucket } = require("mongodb");
+    const index = parseInt(req.params.index);
+
+    const adjuntosDoc = await req.db.collection("adjuntos").findOne({
+      responseId: new ObjectId(req.params.id)
+    });
+
+    if (!adjuntosDoc || !adjuntosDoc.adjuntos || !adjuntosDoc.adjuntos[index]) {
+      return res.status(404).json({ error: "Adjunto no encontrado" });
+    }
+
+    const adjunto = adjuntosDoc.adjuntos[index];
+    const bucket = new GridFSBucket(req.db, { bucketName: 'adjuntos' });
+
+    if (!adjunto.fileId) {
+      return res.status(404).json({ error: "Archivo físico no encontrado" });
+    }
+
+    const downloadStream = bucket.openDownloadStream(new ObjectId(adjunto.fileId));
+
+    res.set('Content-Type', adjunto.mimeType || 'application/octet-stream');
+    res.set('Content-Disposition', `attachment; filename="${adjunto.fileName}"`);
+
+    downloadStream.pipe(res);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al descargar adjunto" });
+  }
+});
+
+// 3. Cambiar estado
+router.put("/domicilio-virtual/:id/status", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const { ObjectId } = require("mongodb");
+    const { status } = req.body;
+
+    await req.db.collection("domicilio_virtual").updateOne(
+      { _id: new ObjectId(req.params.id) },
+      {
+        $set: {
+          status: status,
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    const updatedRequest = await req.db.collection("domicilio_virtual").findOne({ _id: new ObjectId(req.params.id) });
+
+    const { decrypt } = require('../utils/seguridad.helper');
+    if (updatedRequest.user) {
+      try { updatedRequest.user.nombre = decrypt(updatedRequest.user.nombre); } catch (e) { }
+      try { updatedRequest.user.empresa = decrypt(updatedRequest.user.empresa); } catch (e) { }
+    }
+
+    res.json({ success: true, updatedRequest });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error actualizando estado" });
+  }
+});
+
+// 4. Client Signature Check (Mock)
+router.get("/domicilio-virtual/:id/has-client-signature", async (req, res) => {
+  res.json({ exists: false });
+});
+
+// 5. Data Approved (Mock)
+router.get("/domicilio-virtual/data-approved/:id", async (req, res) => {
+  res.json(null);
+});
+
+// 6. Upload Corrected Files (Mock)
+router.post("/domicilio-virtual/upload-corrected-files", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+    res.status(501).json({ error: "Subida de correcciones no implementada para Domicilio Virtual" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/domicilio-virtual/:id/approve", async (req, res) => {
+  try {
+    const { ObjectId } = require("mongodb");
+    await req.db.collection("domicilio_virtual").updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { status: 'aprobado', updatedAt: new Date() } }
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 module.exports = router;
