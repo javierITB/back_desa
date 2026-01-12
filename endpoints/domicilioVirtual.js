@@ -88,42 +88,45 @@ router.get("/mini", async (req, res) => {
         ]);
 
         const answersProcessed = answers.map(answer => {
-            const getDecryptedResponse = (keys) => {
-                for (let key of keys) {
-                    if (answer.responses && answer.responses[key]) {
+            // Lógica para extraer y desencriptar buscando llaves exactas de tu BD
+            const getVal = (keys) => {
+                const responseKeys = Object.keys(answer.responses || {});
+                for (let searchKey of keys) {
+                    // Buscamos la llave ignorando mayúsculas y quitando el ":" para que coincida
+                    const actualKey = responseKeys.find(k =>
+                        k.toLowerCase().trim().replace(":", "") === searchKey.toLowerCase()
+                    );
+
+                    if (actualKey && answer.responses[actualKey]) {
                         try {
-                            return decrypt(answer.responses[key]);
-                        } catch (e) { return answer.responses[key]; }
+                            return decrypt(answer.responses[actualKey]);
+                        } catch (e) {
+                            return answer.responses[actualKey];
+                        }
                     }
                 }
                 return "No especificado";
             };
 
-            const trabajador = getDecryptedResponse(["Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador"]);
-            const rutTrabajador = getDecryptedResponse(["RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador"]);
-            const tuNombre = (() => {
-                const keys = Object.keys(answer.responses || {});
-                const exactKey = keys.find(k => k.trim().toLowerCase() === 'tu nombre' || k.trim().toLowerCase() === 'nombre' || k.trim().toLowerCase() === 'nombre completo');
-                const fuzzyKey = keys.find(k => k.toLowerCase().includes('nombre') && !k.toLowerCase().includes('empresa') && !k.toLowerCase().includes('trabajador'));
-                const key = exactKey || fuzzyKey;
-                if (key && answer.responses[key]) {
-                    try { return decrypt(answer.responses[key]); } catch (e) { return answer.responses[key]; }
-                }
-                return "No especificado";
-            })();
+            // Extracción basada estrictamente en tu ejemplo de base de datos
+            const nombreCliente = getVal(["tu nombre", "nombre o razón social"]);
+            const rutCliente = getVal(["rut de la empresa", "rut representante legal"]);
 
             return {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                trabajador,
-                rutTrabajador,
-                tuNombre,
+                // Mantenemos los nombres de variables que espera tu Index.js
+                trabajador: nombreCliente,
+                rutTrabajador: rutCliente,
+                tuNombre: nombreCliente,
                 submittedAt: answer.submittedAt || answer.createdAt,
-                user: answer.user ? {
-                    nombre: decrypt(answer.user.nombre),
-                    empresa: decrypt(answer.user.empresa)
-                } : answer.user,
+                // Eliminamos la dependencia del objeto user.empresa/nombre original
+                // y le pasamos los datos reales del formulario por si la UI los usa
+                user: {
+                    nombre: nombreCliente,
+                    empresa: rutCliente
+                },
                 status: answer.status,
                 createdAt: answer.createdAt,
                 adjuntosCount: 0
@@ -154,7 +157,6 @@ router.get("/mini", async (req, res) => {
         res.status(500).json({ error: "Error interno al obtener domicilio virtual" });
     }
 });
-
 // 2. Obtener detalle (GET /:id)
 router.get("/:id", async (req, res) => {
     try {
