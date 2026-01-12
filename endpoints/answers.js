@@ -909,140 +909,104 @@ router.get("/mini", async (req, res) => {
 
 
 router.get("/filtros", async (req, res) => {
-
-  const { decrypt } = require('../utils/seguridad.helper');
-
-
   try {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    // 1. Obtener parámetros de paginación y filtros de la URL
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 30;
-    const skip = (page - 1) * limit;
-
     const { status, company, search, startDate, endDate } = req.query;
 
-    // 2. Construir el objeto de búsqueda dinámico (La "Mejora")
+    // 1. Filtros de Base de Datos (Solo para campos NO encriptados)
     let query = {};
-
-    if (status && status !== "") {
-      query["status"] = status;
-    }
-
-    if (company) {
-      query["user.empresa"] = { $regex: company, $options: "i" };
-    }
-
+    if (status) query.status = status;
+    
+    // Si formTitle no está encriptado, se puede filtrar en DB
     if (search) {
-      query.$or = [
-        { "formTitle": { $regex: search, $options: "i" } },
-        { "user.nombre": { $regex: search, $options: "i" } },
-        { "responses.Nombre del trabajador": { $regex: search, $options: "i" } },
-        { "responses.NOMBRE DEL TRABAJADOR": { $regex: search, $options: "i" } },
-        { "responses.Nombre Del Trabajador": { $regex: search, $options: "i" } },
-        { "responses.Nombre del Trabajador": { $regex: search, $options: "i" } }
-      ];
+      query.formTitle = { $regex: search, $options: "i" };
     }
 
     if (startDate || endDate) {
       query.createdAt = {};
       if (startDate) query.createdAt.$gte = new Date(startDate);
-      if (endDate) query.createdAt.$lte = new Date(endDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
     }
 
     const collection = req.db.collection("respuestas");
 
-    // 3. Ejecución en paralelo (Igual que /mini pero con 'query')
-    const [answers, totalCount, statusCounts] = await Promise.all([
-      collection.find(query)
-        .sort({ createdAt: -1 }) // Los más nuevos primero, igual que antes
-        .skip(skip)
-        .limit(limit)
-        .project({
-          _id: 1,
-          formId: 1,
-          formTitle: 1,
-          "responses": 1,
-          submittedAt: 1,
-          "user.nombre": 1,
-          "user.empresa": 1,
-          status: 1,
-          createdAt: 1,
-          adjuntosCount: 1
-        })
-        .toArray(),
-      collection.countDocuments(query),
-      collection.aggregate([
-        { $match: query }, // Filtramos los stats para que coincidan con la búsqueda
-        { $group: { _id: "$status", count: { $sum: 1 } } }
-      ]).toArray()
-    ]);
+    // 2. Traer los datos (Si hay búsqueda por texto encriptado, limitamos menos para filtrar en JS)
+    // Nota: Si el volumen es masivo, esto requiere paginación previa o el Blind Index mencionado.
+    const answers = await collection.find(query)
+      .sort({ createdAt: -1 })
+      .toArray();
 
-    // 4. Lógica de descifrado y procesamiento (Tu lógica original de /mini)
-    const answersProcessed = answers.map(answer => {
-      const getDecryptedResponse = (keys) => {
-        for (let key of keys) {
-          if (answer.responses && answer.responses[key]) {
-            try {
-              return decrypt(answer.responses[key]);
-            } catch (e) { return answer.responses[key]; }
-          }
+    // 3. Procesamiento y Desencriptación
+    let answersProcessed = answers.map(answer => {
+      const getDecryptedResponse = (possibleKeys) => {
+        if (!answer.responses) return "No especificado";
+        const existingKey = possibleKeys.find(key => answer.responses[key] !== undefined);
+        if (existingKey) {
+          try {
+            return decrypt(answer.responses[existingKey]);
+          } catch (e) { return answer.responses[existingKey]; }
         }
         return "No especificado";
       };
 
+      const trabajador = getDecryptedResponse([
+        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "Nombre del Trabajador"
+      ]);
+      
+      const nombreUsuario = answer.user?.nombre ? (async () => {
+        try { return decrypt(answer.user.nombre); } catch { return answer.user.nombre; }
+      })() : 'Usuario Desconocido';
+
       return {
-        _id: answer._id,
-        formId: answer.formId,
-        formTitle: answer.formTitle,
-        trabajador: getDecryptedResponse([
-          "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador",
-          "Nombre del Trabajador", "Nombre Del trabajador "
-        ]),
-        rutTrabajador: getDecryptedResponse([
-          "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador",
-          "Rut del Trabajador", "Rut Del trabajador "
-        ]),
-        submittedAt: answer.submittedAt,
-        user: answer.user ? {
-          nombre: decrypt(answer.user.nombre),
-          empresa: decrypt(answer.user.empresa)
-        } : answer.user,
-        // Añadimos estos campos para compatibilidad con RequestCard.jsx
-        submittedBy: answer.user ? decrypt(answer.user.nombre) : 'Usuario Desconocido',
-        company: answer.user ? decrypt(answer.user.empresa) : 'Empresa Desconocida',
-        status: answer.status,
-        createdAt: answer.createdAt,
-        adjuntosCount: answer.adjuntosCount || 0
+        ...answer,
+        trabajador,
+        submittedBy: nombreUsuario,
+        // ... (resto de tus mapeos)
       };
     });
 
-    // 5. Estructura de respuesta EXACTA a /mini
+    // 4. FILTRADO MANUAL (Búsqueda en datos ya desencriptados)
+    if (search) {
+      const s = search.toLowerCase();
+      answersProcessed = answersProcessed.filter(a => 
+        a.trabajador.toLowerCase().includes(s) || 
+        a.formTitle.toLowerCase().includes(s)
+      );
+    }
+
+    // 5. Paginación manual de los resultados filtrados
+    const totalCount = answersProcessed.length;
+    const paginatedData = answersProcessed.slice((page - 1) * limit, page * limit);
+
+    // 6. Stats (Basados en el query original de DB)
+    const statusCounts = await collection.aggregate([
+      { $match: query },
+      { $group: { _id: "$status", count: { $sum: 1 } } }
+    ]).toArray();
+
     res.json({
       success: true,
-      data: answersProcessed,
+      data: paginatedData,
       pagination: {
         total: totalCount,
-        page: page,
-        limit: limit,
+        page,
+        limit,
         totalPages: Math.ceil(totalCount / limit)
       },
-      stats: {
-        total: totalCount,
-        pending: statusCounts.find(s => s._id === 'pendiente')?.count || 0,
-        inReview: statusCounts.find(s => s._id === 'en_revision')?.count || 0,
-        approved: statusCounts.find(s => s._id === 'aprobado')?.count || 0,
-        rejected: statusCounts.find(s => s._id === 'firmado')?.count || 0,
-        finalized: statusCounts.find(s => s._id === 'finalizado')?.count || 0,
-        archived: statusCounts.find(s => s._id === 'archivado')?.count || 0
-      }
+      stats: Object.fromEntries(statusCounts.map(s => [s._id, s.count]))
     });
 
   } catch (err) {
-    console.error("Error en /respuestas/filtros:", err);
-    res.status(500).json({ error: "Error al obtener formularios filtrados" });
+    console.error("Error:", err);
+    res.status(500).json({ error: "Error interno" });
   }
 });
 
