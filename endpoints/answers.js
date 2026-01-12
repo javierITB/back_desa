@@ -3291,7 +3291,7 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
 // Endpoint para guardar en colección 'domicilio_virtual'
 router.post("/domicilio-virtual", async (req, res) => {
   try {
-    const { formId, user, responses, formTitle, adjuntos = [], mail: correoRespaldo } = req.body;
+    const { formId, responses, formTitle, adjuntos = [] } = req.body;
 
     // Importar solo tus funciones existentes
     const { encrypt } = require('../utils/seguridad.helper');
@@ -3363,7 +3363,7 @@ router.post("/domicilio-virtual", async (req, res) => {
       await req.db.collection("adjuntos").insertOne({
         responseId: result.insertedId,
         submittedAt: new Date().toISOString(),
-        adjuntos: []
+        adjuntos: adjuntos
       });
       console.log(`Documento adjuntos creado`);
     }
@@ -3458,12 +3458,17 @@ router.get("/domicilio-virtual/mini", async (req, res) => {
         "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador"
       ]);
 
+      const tuNombre = getDecryptedResponse([
+        "Tu nombre", "TU NOMBRE", "tu nombre"
+      ]);
+
       return {
         _id: answer._id,
         formId: answer.formId,
         formTitle: answer.formTitle,
         trabajador,
         rutTrabajador,
+        tuNombre,
         submittedAt: answer.submittedAt || answer.createdAt,
         user: answer.user ? {
           nombre: decrypt(answer.user.nombre),
