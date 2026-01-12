@@ -913,17 +913,16 @@ router.get("/filtros", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
+    // 1. Parámetros de la URL
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 30;
     const { status, company, search, startDate, endDate } = req.query;
 
-    // 1. Filtros de Base de Datos (Solo para campos NO encriptados)
+    // 2. Query inicial de Base de Datos (Campos no encriptados)
     let query = {};
-    if (status) query.status = status;
-    
-    // Si formTitle no está encriptado, se puede filtrar en DB
-    if (search) {
-      query.formTitle = { $regex: search, $options: "i" };
+
+    if (status && status !== "") {
+      query["status"] = status;
     }
 
     if (startDate || endDate) {
@@ -938,75 +937,128 @@ router.get("/filtros", async (req, res) => {
 
     const collection = req.db.collection("respuestas");
 
-    // 2. Traer los datos (Si hay búsqueda por texto encriptado, limitamos menos para filtrar en JS)
-    // Nota: Si el volumen es masivo, esto requiere paginación previa o el Blind Index mencionado.
+    // 3. Obtenemos todos los registros que cumplen los filtros base de la DB
+    // No limitamos aquí porque necesitamos desencriptar para buscar por 'search'
     const answers = await collection.find(query)
       .sort({ createdAt: -1 })
       .toArray();
 
-    // 3. Procesamiento y Desencriptación
+    // 4. Procesamiento, Desencriptación y Mapeo
     let answersProcessed = answers.map(answer => {
+      
       const getDecryptedResponse = (possibleKeys) => {
         if (!answer.responses) return "No especificado";
         const existingKey = possibleKeys.find(key => answer.responses[key] !== undefined);
         if (existingKey) {
           try {
             return decrypt(answer.responses[existingKey]);
-          } catch (e) { return answer.responses[existingKey]; }
+          } catch (e) { 
+            return answer.responses[existingKey]; 
+          }
         }
         return "No especificado";
       };
 
+      const safeDecrypt = (val) => {
+        if (!val) return "";
+        try { return decrypt(val); } catch (e) { return val; }
+      };
+
+      // Extraemos los datos clave para la búsqueda y la respuesta
       const trabajador = getDecryptedResponse([
-        "Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "Nombre del Trabajador"
+        "Nombre del trabajador", 
+        "NOMBRE DEL TRABAJADOR", 
+        "Nombre del Trabajador",
+        "Nombre del solicitante responsable de la empresa"
       ]);
-      
-      const nombreUsuario = answer.user?.nombre ? (async () => {
-        try { return decrypt(answer.user.nombre); } catch { return answer.user.nombre; }
-      })() : 'Usuario Desconocido';
+
+      const rutTrabajador = getDecryptedResponse([
+        "RUT del trabajador", 
+        "RUT DEL TRABAJADOR", 
+        "Rut del Trabajador",
+        "rut"
+      ]);
+
+      const nombreUsuario = safeDecrypt(answer.user?.nombre);
+      const empresaUsuario = safeDecrypt(answer.user?.empresa);
 
       return {
-        ...answer,
-        trabajador,
-        submittedBy: nombreUsuario,
-        // ... (resto de tus mapeos)
+        _id: answer._id,
+        formId: answer.formId,
+        formTitle: answer.formTitle || 'Sin Título',
+        trabajador: trabajador,
+        rutTrabajador: rutTrabajador,
+        submittedAt: answer.submittedAt,
+        status: answer.status,
+        createdAt: answer.createdAt,
+        adjuntosCount: answer.adjuntosCount || 0,
+        submittedBy: nombreUsuario || 'Usuario Desconocido',
+        company: empresaUsuario || 'Empresa Desconocida',
+        user: {
+          nombre: nombreUsuario,
+          empresa: empresaUsuario
+        }
       };
     });
 
-    // 4. FILTRADO MANUAL (Búsqueda en datos ya desencriptados)
-    if (search) {
-      const s = search.toLowerCase();
-      answersProcessed = answersProcessed.filter(a => 
-        a.trabajador.toLowerCase().includes(s) || 
-        a.formTitle.toLowerCase().includes(s)
+    // 5. Filtrado en Memoria (Búsqueda por texto claro)
+    if (search && search.trim() !== "") {
+      const searchTerm = search.toLowerCase();
+      answersProcessed = answersProcessed.filter(item => {
+        return (
+          item.trabajador.toLowerCase().includes(searchTerm) ||
+          item.formTitle.toLowerCase().includes(searchTerm) ||
+          item.submittedBy.toLowerCase().includes(searchTerm) ||
+          item.company.toLowerCase().includes(searchTerm) ||
+          item.rutTrabajador.toLowerCase().includes(searchTerm)
+        );
+      });
+    }
+
+    // 6. Filtro por empresa (Si el campo empresa también está encriptado en DB)
+    if (company && company.trim() !== "") {
+      const compTerm = company.toLowerCase();
+      answersProcessed = answersProcessed.filter(item => 
+        item.company.toLowerCase().includes(compTerm)
       );
     }
 
-    // 5. Paginación manual de los resultados filtrados
+    // 7. Paginación manual tras el filtrado
     const totalCount = answersProcessed.length;
-    const paginatedData = answersProcessed.slice((page - 1) * limit, page * limit);
+    const skip = (page - 1) * limit;
+    const paginatedData = answersProcessed.slice(skip, skip + limit);
 
-    // 6. Stats (Basados en el query original de DB)
-    const statusCounts = await collection.aggregate([
-      { $match: query },
-      { $group: { _id: "$status", count: { $sum: 1 } } }
-    ]).toArray();
+    // 8. Stats de estados (Basados en el universo filtrado por fecha/status de DB)
+    // Para que los stats sean precisos, los calculamos del array procesado
+    const stats = {
+      total: totalCount,
+      pendiente: answersProcessed.filter(a => a.status === 'pendiente').length,
+      en_revision: answersProcessed.filter(a => a.status === 'en_revision').length,
+      aprobado: answersProcessed.filter(a => a.status === 'aprobado').length,
+      finalizado: answersProcessed.filter(a => a.status === 'finalizado').length,
+      archivado: answersProcessed.filter(a => a.status === 'archivado').length,
+      firmado: answersProcessed.filter(a => a.status === 'firmado').length
+    };
 
+    // 9. Respuesta final
     res.json({
       success: true,
       data: paginatedData,
       pagination: {
         total: totalCount,
-        page,
-        limit,
+        page: page,
+        limit: limit,
         totalPages: Math.ceil(totalCount / limit)
       },
-      stats: Object.fromEntries(statusCounts.map(s => [s._id, s.count]))
+      stats: stats
     });
 
   } catch (err) {
-    console.error("Error:", err);
-    res.status(500).json({ error: "Error interno" });
+    console.error("Error crítico en /filtros:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Error interno al procesar los filtros de búsqueda" 
+    });
   }
 });
 
