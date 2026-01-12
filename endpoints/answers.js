@@ -3300,11 +3300,11 @@ router.post("/domicilio-virtual", async (req, res) => {
     const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
     if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-    // Validar empresa autorizada
-    const empresaAutorizada = form.companies?.includes(empresa) || form.companies?.includes("Todas");
-    if (!empresaAutorizada) {
-      return res.status(403).json({ error: `La empresa ${empresa} no está autorizada.` });
-    }
+    // Validar empresa autorizada (Deshabilitado para Domicilio Virtual: acceso público)
+    // const empresaAutorizada = form.companies?.includes(empresa) || form.companies?.includes("Todas");
+    // if (!empresaAutorizada) {
+    //   return res.status(403).json({ error: `La empresa ${empresa} no está autorizada.` });
+    // }
 
     // CIFRAR LOS DATOS SENSIBLES ANTES DE GUARDAR
     console.log("Cifrando datos sensibles...");
