@@ -98,7 +98,16 @@ router.get("/mini", async (req, res) => {
 
             const trabajador = getDecryptedResponse(["Nombre del trabajador", "NOMBRE DEL TRABAJADOR", "nombre del trabajador"]);
             const rutTrabajador = getDecryptedResponse(["RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador"]);
-            const tuNombre = getDecryptedResponse(["Tu nombre", "TU NOMBRE", "tu nombre"]);
+            const tuNombre = (() => {
+                const keys = Object.keys(answer.responses || {});
+                const exactKey = keys.find(k => k.trim().toLowerCase() === 'tu nombre' || k.trim().toLowerCase() === 'nombre' || k.trim().toLowerCase() === 'nombre completo');
+                const fuzzyKey = keys.find(k => k.toLowerCase().includes('nombre') && !k.toLowerCase().includes('empresa') && !k.toLowerCase().includes('trabajador'));
+                const key = exactKey || fuzzyKey;
+                if (key && answer.responses[key]) {
+                    try { return decrypt(answer.responses[key]); } catch (e) { return answer.responses[key]; }
+                }
+                return "No especificado";
+            })();
 
             return {
                 _id: answer._id,
@@ -165,10 +174,24 @@ router.get("/:id", async (req, res) => {
         };
 
         if (answer.responses) {
+            const descifrarValor = (valor) => {
+                if (typeof valor === 'string' && valor.includes(':')) {
+                    try { return decrypt(valor); } catch (e) { return valor; }
+                }
+                if (Array.isArray(valor)) {
+                    return valor.map(item => descifrarValor(item));
+                }
+                if (typeof valor === 'object' && valor !== null) {
+                    const res = {};
+                    for (const k in valor) res[k] = descifrarValor(valor[k]);
+                    return res;
+                }
+                return valor;
+            };
+
             const decryptedResponses = {};
             for (const [key, value] of Object.entries(answer.responses)) {
-                try { decryptedResponses[key] = decrypt(value); }
-                catch (e) { decryptedResponses[key] = value; }
+                decryptedResponses[key] = descifrarValor(value);
             }
             result.responses = decryptedResponses;
         }
