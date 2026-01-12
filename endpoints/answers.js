@@ -3291,7 +3291,7 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
 // Endpoint para guardar en colección 'domicilio_virtual'
 router.post("/domicilio-virtual", async (req, res) => {
   try {
-    const { formId, responses, formTitle, adjuntos = [] } = req.body;
+    const { formId, user, responses, formTitle, adjuntos = [], mail: correoRespaldo } = req.body;
 
     // Importar solo tus funciones existentes
     const { encrypt } = require('../utils/seguridad.helper');
