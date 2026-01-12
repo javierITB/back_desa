@@ -72,8 +72,11 @@ router.get("/mini", async (req, res) => {
 
         const collection = req.db.collection("domicilio_virtual");
 
+        const filter = {};
+        if (req.query.status) filter.status = req.query.status;
+
         const [answers, totalCount, statusCounts] = await Promise.all([
-            collection.find({})
+            collection.find(filter)
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
