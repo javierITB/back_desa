@@ -939,10 +939,10 @@ router.get("/filtros", async (req, res) => {
       query.$or = [
         { "formTitle": { $regex: search, $options: "i" } },
         { "user.nombre": { $regex: search, $options: "i" } },
-        { "responses.Nombre del trabajador": { $regex: worker, $options: "i" } },
-        { "responses.NOMBRE DEL TRABAJADOR": { $regex: worker, $options: "i" } },
-        { "responses.Nombre Del Trabajador": { $regex: worker, $options: "i" } },
-        { "responses.Nombre del Trabajador": { $regex: worker, $options: "i" } }
+        { "responses.Nombre del trabajador": { $regex: search, $options: "i" } },
+        { "responses.NOMBRE DEL TRABAJADOR": { $regex: search, $options: "i" } },
+        { "responses.Nombre Del Trabajador": { $regex: search, $options: "i" } },
+        { "responses.Nombre del Trabajador": { $regex: search, $options: "i" } }
       ];
     }
 
