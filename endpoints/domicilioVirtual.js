@@ -252,7 +252,7 @@ router.post("/", async (req, res) => {
             formId,
             responses: responsesCifrado,
             formTitle,
-            status: "pendiente",
+            status: "documento_generado",
             createdAt: new Date(),
             updatedAt: new Date()
         });
