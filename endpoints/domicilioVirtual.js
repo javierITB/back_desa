@@ -268,6 +268,54 @@ router.post("/", async (req, res) => {
             });
         }
 
+        // CREAR TICKET AUTOMATICO
+        try {
+            // Extraer nombre del cliente (priorizando "Tu nombre")
+            let nombreCliente = "Cliente";
+            const keys = Object.keys(responses || {});
+
+            const tuNombreKey = keys.find(k => ['tu nombre', 'tu nombre:', 'nombre solicitante'].includes(k.trim().toLowerCase()));
+
+            const fuzzyNameKey = keys.find(k =>
+                k.toLowerCase().includes('nombre') &&
+                !k.toLowerCase().includes('empresa') &&
+                !k.toLowerCase().includes('trabajador') &&
+                !k.toLowerCase().includes('razón') &&
+                !k.toLowerCase().includes('razon') &&
+                !k.toLowerCase().includes('social')
+            );
+
+            const finalNameKey = tuNombreKey || fuzzyNameKey;
+
+            if (finalNameKey && responses[finalNameKey]) {
+                nombreCliente = responses[finalNameKey];
+            } else if (user && user.nombre) {
+                nombreCliente = user.nombre;
+            }
+
+            // Construir asunto
+            const ticketTitle = `${formTitle} - ${nombreCliente}`;
+
+            // Insertar ticket en soporte
+            await req.db.collection("soporte").insertOne({
+                formId: "ticket-automatico-dv",
+                user: user, // Se guarda el usuario asociado
+                responses: responses, // Se guardan las respuestas en texto plano para el ticket
+                formTitle: ticketTitle,
+                mail: "",
+                status: "pendiente",
+                priority: "alta",
+                relatedRequestId: result.insertedId, // Vinculación interna
+                origin: "domicilio_virtual",
+                createdAt: new Date(),
+                updatedAt: new Date()
+            });
+            console.log(`Ticket automático creado para solicitud ${result.insertedId}`);
+
+        } catch (ticketError) {
+            console.error("Error al crear ticket automático:", ticketError);
+        }
+
         // Notificaciones
         const notifData = {
             titulo: `Alguien ha respondido en Domicilio Virtual: ${formTitle}`,
