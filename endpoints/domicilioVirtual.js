@@ -66,49 +66,40 @@ router.get("/mini", async (req, res) => {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
+        // 1. Extraemos los parámetros
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 30;
-        const skip = (page - 1) * limit;
+        const { status, company, search } = req.query; // 'company' es el RUT desde el frontend
 
         const collection = req.db.collection("domicilio_virtual");
 
+        // 2. Filtro inicial de DB (Solo para campos NO encriptados)
         const filter = {};
-        if (req.query.status) filter.status = req.query.status;
+        if (status && status !== "") filter.status = status;
 
-        const [answers, totalCount, statusCounts] = await Promise.all([
-            collection.find(filter)
-                .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limit)
-                .toArray(),
-            collection.countDocuments({}),
-            collection.aggregate([
-                { $group: { _id: "$status", count: { $sum: 1 } } }
-            ]).toArray()
-        ]);
+        // Obtenemos todos los registros que cumplen el filtro de estado para procesarlos
+        // No limitamos aquí para poder buscar en el texto desencriptado
+        const answers = await collection.find(filter)
+            .sort({ createdAt: -1 })
+            .toArray();
 
-        const answersProcessed = answers.map(answer => {
-            // Lógica para extraer y desencriptar buscando llaves exactas de tu BD
+        // 3. Procesamiento y Desencriptación
+        let answersProcessed = answers.map(answer => {
             const getVal = (keys) => {
                 const responseKeys = Object.keys(answer.responses || {});
                 for (let searchKey of keys) {
-                    // Buscamos la llave ignorando mayúsculas y quitando el ":" para que coincida
                     const actualKey = responseKeys.find(k =>
                         k.toLowerCase().trim().replace(":", "") === searchKey.toLowerCase()
                     );
-
                     if (actualKey && answer.responses[actualKey]) {
                         try {
                             return decrypt(answer.responses[actualKey]);
-                        } catch (e) {
-                            return answer.responses[actualKey];
-                        }
+                        } catch (e) { return answer.responses[actualKey]; }
                     }
                 }
-                return "No especificado";
+                return "";
             };
 
-            // Extracción basada estrictamente en tu ejemplo de base de datos
             const nombreCliente = getVal(["tu nombre", "nombre o razón social"]);
             const rutCliente = getVal(["rut de la empresa", "rut representante legal"]);
 
@@ -116,13 +107,10 @@ router.get("/mini", async (req, res) => {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                // Mantenemos los nombres de variables que espera tu Index.js
                 trabajador: nombreCliente,
                 rutTrabajador: rutCliente,
                 tuNombre: nombreCliente,
                 submittedAt: answer.submittedAt || answer.createdAt,
-                // Eliminamos la dependencia del objeto user.empresa/nombre original
-                // y le pasamos los datos reales del formulario por si la UI los usa
                 user: {
                     nombre: nombreCliente,
                     empresa: rutCliente
@@ -133,9 +121,37 @@ router.get("/mini", async (req, res) => {
             };
         });
 
+        // 4. APLICACIÓN DE FILTROS EN MEMORIA (Esto es lo que faltaba para que funcione el RUT)
+        if (company && company.trim() !== "") {
+            const term = company.toLowerCase().trim();
+            answersProcessed = answersProcessed.filter(a =>
+                a.rutTrabajador.toLowerCase().includes(term)
+            );
+        }
+
+        if (search && search.trim() !== "") {
+            const term = search.toLowerCase().trim();
+            answersProcessed = answersProcessed.filter(a =>
+                a.tuNombre.toLowerCase().includes(term) ||
+                a.rutTrabajador.toLowerCase().includes(term) ||
+                a.formTitle.toLowerCase().includes(term)
+            );
+        }
+
+        // 5. Paginación manual tras el filtrado
+        const totalCount = answersProcessed.length;
+        const skip = (page - 1) * limit;
+        const paginatedData = answersProcessed.slice(skip, skip + limit);
+
+        // 6. Stats de estados (Calculados sobre el total filtrado para coherencia visual)
+        // Obtenemos conteos originales de la DB para los badges superiores
+        const statusCounts = await collection.aggregate([
+            { $group: { _id: "$status", count: { $sum: 1 } } }
+        ]).toArray();
+
         res.json({
             success: true,
-            data: answersProcessed,
+            data: paginatedData,
             pagination: {
                 total: totalCount,
                 page: page,
@@ -143,7 +159,7 @@ router.get("/mini", async (req, res) => {
                 totalPages: Math.ceil(totalCount / limit)
             },
             stats: {
-                total: totalCount,
+                total: totalCount, // Total según los filtros aplicados
                 documento_generado: statusCounts.find(s => s._id === 'documento_generado')?.count || 0,
                 solicitud_firmada: statusCounts.find(s => s._id === 'solicitud_firmada')?.count || 0,
                 informado_sii: statusCounts.find(s => s._id === 'informado_sii')?.count || 0,
@@ -154,7 +170,7 @@ router.get("/mini", async (req, res) => {
         });
     } catch (err) {
         console.error("Error en GET /mini:", err);
-        res.status(500).json({ error: "Error interno al obtener domicilio virtual" });
+        res.status(500).json({ error: "Error interno al filtrar solicitudes" });
     }
 });
 // 2. Obtener detalle (GET /:id)
