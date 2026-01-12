@@ -298,7 +298,7 @@ router.post("/", async (req, res) => {
 
             // Insertar ticket en soporte
             await req.db.collection("soporte").insertOne({
-                formId: "ticket-automatico-dv",
+                formId: formId, // Usar ID real del formulario para que aparezca en panel admin
                 user: user, // Se guarda el usuario asociado
                 responses: responses, // Se guardan las respuestas en texto plano para el ticket
                 formTitle: ticketTitle,
