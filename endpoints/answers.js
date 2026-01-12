@@ -938,7 +938,11 @@ router.get("/filtros", async (req, res) => {
     if (search) {
       query.$or = [
         { "formTitle": { $regex: search, $options: "i" } },
-        { "user.nombre": { $regex: search, $options: "i" } }
+        { "user.nombre": { $regex: search, $options: "i" } },
+        { "responses.Nombre del trabajador": { $regex: worker, $options: "i" } },
+        { "responses.NOMBRE DEL TRABAJADOR": { $regex: worker, $options: "i" } },
+        { "responses.Nombre Del Trabajador": { $regex: worker, $options: "i" } },
+        { "responses.Nombre del Trabajador": { $regex: worker, $options: "i" } }
       ];
     }
 
@@ -3291,7 +3295,7 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
 // Endpoint para guardar en colección 'domicilio_virtual'
 router.post("/domicilio-virtual", async (req, res) => {
   try {
-    const { formId, responses, formTitle, adjuntos = [], empresa } = req.body;
+    const { formId, responses, formTitle, adjuntos = []} = req.body;
 
     // Importar solo tus funciones existentes
     const { encrypt } = require('../utils/seguridad.helper');
@@ -3300,11 +3304,11 @@ router.post("/domicilio-virtual", async (req, res) => {
     const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
     if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-    // Validar empresa autorizada (Deshabilitado para Domicilio Virtual: acceso público)
-    // const empresaAutorizada = form.companies?.includes(empresa) || form.companies?.includes("Todas");
-    // if (!empresaAutorizada) {
-    //   return res.status(403).json({ error: `La empresa ${empresa} no está autorizada.` });
-    // }
+    // Validar empresa autorizada
+    const empresaAutorizada = form.companies?.includes(empresa) || form.companies?.includes("Todas");
+    if (!empresaAutorizada) {
+      return res.status(403).json({ error: `La empresa ${empresa} no está autorizada.` });
+    }
 
     // CIFRAR LOS DATOS SENSIBLES ANTES DE GUARDAR
     console.log("Cifrando datos sensibles...");
@@ -3363,7 +3367,7 @@ router.post("/domicilio-virtual", async (req, res) => {
       await req.db.collection("adjuntos").insertOne({
         responseId: result.insertedId,
         submittedAt: new Date().toISOString(),
-        adjuntos: adjuntos
+        adjuntos: []
       });
       console.log(`Documento adjuntos creado`);
     }
@@ -3458,17 +3462,12 @@ router.get("/domicilio-virtual/mini", async (req, res) => {
         "RUT del trabajador", "RUT DEL TRABAJADOR", "rut del trabajador"
       ]);
 
-      const tuNombre = getDecryptedResponse([
-        "Tu nombre", "TU NOMBRE", "tu nombre"
-      ]);
-
       return {
         _id: answer._id,
         formId: answer.formId,
         formTitle: answer.formTitle,
         trabajador,
         rutTrabajador,
-        tuNombre,
         submittedAt: answer.submittedAt || answer.createdAt,
         user: answer.user ? {
           nombre: decrypt(answer.user.nombre),
@@ -3551,11 +3550,7 @@ router.get("/domicilio-virtual/:id", async (req, res) => {
     if (answer.responses) {
       const decryptedResponses = {};
       for (const [key, value] of Object.entries(answer.responses)) {
-        try {
-          decryptedResponses[key] = decrypt(value);
-        } catch (e) {
-          decryptedResponses[key] = value;
-        }
+        decryptedResponses[key] = decrypt(value);
       }
       result.responses = decryptedResponses;
     }
@@ -3576,7 +3571,7 @@ router.get("/domicilio-virtual/:id", async (req, res) => {
 
   } catch (err) {
     console.error("Error en GET /domicilio-virtual/:id:", err);
-    res.status(500).json({ error: "Error interno" });
+    res.status(500).json({ error: "Error interno: " + err.message });
   }
 });
 
@@ -3679,23 +3674,46 @@ router.get("/domicilio-virtual/data-approved/:id", async (req, res) => {
   res.json(null);
 });
 
-// 6. Upload Corrected Files (Mock)
+// 6. Upload Corrected Files (for Domicilio Virtual we save them to 'adjuntos' or 'corrected_files' linked to responseId)
+//    Reusing logic mostly, but targeting 'domicilio_virtual' ID.
 router.post("/domicilio-virtual/upload-corrected-files", async (req, res) => {
   try {
+    // Ideally use same upload logic as /respuestas/upload-corrected-files
+    // forcing responseId to be valid in domicilio_virtual
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    // Implementation skipped for brevity unless requested, returning success mock
+    // to prevent 404 if frontend calls it.
+    // In a real scenario, we'd need multer and gridfs logic here.
+    // For now, let's assume we won't use the full 'correction' flow on Domicilio Virtual 
+    // unless user explicitly asks for 'Subir Correcciones'.
+    // But to avoid 404:
     res.status(501).json({ error: "Subida de correcciones no implementada para Domicilio Virtual" });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// 7. Remove correction
+router.delete("/domicilio-virtual/:id/remove-correction", async (req, res) => {
+  res.status(501).json({ error: "No implementado" });
+});
+
+// 8. Delete uploaded file
+router.delete("/domicilio-virtual/delete-corrected-file/:id", async (req, res) => {
+  res.status(501).json({ error: "No implementado" });
+});
+
+// 9. Approve (POST)
 router.post("/domicilio-virtual/:id/approve", async (req, res) => {
+  // Just update status to 'solicitud_firmada' or 'aprobado'
   try {
     const { ObjectId } = require("mongodb");
     await req.db.collection("domicilio_virtual").updateOne(
       { _id: new ObjectId(req.params.id) },
-      { $set: { status: 'aprobado', updatedAt: new Date() } }
+      { $set: { status: 'aprobado', updatedAt: new Date() } } // Or custom logic
     );
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
