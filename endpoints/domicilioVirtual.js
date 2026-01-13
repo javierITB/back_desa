@@ -719,4 +719,93 @@ router.get("/:id/has-client-signature", async (req, res) => {
     res.json({ exists: false });
 });
 
+// 15. Regenerar documento (POST /:id/regenerate-document)
+router.post("/:id/regenerate-document", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Verificar token
+        const auth = await verifyRequest(req);
+        if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+        console.log(`Regenerando documento Domicilio Virtual para respuesta: ${id}`);
+
+        const respuesta = await req.db.collection("domicilio_virtual").findOne({
+            _id: new ObjectId(id)
+        });
+
+        if (!respuesta) {
+            return res.status(404).json({ error: "Respuesta no encontrada" });
+        }
+
+        const form = await req.db.collection("forms").findOne({
+            _id: new ObjectId(respuesta.formId)
+        });
+
+        if (!form) {
+            return res.status(404).json({ error: "Formulario original no encontrado" });
+        }
+
+        try {
+            // Si el usuario en la respuesta tiene datos cifrados, descifrarlos
+            let nombreUsuario = respuesta.user?.nombre;
+            let empresaUsuario = respuesta.user?.empresa;
+            let uidUsuario = respuesta.user?.uid;
+            let mailUsuario = respuesta.user?.mail;
+
+            // Intentar descifrar el nombre si parece estar cifrado
+            if (nombreUsuario && nombreUsuario.includes(':')) {
+                try { nombreUsuario = decrypt(nombreUsuario); } catch (e) { }
+            }
+
+            // Intentar descifrar la empresa si parece estar cifrada
+            if (empresaUsuario && empresaUsuario.includes(':')) {
+                try { empresaUsuario = decrypt(empresaUsuario); } catch (e) { }
+            }
+
+            // Intentar descifrar el mail si parece estar cifrado
+            if (mailUsuario && mailUsuario.includes(':')) {
+                try { mailUsuario = decrypt(mailUsuario); } catch (e) { }
+            }
+
+            await generarAnexoDesdeRespuesta(
+                respuesta.responses,
+                respuesta._id.toString(),
+                req.db,
+                form.section,
+                {
+                    nombre: nombreUsuario,
+                    empresa: empresaUsuario,
+                    uid: uidUsuario,
+                    mail: mailUsuario
+                },
+                respuesta.formId,
+                respuesta.formTitle
+            );
+
+            console.log(`Documento regenerado exitosamente para Domicilio Virtual: ${id}`);
+
+            // Actualizar timestamp
+            await req.db.collection("domicilio_virtual").updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { updatedAt: new Date(), status: "documento_generado" } }
+            );
+
+            res.json({
+                success: true,
+                message: "Documento regenerado exitosamente",
+                responseId: id
+            });
+
+        } catch (genError) {
+            console.error("Error generando documento:", genError);
+            return res.status(500).json({ error: "Error generando documento: " + genError.message });
+        }
+
+    } catch (err) {
+        console.error("Error en regeneración manual:", err);
+        res.status(500).json({ error: "Error interno: " + err.message });
+    }
+});
+
 module.exports = router;
