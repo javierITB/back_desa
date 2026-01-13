@@ -496,6 +496,7 @@ router.post("/verify-login-2fa", async (req, res) => {
       const usr = {
          name: userName,
          email: userEmail,
+         rol: user.cargo,
          cargo: user.rol,
          userId: userId,
       };
