@@ -66,29 +66,56 @@ router.get("/mini", async (req, res) => {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-        // 1. Extraemos los parámetros
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 30;
-        const { status, company, search } = req.query; // 'company' es el RUT desde el frontend
+        const { status, company, search, submittedBy, dateRange, startDate, endDate } = req.query; 
 
         const collection = req.db.collection("domicilio_virtual");
 
-        // 2. Filtro inicial de DB (Solo para campos NO encriptados)
+        // 1. CONSTRUCCIÓN DEL FILTRO DE BASE DE DATOS
         const filter = {};
         if (status && status !== "") filter.status = status;
 
-        // Obtenemos todos los registros que cumplen el filtro de estado para procesarlos
-        // No limitamos aquí para poder buscar en el texto desencriptado
+        // Lógica de Fechas (startDate / endDate)
+        if (startDate || endDate) {
+            filter.createdAt = {};
+            if (startDate) filter.createdAt.$gte = new Date(startDate);
+            if (endDate) {
+                const end = new Date(endDate);
+                end.setHours(23, 59, 59, 999);
+                filter.createdAt.$lte = end;
+            }
+        } 
+        // Lógica de Período Predefinido (dateRange)
+        else if (dateRange && dateRange !== "") {
+            const now = new Date();
+            const startOfPeriod = new Date();
+            startOfPeriod.setHours(0, 0, 0, 0);
+
+            if (dateRange === 'today') {
+                filter.createdAt = { $gte: startOfPeriod };
+            } else if (dateRange === 'week') {
+                const day = startOfPeriod.getDay();
+                const diff = startOfPeriod.getDate() - day + (day === 0 ? -6 : 1);
+                filter.createdAt = { $gte: new Date(startOfPeriod.setDate(diff)) };
+            } else if (dateRange === 'month') {
+                filter.createdAt = { $gte: new Date(now.getFullYear(), now.getMonth(), 1) };
+            } else if (dateRange === 'year') {
+                filter.createdAt = { $gte: new Date(now.getFullYear(), 0, 1) };
+            }
+        }
+
+        // 2. EJECUCIÓN EN DB (Ya filtrado por fecha y estado)
         const answers = await collection.find(filter)
             .sort({ createdAt: -1 })
             .toArray();
 
-        // 3. Procesamiento y Desencriptación
+        // 3. PROCESAMIENTO Y DESENCRIPTACIÓN
         let answersProcessed = answers.map(answer => {
             const getVal = (keys) => {
                 const responseKeys = Object.keys(answer.responses || {});
                 for (let searchKey of keys) {
-                    const actualKey = responseKeys.find(k =>
+                    const actualKey = responseKeys.find(k => 
                         k.toLowerCase().trim().replace(":", "") === searchKey.toLowerCase()
                     );
                     if (actualKey && answer.responses[actualKey]) {
@@ -100,51 +127,44 @@ router.get("/mini", async (req, res) => {
                 return "";
             };
 
-            const nombreCliente = getVal(["tu nombre", "nombre o razón social"]);
+            const nombreCliente = getVal(["tu nombre", "nombre o razón social", "nombre"]);
             const rutCliente = getVal(["rut de la empresa", "rut representante legal"]);
 
             return {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                trabajador: nombreCliente,
-                rutTrabajador: rutCliente,
-                tuNombre: nombreCliente,
+                tuNombre: nombreCliente, 
+                rutEmpresa: rutCliente,
                 submittedAt: answer.submittedAt || answer.createdAt,
-                user: {
-                    nombre: nombreCliente,
-                    empresa: rutCliente
-                },
                 status: answer.status,
                 createdAt: answer.createdAt,
                 adjuntosCount: 0
             };
         });
 
-        // 4. APLICACIÓN DE FILTROS EN MEMORIA (Esto es lo que faltaba para que funcione el RUT)
+        // 4. FILTROS EN MEMORIA (Texto desencriptado)
         if (company && company.trim() !== "") {
             const term = company.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a =>
-                a.rutTrabajador.toLowerCase().includes(term)
-            );
+            answersProcessed = answersProcessed.filter(a => a.rutEmpresa.toLowerCase().includes(term));
+        }
+
+        if (submittedBy && submittedBy.trim() !== "") {
+            const term = submittedBy.toLowerCase().trim();
+            answersProcessed = answersProcessed.filter(a => a.tuNombre.toLowerCase().includes(term));
         }
 
         if (search && search.trim() !== "") {
             const term = search.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a =>
-                a.tuNombre.toLowerCase().includes(term) ||
-                a.rutTrabajador.toLowerCase().includes(term) ||
-                a.formTitle.toLowerCase().includes(term)
+            answersProcessed = answersProcessed.filter(a => 
+                a.tuNombre.toLowerCase().includes(term) || a.rutEmpresa.toLowerCase().includes(term)
             );
         }
 
-        // 5. Paginación manual tras el filtrado
-        const totalCount = answersProcessed.length;
-        const skip = (page - 1) * limit;
-        const paginatedData = answersProcessed.slice(skip, skip + limit);
+        // 5. RESPUESTA Y PAGINACIÓN
+        const totalFiltered = answersProcessed.length;
+        const paginatedData = answersProcessed.slice((page - 1) * limit, page * limit);
 
-        // 6. Stats de estados (Calculados sobre el total filtrado para coherencia visual)
-        // Obtenemos conteos originales de la DB para los badges superiores
         const statusCounts = await collection.aggregate([
             { $group: { _id: "$status", count: { $sum: 1 } } }
         ]).toArray();
@@ -153,24 +173,23 @@ router.get("/mini", async (req, res) => {
             success: true,
             data: paginatedData,
             pagination: {
-                total: totalCount,
+                total: totalFiltered,
                 page: page,
                 limit: limit,
-                totalPages: Math.ceil(totalCount / limit)
+                totalPages: Math.ceil(totalFiltered / limit)
             },
             stats: {
-                total: totalCount, // Total según los filtros aplicados
+                total: totalFiltered,
                 documento_generado: statusCounts.find(s => s._id === 'documento_generado')?.count || 0,
                 solicitud_firmada: statusCounts.find(s => s._id === 'solicitud_firmada')?.count || 0,
                 informado_sii: statusCounts.find(s => s._id === 'informado_sii')?.count || 0,
-                dicom: statusCounts.find(s => s._id === 'dicom')?.count || 0,
-                dado_de_baja: statusCounts.find(s => s._id === 'dado_de_baja')?.count || 0,
                 pending: statusCounts.find(s => s._id === 'pendiente')?.count || 0
             }
         });
+
     } catch (err) {
-        console.error("Error en GET /mini:", err);
-        res.status(500).json({ error: "Error interno al filtrar solicitudes" });
+        console.error("Error en /mini:", err);
+        res.status(500).json({ error: "Error interno al filtrar" });
     }
 });
 // 2. Obtener detalle (GET /:id)
