@@ -86,7 +86,7 @@ router.get("/mini", async (req, res) => {
             dbQuery.createdAt = {};
             if (startDate) dbQuery.createdAt.$gte = new Date(`${startDate}T00:00:00.000Z`);
             if (endDate) dbQuery.createdAt.$lte = new Date(`${endDate}T23:59:59.999Z`);
-        } 
+        }
         else if (dateRange && dateRange !== "") {
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -94,7 +94,7 @@ router.get("/mini", async (req, res) => {
             if (dateRange === 'today') {
                 const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
                 dbQuery.createdAt = { $gte: startOfToday, $lte: endOfToday };
-            } 
+            }
             else if (dateRange === 'week') {
                 const day = now.getDay();
                 const diff = now.getDate() - day + (day === 0 ? -6 : 1);
@@ -124,7 +124,7 @@ router.get("/mini", async (req, res) => {
             const getVal = (keys) => {
                 const responseKeys = Object.keys(answer.responses || {});
                 for (let searchKey of keys) {
-                    const actualKey = responseKeys.find(k => 
+                    const actualKey = responseKeys.find(k =>
                         k.toLowerCase().trim().replace(":", "") === searchKey.toLowerCase()
                     );
                     if (actualKey && answer.responses[actualKey]) {
@@ -136,14 +136,16 @@ router.get("/mini", async (req, res) => {
                 return "";
             };
 
-            const nombreCliente = getVal(["tu nombre", "nombre o razón social", "nombre"]);
+            const nombreCliente = getVal(["tu nombre", "nombre solicitante", "nombre"]);
             const rutCliente = getVal(["rut de la empresa", "rut representante legal"]);
+            const nombreEmpresa = getVal(["nombre o razón social", "nombre que llevará la empresa", "razón social", "razon social", "empresa", "cliente"]);
 
             return {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                tuNombre: nombreCliente, 
+                tuNombre: nombreCliente,
+                nombreEmpresa: nombreEmpresa,
                 rutEmpresa: rutCliente,
                 submittedAt: answer.submittedAt || answer.createdAt,
                 status: answer.status,
@@ -155,22 +157,22 @@ router.get("/mini", async (req, res) => {
         // 5. Filtrado en Memoria (Texto desencriptado)
         if (company && company.trim() !== "") {
             const term = company.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a => 
+            answersProcessed = answersProcessed.filter(a =>
                 a.rutEmpresa.toLowerCase().includes(term)
             );
         }
 
         if (submittedBy && submittedBy.trim() !== "") {
             const term = submittedBy.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a => 
+            answersProcessed = answersProcessed.filter(a =>
                 a.tuNombre.toLowerCase().includes(term)
             );
         }
 
         if (search && search.trim() !== "") {
             const term = search.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a => 
-                a.tuNombre.toLowerCase().includes(term) || 
+            answersProcessed = answersProcessed.filter(a =>
+                a.tuNombre.toLowerCase().includes(term) ||
                 a.rutEmpresa.toLowerCase().includes(term) ||
                 a.formTitle.toLowerCase().includes(term)
             );
@@ -333,15 +335,21 @@ router.post("/", async (req, res) => {
             const keys = Object.keys(responses || {});
             console.log("DEBUG: Keys available for ticket creation:", keys);
 
-            const companyNameKey = keys.find(k => [
-                'nombre o razón social',
-                'nombre que llevará la empresa',
-                'razón social',
-                'razon social',
-                'empresa'
-            ].includes(k.trim().toLowerCase()));
+            const normalizeKey = (k) => k.toLowerCase().trim().replace(':', '');
 
-            const tuNombreKey = keys.find(k => ['tu nombre', 'tu nombre:', 'nombre solicitante'].includes(k.trim().toLowerCase()));
+            const companyNameKey = keys.find(k => {
+                const normalized = normalizeKey(k);
+                return [
+                    'nombre o razón social',
+                    'nombre que llevará la empresa',
+                    'razón social',
+                    'razon social',
+                    'empresa',
+                    'cliente'
+                ].some(target => normalized.includes(target));
+            });
+
+            const tuNombreKey = keys.find(k => normalizeKey(k).includes('tu nombre') || normalizeKey(k).includes('nombre solicitante'));
 
             if (companyNameKey && responses[companyNameKey]) {
                 nombreCliente = responses[companyNameKey];
@@ -546,14 +554,14 @@ router.put("/:id/status", async (req, res) => {
 
         // Descifrar user si existe para devolver
         if (updatedRequest.responses) {
-            
+
             const responses = updatedRequest.responses || {};
 
             Object.entries(responses).forEach(([key, value]) => {
                 // Si es un string, descifrar
                 if (typeof value === 'string')
                     return responses[key] = decrypt(value) || " - ";
-                
+
                 // Si es un array, descifrar cada elemento si es string
                 if (Array.isArray(value)) {
                     return responses[key] = value.map(item => {
@@ -562,9 +570,9 @@ router.put("/:id/status", async (req, res) => {
                     });
                 }
 
-                     responses[key] = value;
-                });
-            
+                responses[key] = value;
+            });
+
             updatedRequest.responses = responses;
         }
 
