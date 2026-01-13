@@ -493,10 +493,21 @@ router.put("/:id/status", async (req, res) => {
         );
         const updatedRequest = await req.db.collection("domicilio_virtual").findOne({ _id: new ObjectId(req.params.id) });
 
+        const responses = updatedRequest.responses || {};
+
+        
         // Descifrar user si existe para devolver
-        if (updatedRequest.user) {
-            try { updatedRequest.user.nombre = decrypt(updatedRequest.user.nombre); } catch (e) { }
-            try { updatedRequest.user.empresa = decrypt(updatedRequest.user.empresa); } catch (e) { }
+        if (updatedRequest.responses) {
+
+           
+            
+                Object.keys(responses).forEach(key => {
+                    responses[key] = decrypt(responses[key]) || " - ";
+                });
+            
+            updatedRequest.responses = responses;
+
+
         }
 
         res.json({ success: true, updatedRequest });
