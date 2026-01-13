@@ -465,6 +465,7 @@ router.post("/verify-login-2fa", async (req, res) => {
       let finalToken = null;
       let expiresAt = null;
       const userEmail = decrypt(user.mail);
+      const rol = decrypt(user.cargo);
 
       // Buscar token existente
       const existingTokenRecord = await buscarTokenPorEmail(req.db, userEmail);
@@ -497,7 +498,7 @@ router.post("/verify-login-2fa", async (req, res) => {
       const usr = {
          name: userName,
          email: userEmail,
-         rol: user.cargo,
+         rol: rol,
          cargo: user.rol,
          userId: userId,
       };
