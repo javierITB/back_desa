@@ -324,6 +324,7 @@ router.post("/", async (req, res) => {
             // Extraer nombre del cliente/empresa (priorizando Empresa)
             let nombreCliente = "Sin Empresa";
             const keys = Object.keys(responses || {});
+            console.log("DEBUG: Keys available for ticket creation:", keys);
 
             const companyNameKey = keys.find(k => [
                 'nombre o razón social',
