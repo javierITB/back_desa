@@ -146,7 +146,7 @@ router.get("/mini", async (req, res) => {
 
             const nombreCliente = getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]);
             const rutCliente = getVal(["rut de la empresa", "rut representante legal"]);
-            const nombreEmpresa = getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut"]);
+            const nombreEmpresa = getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]);
 
             return {
                 _id: answer._id,
@@ -347,8 +347,12 @@ router.post("/", async (req, res) => {
 
             const companyNameKey = keys.find(k => {
                 const normalized = normalizeKey(k);
-                // Excluir 'rut' para no confundir con "RUT Empresa"
-                if (normalized.includes('rut')) return false;
+                // Excluir 'rut' y datos de contacto para no confundir con "Teléfono Empresa", "Dirección Empresa", etc.
+                if (normalized.includes('rut') ||
+                    normalized.includes('teléfono') || normalized.includes('telefono') ||
+                    normalized.includes('celular') ||
+                    normalized.includes('mail') || normalized.includes('correo') ||
+                    normalized.includes('dirección') || normalized.includes('direccion') || normalized.includes('calle')) return false;
 
                 return [
                     'nombre o razón social',
