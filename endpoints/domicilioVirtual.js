@@ -121,24 +121,32 @@ router.get("/mini", async (req, res) => {
 
         // 4. Procesamiento, Desencriptación y Mapeo (Lógica Original)
         let answersProcessed = answers.map(answer => {
-            const getVal = (keys) => {
+            const getVal = (keys, ignore = []) => {
                 const responseKeys = Object.keys(answer.responses || {});
-                for (let searchKey of keys) {
-                    const actualKey = responseKeys.find(k =>
-                        k.toLowerCase().trim().replace(":", "") === searchKey.toLowerCase()
-                    );
-                    if (actualKey && answer.responses[actualKey]) {
+                for (let searchTerm of keys) {
+                    const foundKey = responseKeys.find(k => {
+                        const cleanK = k.toLowerCase().trim().replace(":", "");
+                        const cleanSearch = searchTerm.toLowerCase().trim();
+
+                        if (ignore.some(ignoredTerm => cleanK.includes(ignoredTerm))) {
+                            return false;
+                        }
+
+                        return cleanK.includes(cleanSearch);
+                    });
+
+                    if (foundKey && answer.responses[foundKey]) {
                         try {
-                            return decrypt(answer.responses[actualKey]);
-                        } catch (e) { return answer.responses[actualKey]; }
+                            return decrypt(answer.responses[foundKey]);
+                        } catch (e) { return answer.responses[foundKey]; }
                     }
                 }
                 return "";
             };
 
-            const nombreCliente = getVal(["tu nombre", "nombre solicitante", "nombre"]);
+            const nombreCliente = getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]);
             const rutCliente = getVal(["rut de la empresa", "rut representante legal"]);
-            const nombreEmpresa = getVal(["nombre o razón social", "nombre que llevará la empresa", "razón social", "razon social", "empresa", "cliente"]);
+            const nombreEmpresa = getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut"]);
 
             return {
                 _id: answer._id,
@@ -339,6 +347,9 @@ router.post("/", async (req, res) => {
 
             const companyNameKey = keys.find(k => {
                 const normalized = normalizeKey(k);
+                // Excluir 'rut' para no confundir con "RUT Empresa"
+                if (normalized.includes('rut')) return false;
+
                 return [
                     'nombre o razón social',
                     'nombre que llevará la empresa',
