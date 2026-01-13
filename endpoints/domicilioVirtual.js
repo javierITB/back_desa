@@ -321,25 +321,26 @@ router.post("/", async (req, res) => {
 
         // CREAR TICKET AUTOMATICO
         try {
-            // Extraer nombre del cliente (priorizando "Tu nombre")
-            let nombreCliente = "Cliente";
+            // Extraer nombre del cliente/empresa (priorizando Empresa)
+            let nombreCliente = "Sin Empresa";
             const keys = Object.keys(responses || {});
+
+            const companyNameKey = keys.find(k => [
+                'nombre o razón social',
+                'nombre que llevará la empresa',
+                'razón social',
+                'razon social',
+                'empresa'
+            ].includes(k.trim().toLowerCase()));
 
             const tuNombreKey = keys.find(k => ['tu nombre', 'tu nombre:', 'nombre solicitante'].includes(k.trim().toLowerCase()));
 
-            const fuzzyNameKey = keys.find(k =>
-                k.toLowerCase().includes('nombre') &&
-                !k.toLowerCase().includes('empresa') &&
-                !k.toLowerCase().includes('trabajador') &&
-                !k.toLowerCase().includes('razón') &&
-                !k.toLowerCase().includes('razon') &&
-                !k.toLowerCase().includes('social')
-            );
-
-            const finalNameKey = tuNombreKey || fuzzyNameKey;
-
-            if (finalNameKey && responses[finalNameKey]) {
-                nombreCliente = responses[finalNameKey];
+            if (companyNameKey && responses[companyNameKey]) {
+                nombreCliente = responses[companyNameKey];
+            } else if (user && user.empresa) {
+                nombreCliente = user.empresa;
+            } else if (tuNombreKey && responses[tuNombreKey]) {
+                nombreCliente = responses[tuNombreKey];
             } else if (user && user.nombre) {
                 nombreCliente = user.nombre;
             }
