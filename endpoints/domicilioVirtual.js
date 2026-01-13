@@ -73,7 +73,7 @@ router.get("/mini", async (req, res) => {
 
         const collection = req.db.collection("domicilio_virtual");
 
-        // 2. CONSTRUCCIÓN DEL FILTRO DE BASE DE DATOS (Filtros no encriptados)
+        // 2. CONSTRUCCIÓN DEL FILTRO DE BASE DE DATOS
         const dbQuery = {};
 
         // Filtro por Estado
@@ -81,23 +81,21 @@ router.get("/mini", async (req, res) => {
             dbQuery.status = status;
         }
 
-        // --- LÓGICA DE FECHAS CORREGIDA (SOLUCIÓN AL PERÍODO) ---
+        // --- LÓGICA DE FECHAS (AGREGADO: Hoy, Mes, Trimestre, Año) ---
         if (startDate || endDate) {
             dbQuery.createdAt = {};
             if (startDate) dbQuery.createdAt.$gte = new Date(`${startDate}T00:00:00.000Z`);
             if (endDate) dbQuery.createdAt.$lte = new Date(`${endDate}T23:59:59.999Z`);
-        }
+        } 
         else if (dateRange && dateRange !== "") {
             const now = new Date();
-            // Reset de horas para comparación local precisa
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
             if (dateRange === 'today') {
                 const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
                 dbQuery.createdAt = { $gte: startOfToday, $lte: endOfToday };
-            }
+            } 
             else if (dateRange === 'week') {
-                // Lunes de esta semana a las 00:00:00
                 const day = now.getDay();
                 const diff = now.getDate() - day + (day === 0 ? -6 : 1);
                 const monday = new Date(now.setDate(diff));
@@ -106,6 +104,10 @@ router.get("/mini", async (req, res) => {
             }
             else if (dateRange === 'month') {
                 dbQuery.createdAt = { $gte: new Date(now.getFullYear(), now.getMonth(), 1) };
+            }
+            else if (dateRange === 'quarter') {
+                const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
+                dbQuery.createdAt = { $gte: new Date(now.getFullYear(), quarterMonth, 1) };
             }
             else if (dateRange === 'year') {
                 dbQuery.createdAt = { $gte: new Date(now.getFullYear(), 0, 1) };
@@ -117,12 +119,12 @@ router.get("/mini", async (req, res) => {
             .sort({ createdAt: -1 })
             .toArray();
 
-        // 4. Procesamiento, Desencriptación y Mapeo
+        // 4. Procesamiento, Desencriptación y Mapeo (Lógica Original)
         let answersProcessed = answers.map(answer => {
             const getVal = (keys) => {
                 const responseKeys = Object.keys(answer.responses || {});
                 for (let searchKey of keys) {
-                    const actualKey = responseKeys.find(k =>
+                    const actualKey = responseKeys.find(k => 
                         k.toLowerCase().trim().replace(":", "") === searchKey.toLowerCase()
                     );
                     if (actualKey && answer.responses[actualKey]) {
@@ -141,7 +143,7 @@ router.get("/mini", async (req, res) => {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                tuNombre: nombreCliente,
+                tuNombre: nombreCliente, 
                 rutEmpresa: rutCliente,
                 submittedAt: answer.submittedAt || answer.createdAt,
                 status: answer.status,
@@ -153,26 +155,28 @@ router.get("/mini", async (req, res) => {
         // 5. Filtrado en Memoria (Texto desencriptado)
         if (company && company.trim() !== "") {
             const term = company.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a =>
+            answersProcessed = answersProcessed.filter(a => 
                 a.rutEmpresa.toLowerCase().includes(term)
             );
         }
 
         if (submittedBy && submittedBy.trim() !== "") {
             const term = submittedBy.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a =>
+            answersProcessed = answersProcessed.filter(a => 
                 a.tuNombre.toLowerCase().includes(term)
             );
         }
 
         if (search && search.trim() !== "") {
             const term = search.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a =>
-                a.tuNombre.toLowerCase().includes(term) || a.rutEmpresa.toLowerCase().includes(term)
+            answersProcessed = answersProcessed.filter(a => 
+                a.tuNombre.toLowerCase().includes(term) || 
+                a.rutEmpresa.toLowerCase().includes(term) ||
+                a.formTitle.toLowerCase().includes(term)
             );
         }
 
-        // 6. Paginación manual y Stats
+        // 6. Paginación y Stats (AGREGADO: Sincronización con "enviado")
         const totalCount = answersProcessed.length;
         const skip = (page - 1) * limit;
         const paginatedData = answersProcessed.slice(skip, skip + limit);
@@ -180,6 +184,8 @@ router.get("/mini", async (req, res) => {
         const statusCounts = await collection.aggregate([
             { $group: { _id: "$status", count: { $sum: 1 } } }
         ]).toArray();
+
+        const getCount = (id) => statusCounts.find(s => s._id === id)?.count || 0;
 
         res.json({
             success: true,
@@ -192,18 +198,19 @@ router.get("/mini", async (req, res) => {
             },
             stats: {
                 total: totalCount,
-                documento_generado: statusCounts.find(s => s._id === 'documento_generado')?.count || 0,
-                solicitud_firmada: statusCounts.find(s => s._id === 'solicitud_firmada')?.count || 0,
-                informado_sii: statusCounts.find(s => s._id === 'informado_sii')?.count || 0,
-                dicom: statusCounts.find(s => s._id === 'dicom')?.count || 0,
-                dado_de_baja: statusCounts.find(s => s._id === 'dado_de_baja')?.count || 0,
-                pendiente: statusCounts.find(s => s._id === 'pendiente')?.count || 0
+                documento_generado: getCount('documento_generado'),
+                enviado: getCount('enviado'), // Coincide con tu BD
+                solicitud_firmada: getCount('solicitud_firmada'),
+                informado_sii: getCount('informado_sii'),
+                dicom: getCount('dicom'),
+                dado_de_baja: getCount('dado_de_baja'),
+                pendiente: getCount('pendiente')
             }
         });
 
     } catch (err) {
         console.error("Error en GET /mini:", err);
-        res.status(500).json({ error: "Error interno al filtrar solicitudes" });
+        res.status(500).json({ error: "Error interno" });
     }
 });
 // 2. Obtener detalle (GET /:id)
