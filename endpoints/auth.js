@@ -350,10 +350,13 @@ router.post("/login", async (req, res) => {
       }
 
       let nombre = "";
+      let rol = "";
       try {
          nombre = decrypt(user.nombre);
+         rol = decrypt(user.cargo);
       } catch {
          nombre = user.nombre || "";
+         rol = user.cargo || "";
       }
 
       const ipAddress = req.ip || req.connection.remoteAddress;
@@ -364,7 +367,7 @@ router.post("/login", async (req, res) => {
             name: nombre,
             email: normalizedEmail,
             cargo: user.rol,
-            rol: user.cargo,
+            rol: rol,
             userId: user._id.toString(),
          },
          ipAddress,
@@ -380,7 +383,7 @@ router.post("/login", async (req, res) => {
             name: nombre,
             email: normalizedEmail,
             cargo: user.rol,
-            rol: user.cargo,
+            rol: rol,
             userId: user._id.toString(),
          },
       });
