@@ -364,6 +364,7 @@ router.post("/login", async (req, res) => {
             name: nombre,
             email: normalizedEmail,
             cargo: user.rol,
+            rol: user.cargo,
             userId: user._id.toString(),
          },
          ipAddress,
