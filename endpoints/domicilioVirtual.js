@@ -379,10 +379,16 @@ router.post("/", async (req, res) => {
             // Construir asunto
             const ticketTitle = `${formTitle} - ${nombreCliente}`;
 
+            // Preparar usuario con nombre de empresa correcto
+            const userToSave = { ...user };
+            if (companyNameKey && responses[companyNameKey]) {
+                userToSave.empresa = responses[companyNameKey];
+            }
+
             // Insertar ticket en soporte
             await req.db.collection("soporte").insertOne({
                 formId: formId, // Usar ID real del formulario para que aparezca en panel admin
-                user: user, // Se guarda el usuario asociado
+                user: userToSave, // Se guarda el usuario con la empresa corregida
                 responses: responses, // Se guardan las respuestas en texto plano para el ticket
                 formTitle: ticketTitle,
                 mail: "",
