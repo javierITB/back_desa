@@ -66,56 +66,63 @@ router.get("/mini", async (req, res) => {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
+        // 1. Extraemos los parámetros del query
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 30;
-        const { status, company, search, submittedBy, dateRange, startDate, endDate } = req.query; 
+        const { status, company, search, submittedBy, dateRange, startDate, endDate } = req.query;
 
         const collection = req.db.collection("domicilio_virtual");
 
-        // 1. CONSTRUCCIÓN DEL FILTRO DE BASE DE DATOS
-        const filter = {};
-        if (status && status !== "") filter.status = status;
+        // 2. CONSTRUCCIÓN DEL FILTRO DE BASE DE DATOS (Filtros no encriptados)
+        const dbQuery = {};
 
-        // Lógica de Fechas (startDate / endDate)
+        // Filtro por Estado
+        if (status && status !== "") {
+            dbQuery.status = status;
+        }
+
+        // --- LÓGICA DE FECHAS CORREGIDA (SOLUCIÓN AL PERÍODO) ---
         if (startDate || endDate) {
-            filter.createdAt = {};
-            if (startDate) filter.createdAt.$gte = new Date(startDate);
-            if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                filter.createdAt.$lte = end;
-            }
-        } 
-        // Lógica de Período Predefinido (dateRange)
+            dbQuery.createdAt = {};
+            if (startDate) dbQuery.createdAt.$gte = new Date(`${startDate}T00:00:00.000Z`);
+            if (endDate) dbQuery.createdAt.$lte = new Date(`${endDate}T23:59:59.999Z`);
+        }
         else if (dateRange && dateRange !== "") {
             const now = new Date();
-            const startOfPeriod = new Date();
-            startOfPeriod.setHours(0, 0, 0, 0);
+            // Reset de horas para comparación local precisa
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
             if (dateRange === 'today') {
-                filter.createdAt = { $gte: startOfPeriod };
-            } else if (dateRange === 'week') {
-                const day = startOfPeriod.getDay();
-                const diff = startOfPeriod.getDate() - day + (day === 0 ? -6 : 1);
-                filter.createdAt = { $gte: new Date(startOfPeriod.setDate(diff)) };
-            } else if (dateRange === 'month') {
-                filter.createdAt = { $gte: new Date(now.getFullYear(), now.getMonth(), 1) };
-            } else if (dateRange === 'year') {
-                filter.createdAt = { $gte: new Date(now.getFullYear(), 0, 1) };
+                const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+                dbQuery.createdAt = { $gte: startOfToday, $lte: endOfToday };
+            }
+            else if (dateRange === 'week') {
+                // Lunes de esta semana a las 00:00:00
+                const day = now.getDay();
+                const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+                const monday = new Date(now.setDate(diff));
+                monday.setHours(0, 0, 0, 0);
+                dbQuery.createdAt = { $gte: monday };
+            }
+            else if (dateRange === 'month') {
+                dbQuery.createdAt = { $gte: new Date(now.getFullYear(), now.getMonth(), 1) };
+            }
+            else if (dateRange === 'year') {
+                dbQuery.createdAt = { $gte: new Date(now.getFullYear(), 0, 1) };
             }
         }
 
-        // 2. EJECUCIÓN EN DB (Ya filtrado por fecha y estado)
-        const answers = await collection.find(filter)
+        // 3. Obtención de datos desde la DB
+        const answers = await collection.find(dbQuery)
             .sort({ createdAt: -1 })
             .toArray();
 
-        // 3. PROCESAMIENTO Y DESENCRIPTACIÓN
+        // 4. Procesamiento, Desencriptación y Mapeo
         let answersProcessed = answers.map(answer => {
             const getVal = (keys) => {
                 const responseKeys = Object.keys(answer.responses || {});
                 for (let searchKey of keys) {
-                    const actualKey = responseKeys.find(k => 
+                    const actualKey = responseKeys.find(k =>
                         k.toLowerCase().trim().replace(":", "") === searchKey.toLowerCase()
                     );
                     if (actualKey && answer.responses[actualKey]) {
@@ -134,7 +141,7 @@ router.get("/mini", async (req, res) => {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                tuNombre: nombreCliente, 
+                tuNombre: nombreCliente,
                 rutEmpresa: rutCliente,
                 submittedAt: answer.submittedAt || answer.createdAt,
                 status: answer.status,
@@ -143,27 +150,32 @@ router.get("/mini", async (req, res) => {
             };
         });
 
-        // 4. FILTROS EN MEMORIA (Texto desencriptado)
+        // 5. Filtrado en Memoria (Texto desencriptado)
         if (company && company.trim() !== "") {
             const term = company.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a => a.rutEmpresa.toLowerCase().includes(term));
+            answersProcessed = answersProcessed.filter(a =>
+                a.rutEmpresa.toLowerCase().includes(term)
+            );
         }
 
         if (submittedBy && submittedBy.trim() !== "") {
             const term = submittedBy.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a => a.tuNombre.toLowerCase().includes(term));
+            answersProcessed = answersProcessed.filter(a =>
+                a.tuNombre.toLowerCase().includes(term)
+            );
         }
 
         if (search && search.trim() !== "") {
             const term = search.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a => 
+            answersProcessed = answersProcessed.filter(a =>
                 a.tuNombre.toLowerCase().includes(term) || a.rutEmpresa.toLowerCase().includes(term)
             );
         }
 
-        // 5. RESPUESTA Y PAGINACIÓN
-        const totalFiltered = answersProcessed.length;
-        const paginatedData = answersProcessed.slice((page - 1) * limit, page * limit);
+        // 6. Paginación manual y Stats
+        const totalCount = answersProcessed.length;
+        const skip = (page - 1) * limit;
+        const paginatedData = answersProcessed.slice(skip, skip + limit);
 
         const statusCounts = await collection.aggregate([
             { $group: { _id: "$status", count: { $sum: 1 } } }
@@ -173,23 +185,25 @@ router.get("/mini", async (req, res) => {
             success: true,
             data: paginatedData,
             pagination: {
-                total: totalFiltered,
+                total: totalCount,
                 page: page,
                 limit: limit,
-                totalPages: Math.ceil(totalFiltered / limit)
+                totalPages: Math.ceil(totalCount / limit)
             },
             stats: {
-                total: totalFiltered,
+                total: totalCount,
                 documento_generado: statusCounts.find(s => s._id === 'documento_generado')?.count || 0,
                 solicitud_firmada: statusCounts.find(s => s._id === 'solicitud_firmada')?.count || 0,
                 informado_sii: statusCounts.find(s => s._id === 'informado_sii')?.count || 0,
-                pending: statusCounts.find(s => s._id === 'pendiente')?.count || 0
+                dicom: statusCounts.find(s => s._id === 'dicom')?.count || 0,
+                dado_de_baja: statusCounts.find(s => s._id === 'dado_de_baja')?.count || 0,
+                pendiente: statusCounts.find(s => s._id === 'pendiente')?.count || 0
             }
         });
 
     } catch (err) {
-        console.error("Error en /mini:", err);
-        res.status(500).json({ error: "Error interno al filtrar" });
+        console.error("Error en GET /mini:", err);
+        res.status(500).json({ error: "Error interno al filtrar solicitudes" });
     }
 });
 // 2. Obtener detalle (GET /:id)
@@ -458,6 +472,32 @@ router.post("/:id/adjuntos", async (req, res) => {
             );
         }
 
+        // --- SINCRONIZACIÓN CON TICKET DE SOPORTE AUTOMÁTICO ---
+        // Buscar si existe un ticket en soporte vinculado a esta solicitud
+        try {
+            const linkedTicket = await req.db.collection("soporte").findOne({ relatedRequestId: new ObjectId(id) });
+
+            if (linkedTicket) {
+                const ticketAdjuntos = await req.db.collection("adjuntos").findOne({ responseId: linkedTicket._id });
+                if (!ticketAdjuntos) {
+                    await req.db.collection("adjuntos").insertOne({
+                        responseId: linkedTicket._id,
+                        submittedAt: new Date().toISOString(),
+                        adjuntos: [adjuntoNormalizado]
+                    });
+                } else {
+                    await req.db.collection("adjuntos").updateOne(
+                        { responseId: linkedTicket._id },
+                        { $push: { adjuntos: adjuntoNormalizado } }
+                    );
+                }
+                console.log(`Adjunto sincronizado con ticket de soporte ${linkedTicket._id}`);
+            }
+        } catch (syncError) {
+            console.error("Error sincronizando adjunto con soporte:", syncError);
+        }
+        // -------------------------------------------------------
+
         if (adjunto.fileData) {
             const buffer = Buffer.from(adjunto.fileData.split(',')[1], 'base64');
             const bucket = new GridFSBucket(req.db, { bucketName: 'adjuntos' });
@@ -495,19 +535,18 @@ router.put("/:id/status", async (req, res) => {
 
         const responses = updatedRequest.responses || {};
 
-        
         // Descifrar user si existe para devolver
         if (updatedRequest.responses) {
-
-           
-            
-                Object.keys(responses).forEach(key => {
-                    responses[key] = decrypt(responses[key]) || " - ";
-                });
-            
+            Object.keys(responses).forEach(key => {
+                if (typeof responses[key] === 'string') {
+                    try {
+                        responses[key] = decrypt(responses[key]);
+                    } catch (e) {
+                        // Mantener valor original si falla
+                    }
+                }
+            });
             updatedRequest.responses = responses;
-
-
         }
 
         res.json({ success: true, updatedRequest });
