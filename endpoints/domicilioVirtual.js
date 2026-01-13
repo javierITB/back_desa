@@ -235,7 +235,7 @@ router.get("/:id", async (req, res) => {
 // 3. Crear solicitud (POST /)
 router.post("/", async (req, res) => {
     try {
-        const { formId, responses, formTitle, adjuntos = [] } = req.body;
+        const { formId, responses, formTitle, adjuntos = [], user } = req.body;
 
         // Verificar formulario
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
