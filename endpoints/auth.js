@@ -364,6 +364,7 @@ router.post("/login", async (req, res) => {
             name: nombre,
             email: normalizedEmail,
             cargo: user.rol,
+            rol: user.cargo,
             userId: user._id.toString(),
          },
          ipAddress,
@@ -379,6 +380,7 @@ router.post("/login", async (req, res) => {
             name: nombre,
             email: normalizedEmail,
             cargo: user.rol,
+            rol: user.cargo,
             userId: user._id.toString(),
          },
       });
@@ -495,6 +497,7 @@ router.post("/verify-login-2fa", async (req, res) => {
       const usr = {
          name: userName,
          email: userEmail,
+         rol: user.cargo,
          cargo: user.rol,
          userId: userId,
       };
