@@ -788,8 +788,27 @@ router.post("/:id/regenerate-document", async (req, res) => {
             if (empresaUsuario && empresaUsuario.includes(':')) { try { empresaUsuario = decrypt(empresaUsuario); } catch (e) { } }
             if (mailUsuario && mailUsuario.includes(':')) { try { mailUsuario = decrypt(mailUsuario); } catch (e) { } }
 
+            // IMPORTANTE: Descifrar las respuestas antes de generar el documento
+            const responsesDecrypted = { ...respuesta.responses };
+            Object.keys(responsesDecrypted).forEach(key => {
+                const value = responsesDecrypted[key];
+                if (typeof value === 'string' && value.includes(':')) {
+                    try {
+                        responsesDecrypted[key] = decrypt(value);
+                    } catch (e) {
+                    }
+                } else if (Array.isArray(value)) {
+                    responsesDecrypted[key] = value.map(item => {
+                        if (typeof item === 'string' && item.includes(':')) {
+                            try { return decrypt(item); } catch (e) { return item; }
+                        }
+                        return item;
+                    });
+                }
+            });
+
             await generarAnexoDesdeRespuesta(
-                respuesta.responses,
+                responsesDecrypted,
                 respuesta._id.toString(),
                 req.db,
                 form.section,
