@@ -66,7 +66,7 @@ router.post("/", async (req, res) => {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-        const { name } = req.body;
+        const { name, icon } = req.body;
 
         if (!name || typeof name !== 'string') {
             return res.status(400).json({ error: "El nombre es requerido." });
@@ -94,6 +94,7 @@ router.post("/", async (req, res) => {
         const newConfig = {
             name,
             key,
+            icon: icon || "FileText",
             statuses: [],
             subcategories: [],
             createdAt: new Date(),
@@ -118,7 +119,7 @@ router.put("/:key", async (req, res) => {
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
         const { key } = req.params;
-        const { statuses, subcategories } = req.body;
+        const { statuses, subcategories, icon } = req.body;
 
         if (!statuses || !Array.isArray(statuses)) {
             return res.status(400).json({ error: "Formato inválido. 'statuses' debe ser un array." });
@@ -135,6 +136,9 @@ router.put("/:key", async (req, res) => {
         if (subcategories !== undefined) {
             updateData.subcategories = subcategories;
         }
+        if (icon !== undefined) {
+            updateData.icon = icon;
+        }
 
         const result = await collection.updateOne(
             { key: key },
@@ -149,6 +153,29 @@ router.put("/:key", async (req, res) => {
     } catch (err) {
         console.error("Error updating ticket config:", err);
         res.status(500).json({ error: "Error al actualizar configuración" });
+    }
+});
+
+// Eliminar categoría
+router.delete("/:key", async (req, res) => {
+    try {
+        const auth = await verifyRequest(req);
+        if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+        const { key } = req.params;
+        const db = req.db;
+        const collection = db.collection("config_tickets");
+
+        const result = await collection.deleteOne({ key });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ error: "Categoría no encontrada" });
+        }
+
+        res.json({ success: true, message: "Categoría eliminada" });
+    } catch (err) {
+        console.error("Error deleting ticket config:", err);
+        res.status(500).json({ error: "Error al eliminar categoría" });
     }
 });
 
