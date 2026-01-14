@@ -19,7 +19,8 @@ router.get("/", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
-        if (auth.user.rol !== 'admin') return res.status(403).json({ error: "Acceso denegado. Se requiere rol de administrador." });
+        const userRole = auth.user.rol?.toLowerCase() || '';
+        if (userRole !== 'admin') return res.status(403).json({ error: "Acceso denegado. Se requiere rol de administrador." });
 
         const db = req.db;
         const collection = db.collection("config_tickets");
@@ -66,7 +67,7 @@ router.post("/", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
-        if (auth.user.rol !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
+        if ((auth.user.rol?.toLowerCase() || '') !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
 
         const { name, icon } = req.body;
 
@@ -119,7 +120,7 @@ router.put("/:key", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
-        if (auth.user.rol !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
+        if ((auth.user.rol?.toLowerCase() || '') !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
 
         const { key } = req.params;
         const { statuses, subcategories, icon } = req.body;
@@ -164,7 +165,7 @@ router.delete("/:key", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
-        if (auth.user.rol !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
+        if ((auth.user.rol?.toLowerCase() || '') !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
 
         const { key } = req.params;
         const db = req.db;
