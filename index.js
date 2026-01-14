@@ -14,7 +14,12 @@ const plantillas = require("./endpoints/plantillas");
 const anunciosRouter = require("./endpoints/anuncios");
 const soporteRoutes = require("./endpoints/soporte");
 const domicilioVirtualRoutes = require("./endpoints/domicilioVirtual");
+const configTicketsRoutes = require("./endpoints/configTickets");
 const app = express();
+
+app.use("/api/soporte", soporteRoutes);
+app.use("/api/domicilio-virtual", domicilioVirtualRoutes);
+app.use("/api/config-tickets", configTicketsRoutes);
 
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ limit: '4mb', extended: true }));
