@@ -289,8 +289,18 @@ async function extraerVariablesDeRespuestas(responses, userData, db) {
         }
     }
 
-    variables['FECHA_ACTUAL'] = formatearFechaEspanol(new Date().toISOString().split("T")[0]);
-    variables['HORA_ACTUAL'] = new Date().toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
+    const hoy = new Date();
+    variables['FECHA_ACTUAL'] = formatearFechaEspanol(hoy.toISOString().split("T")[0]);
+    variables['HORA_ACTUAL'] = hoy.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
+
+    const unAnio = new Date(hoy); unAnio.setFullYear(hoy.getFullYear() + 1);
+    variables['FECHA_ACTUAL_1_ANIO'] = formatearFechaEspanol(unAnio.toISOString().split("T")[0]);
+
+    const seisMeses = new Date(hoy); seisMeses.setMonth(hoy.getMonth() + 6);
+    variables['FECHA_ACTUAL_6_MESES'] = formatearFechaEspanol(seisMeses.toISOString().split("T")[0]);
+
+    const unMes = new Date(hoy); unMes.setMonth(hoy.getMonth() + 1);
+    variables['FECHA_ACTUAL_1_MES'] = formatearFechaEspanol(unMes.toISOString().split("T")[0]);
 
     console.log("=== VARIABLES EXTRAÍDAS ===");
     console.log("Total variables:", Object.keys(variables).length);
