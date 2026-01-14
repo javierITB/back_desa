@@ -68,18 +68,27 @@ router.put("/:key", async (req, res) => {
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
         const { key } = req.params;
-        const { statuses } = req.body;
+        const { statuses, subcategories } = req.body;
 
         if (!statuses || !Array.isArray(statuses)) {
             return res.status(400).json({ error: "Formato inválido. 'statuses' debe ser un array." });
         }
 
+        if (subcategories && !Array.isArray(subcategories)) {
+            return res.status(400).json({ error: "Formato inválido. 'subcategories' debe ser un array." });
+        }
+
         const db = req.db;
         const collection = db.collection("config_tickets");
 
+        const updateData = { statuses, updatedAt: new Date() };
+        if (subcategories !== undefined) {
+            updateData.subcategories = subcategories;
+        }
+
         const result = await collection.updateOne(
             { key: key },
-            { $set: { statuses: statuses, updatedAt: new Date() } }
+            { $set: updateData }
         );
 
         if (result.matchedCount === 0) {
