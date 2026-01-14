@@ -60,6 +60,56 @@ router.get("/", async (req, res) => {
     }
 });
 
+// Crear nueva configuración de categoría
+router.post("/", async (req, res) => {
+    try {
+        const auth = await verifyRequest(req);
+        if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+        const { name } = req.body;
+
+        if (!name || typeof name !== 'string') {
+            return res.status(400).json({ error: "El nombre es requerido." });
+        }
+
+        const db = req.db;
+        const collection = db.collection("config_tickets");
+
+        // Generar key a partir del nombre
+        const key = name.toLowerCase()
+            .trim()
+            .replace(/[^\w\s-]/g, '')
+            .replace(/[\s_-]+/g, '_')
+            .replace(/^-+|-+$/g, '');
+
+        if (!key) {
+            return res.status(400).json({ error: "Nombre inválido para generar clave." });
+        }
+
+        const existing = await collection.findOne({ key });
+        if (existing) {
+            return res.status(400).json({ error: "Ya existe una categoría con esa clave." });
+        }
+
+        const newConfig = {
+            name,
+            key,
+            statuses: [],
+            subcategories: [],
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        await collection.insertOne(newConfig);
+
+        res.json({ success: true, message: "Categoría creada", config: newConfig });
+
+    } catch (err) {
+        console.error("Error creating ticket config:", err);
+        res.status(500).json({ error: "Error al crear configuración" });
+    }
+});
+
 
 // Actualizar configuración de una categoría de tickets
 router.put("/:key", async (req, res) => {
