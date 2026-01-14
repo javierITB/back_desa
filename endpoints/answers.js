@@ -585,19 +585,40 @@ router.get("/", async (req, res) => {
     // Descifrar cada respuesta
     const answersDescifradas = answers.map(answer => {
       const descifrarCampo = (valor) => {
-        if (typeof valor === 'string' && valor.includes(':')) {
-          return decrypt(valor);
+        // Regex estricto para: iv(24):authTag(32):content
+        const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+
+        if (typeof valor === 'string' && encryptedRegex.test(valor)) {
+          try {
+            return decrypt(valor);
+          } catch (e) { return valor; }
         }
         return valor;
       };
 
+
+
       const descifrarObjeto = (obj) => {
         if (!obj || typeof obj !== 'object') return obj;
+
+        if (Array.isArray(obj)) {
+          return obj.map(item => {
+            if (typeof item === 'string') return descifrarCampo(item);
+            if (typeof item === 'object') return descifrarObjeto(item);
+            return item;
+          });
+        }
 
         const resultado = {};
         for (const key in obj) {
           const valor = obj[key];
-          resultado[key] = descifrarCampo(valor);
+          if (typeof valor === 'string') {
+            resultado[key] = descifrarCampo(valor);
+          } else if (typeof valor === 'object') {
+            resultado[key] = descifrarObjeto(valor);
+          } else {
+            resultado[key] = valor;
+          }
         }
         return resultado;
       };
@@ -687,12 +708,16 @@ router.get("/mail/:mail", async (req, res) => {
 
     // Función para descifrar campos recursivamente
     const descifrarCampo = (valor) => {
-      if (typeof valor === 'string' && valor.includes(':')) {
+      // Regex estricto para: iv(24):authTag(32):content
+      const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+
+      if (typeof valor === 'string' && encryptedRegex.test(valor)) {
         try {
           return decrypt(valor);
         } catch (error) {
           console.error("Error descifrando campo:", error);
-          return "[Error de descifrado]";
+          // Fallback al valor original si falla, no mostrar error al usuario
+          return valor;
         }
       }
       return valor;
@@ -1080,7 +1105,10 @@ router.get("/:id", async (req, res) => {
 
     // Función simple para manejar campos cifrados/descifrados
     const procesarCampo = (valor) => {
-      if (typeof valor === 'string' && valor.includes(':')) {
+      // Regex estricto para: iv(24):authTag(32):content
+      const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+
+      if (typeof valor === 'string' && encryptedRegex.test(valor)) {
         try {
           return decrypt(valor);
         } catch (error) {
@@ -1217,7 +1245,10 @@ router.put("/:id", async (req, res) => {
 
       if (Array.isArray(obj)) {
         return obj.map(item => {
-          if (typeof item === 'string' && item.includes(':')) {
+          // Regex estricto
+          const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+
+          if (typeof item === 'string' && encryptedRegex.test(item)) {
             try {
               return decrypt(item);
             } catch (error) {
@@ -1234,8 +1265,9 @@ router.put("/:id", async (req, res) => {
       const resultado = {};
       for (const key in obj) {
         const valor = obj[key];
+        const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
 
-        if (typeof valor === 'string' && valor.includes(':')) {
+        if (typeof valor === 'string' && encryptedRegex.test(valor)) {
           try {
             resultado[key] = decrypt(valor);
           } catch (error) {
@@ -3083,7 +3115,8 @@ router.put("/:id/status", async (req, res) => {
 
       if (Array.isArray(obj)) {
         return obj.map(item => {
-          if (typeof item === 'string' && item.includes(':')) {
+          const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+          if (typeof item === 'string' && encryptedRegex.test(item)) {
             try { return decrypt(item); } catch (error) { return item; }
           } else if (typeof item === 'object' && item !== null) {
             return descifrarObjeto(item);
@@ -3095,7 +3128,8 @@ router.put("/:id/status", async (req, res) => {
       const resultado = {};
       for (const key in obj) {
         const valor = obj[key];
-        if (typeof valor === 'string' && valor.includes(':')) {
+        const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+        if (typeof valor === 'string' && encryptedRegex.test(valor)) {
           try { resultado[key] = decrypt(valor); } catch (error) { resultado[key] = valor; }
         } else if (typeof valor === 'object' && valor !== null) {
           resultado[key] = descifrarObjeto(valor);
