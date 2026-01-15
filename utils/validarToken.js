@@ -1,6 +1,6 @@
 const { createBlindIndex, decrypt, encrypt } = require("./seguridad.helper");
 
-export async function validarToken(db, token) {
+async function validarToken(db, token) {
   // 1. Buscar el token (el campo 'token' no está cifrado)
   const tokenData = await db.collection("tokens").findOne({
     "token": token
@@ -40,10 +40,10 @@ export async function validarToken(db, token) {
     try {
       await db.collection("tokens").updateOne(
         { _id: tokenData._id },
-        { 
-          $set: { 
+        {
+          $set: {
             active: encrypt("false"), // Cifrar como string
-            revokedAt: ahora 
+            revokedAt: ahora
           }
         }
       );
@@ -84,14 +84,14 @@ export async function validarToken(db, token) {
   // Opcional: devolver datos descifrados adicionales si se necesitan
   let emailDescifrado = null;
   let rolDescifrado = null;
-  
+
   try {
     if (tokenData.email && tokenData.email.includes(':')) {
       emailDescifrado = decrypt(tokenData.email);
     } else {
       emailDescifrado = tokenData.email; // Por si no está cifrado
     }
-    
+
     if (tokenData.rol && tokenData.rol.includes(':')) {
       rolDescifrado = decrypt(tokenData.rol);
     } else {
@@ -102,7 +102,7 @@ export async function validarToken(db, token) {
     // Continuamos aunque haya error de descifrado, el token sigue siendo válido
   }
 
-  return { 
+  return {
     ok: true,
     data: {
       _id: tokenData._id,
@@ -112,4 +112,4 @@ export async function validarToken(db, token) {
       expiresAt: tokenData.expiresAt
     }
   };
-}
+}module.exports = { validarToken };
