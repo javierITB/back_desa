@@ -1452,28 +1452,37 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
       await verifyRequest(req);
       const emailABuscar = req.params.email;
 
-      // 1. Encontrar al usuario dueño del mail
-      const usuarioPivote = await req.db.collection("usuarios").findOne({ 
-         mail_index: createBlindIndex(emailABuscar.trim()) 
-      });
+      // 1. USUARIO PIVOTE OPTIMIZADO:
+      // Solo traemos el campo 'empresa' (encriptado) para encontrar el vínculo organizacional.
+      // Usamos el mail_index para que la búsqueda sea por hash y no por texto plano.
+      const usuarioPivote = await req.db.collection("usuarios").findOne(
+         { mail_index: createBlindIndex(emailABuscar.toLowerCase().trim()) },
+         { projection: { empresa: 1, _id: 0 } } 
+      );
 
       if (!usuarioPivote) {
          return res.status(404).json({ success: false, message: "Usuario no encontrado" });
       }
 
-      // 2. Traer a todos los que comparten la misma empresa
+      // 2. BÚSQUEDA FILTRADA (CONFIDENCIALIDAD):
+      // Traemos solo los campos permitidos. Se excluyen pass, rol, cargo, estado, etc.
       const usuariosRaw = await req.db.collection("usuarios")
          .find({ empresa: usuarioPivote.empresa }) 
-         .project({ pass: 0, mail_index: 0, notificaciones: 0 })
+         .project({ 
+            _id: 1, 
+            nombre: 1, 
+            apellido: 1, 
+            mail: 1 
+         })
          .toArray();
 
-      // 3. DESENCRIPTAR los datos para que el frontend pueda leerlos
+      // 3. DESENCRIPTADO Y FORMATEO:
+      // Convertimos los datos encriptados a texto legible para el frontend.
       const usuariosProcesados = usuariosRaw.map(u => ({
-         ...u,
+         id: u._id.toString(),
          nombre: u.nombre ? decrypt(u.nombre) : "",
          apellido: u.apellido ? decrypt(u.apellido) : "",
-         mail: u.mail ? decrypt(u.mail) : "",
-         // No desencriptamos 'empresa' porque es el ID encriptado que usas como vínculo
+         mail: u.mail ? decrypt(u.mail) : ""
       }));
 
       res.json({
@@ -1483,6 +1492,7 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
       });
 
    } catch (err) {
+      console.error("Error al listar usuarios de empresa:", err);
       if (err.status) return res.status(err.status).json({ message: err.message });
       res.status(500).json({ error: "Error al obtener la lista de empresa" });
    }
