@@ -807,7 +807,10 @@ router.get("/mini", async (req, res) => {
         finalizedAt: 1,
         updatedAt: 1,
         reviewedAt: 1,
-        adjuntosCount: 1
+        adjuntosCount: 1,
+        category: 1,
+        origin: 1,
+        priority: 1
       })
       .toArray();
 
@@ -850,7 +853,10 @@ router.get("/mini", async (req, res) => {
         approvedAt: answer.approvedAt,
         finalizedAt: answer.finalizedAt,
         updatedAt: answer.updatedAt,
-        adjuntosCount: answer.adjuntosCount || 0
+        adjuntosCount: answer.adjuntosCount || 0,
+        category: answer.category,
+        origin: answer.origin,
+        priority: answer.priority
       };
     });
 
