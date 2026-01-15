@@ -1498,8 +1498,6 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
 });
 
 
-
-
 router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
    try {
       const empresas = await req.db.collection("empresas").find().toArray();

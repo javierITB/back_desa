@@ -647,7 +647,7 @@ router.get("/mail/:mail", async (req, res) => {
   try {
     const cleanMail = req.params.mail.toLowerCase().trim();
 
-    // Buscar usuario por Blind Index (el mail está cifrado en la BD)
+    // 1. Buscar usuario por Blind Index (el mail está cifrado en la BD)
     const user = await req.db.collection("usuarios").findOne({
       mail_index: createBlindIndex(cleanMail)
     });
@@ -659,64 +659,56 @@ router.get("/mail/:mail", async (req, res) => {
       });
     }
 
-    console.log(`Usuario encontrado: ${user._id}, mail_index: ${user.mail_index}`);
+    const userIdString = user._id.toString();
 
-    // Descifrar el nombre del usuario para logging
+    // Descifrar el nombre del usuario para la respuesta
     let nombreUsuario = "Usuario";
     if (user.nombre && user.nombre.includes(':')) {
       try {
         nombreUsuario = decrypt(user.nombre);
-        console.log(`Nombre descifrado: ${nombreUsuario}`);
       } catch (decryptError) {
         console.error("Error descifrando nombre:", decryptError);
       }
     }
 
-    // Modificación: Traer todas las respuestas y filtrar en memoria desencriptando el UID
+    // 2. Traer todas las respuestas para filtrar en memoria (debido a la encriptación del UID)
     const allAnswers = await req.db.collection("respuestas").find({}).toArray();
 
     const answers = allAnswers.filter(answer => {
-      // Verificar si existe el objeto user y uid
-      if (!answer.user || !answer.user.uid) return false;
+      if (!answer.user) return false;
 
-      let uidToCheck = answer.user.uid;
-
-      // Si el UID está encriptado (contiene :), desencriptarlo
-      if (typeof uidToCheck === 'string' && uidToCheck.includes(':')) {
-        try {
-          uidToCheck = decrypt(uidToCheck);
-        } catch (e) {
-          // Si falla la desencriptación, ignorar este registro
-          return false;
+      // --- Lógica para Solicitudes Propias ---
+      let isOwner = false;
+      if (answer.user.uid) {
+        let uidToCheck = answer.user.uid;
+        // Si el UID está encriptado, lo desencriptamos para comparar
+        if (typeof uidToCheck === 'string' && uidToCheck.includes(':')) {
+          try {
+            uidToCheck = decrypt(uidToCheck);
+          } catch (e) {
+            return false;
+          }
         }
+        isOwner = uidToCheck === userIdString;
       }
 
-      // Comparar con el ID del usuario encontrado
-      return uidToCheck === user._id.toString();
+      // --- Lógica para Solicitudes Compartidas ---
+      // Verificamos si el ID del usuario está en el array 'compartidos' dentro del objeto 'user'
+      let isShared = false;
+      if (answer.user.compartidos && Array.isArray(answer.user.compartidos)) {
+        isShared = answer.user.compartidos.includes(userIdString);
+      }
+
+      return isOwner || isShared;
     });
 
-    if (!answers || answers.length === 0) {
-      return res.json({
-        message: "No se encontraron formularios para este usuario",
-        usuario: nombreUsuario,
-        total: 0,
-        respuestas: []
-      });
-    }
-
-    console.log(`Encontradas ${answers.length} respuestas para usuario ${user._id}`);
-
-    // Función para descifrar campos recursivamente
+    // --- Helpers de Desencriptación ---
     const descifrarCampo = (valor) => {
-      // Regex estricto para: iv(24):authTag(32):content
       const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
-
       if (typeof valor === 'string' && encryptedRegex.test(valor)) {
         try {
           return decrypt(valor);
         } catch (error) {
-          console.error("Error descifrando campo:", error);
-          // Fallback al valor original si falla, no mostrar error al usuario
           return valor;
         }
       }
@@ -725,15 +717,11 @@ router.get("/mail/:mail", async (req, res) => {
 
     const descifrarObjeto = (obj) => {
       if (!obj || typeof obj !== 'object') return obj;
-
-      if (Array.isArray(obj)) {
-        return obj.map(item => descifrarCampo(item));
-      }
-
+      if (Array.isArray(obj)) return obj.map(item => descifrarCampo(item));
+      
       const resultado = {};
       for (const key in obj) {
         const valor = obj[key];
-
         if (typeof valor === 'string') {
           resultado[key] = descifrarCampo(valor);
         } else if (typeof valor === 'object' && valor !== null) {
@@ -745,38 +733,26 @@ router.get("/mail/:mail", async (req, res) => {
       return resultado;
     };
 
-    // Descifrar cada respuesta
+    // 3. Procesar y Desencriptar cada respuesta
     const answersProcessed = answers.map(answer => {
       const answerDescifrada = { ...answer };
 
-      // 1. Descifrar el objeto 'user' completo
-      if (answerDescifrada.user) {
-        answerDescifrada.user = descifrarObjeto(answerDescifrada.user);
-      }
+      // Desencriptar estructuras principales
+      if (answerDescifrada.user) answerDescifrada.user = descifrarObjeto(answerDescifrada.user);
+      if (answerDescifrada.responses) answerDescifrada.responses = descifrarObjeto(answerDescifrada.responses);
 
-      // 2. Descifrar el objeto 'responses' completo
-      if (answerDescifrada.responses) {
-        answerDescifrada.responses = descifrarObjeto(answerDescifrada.responses);
-      }
-
-      // 3. Extraer trabajador de los responses ya descifrados
+      // Extraer trabajador de los responses descifrados
       let trabajador = "No especificado";
       if (answerDescifrada.responses) {
-        // Buscar en varios formatos posibles del campo
         trabajador = answerDescifrada.responses["Nombre del trabajador"] ||
           answerDescifrada.responses["NOMBRE DEL TRABAJADOR"] ||
-          answerDescifrada.responses["nombre del trabajador"] ||
-          answerDescifrada.responses["Nombre del Trabajador"] ||
-          answerDescifrada.responses["Nombre trabajador"] ||
-          answerDescifrada.responses["Nombre"] ||
-          answerDescifrada.responses["nombre"] ||
+          answerDescifrada.responses["Nombre del solicitante responsable de la empresa"] ||
           "No especificado";
       }
 
-      // 4. Descifrar otros campos sensibles si existen
-      if (answerDescifrada.mail && answerDescifrada.mail.includes(':')) {
-        answerDescifrada.mail = descifrarCampo(answerDescifrada.mail);
-      }
+      // Determinar si es compartida comparando el UID original descifrado con el ID del solicitante
+      // Si el UID no coincide con el usuario que consulta, es porque le fue compartida
+      const esCompartida = answerDescifrada.user?.uid !== userIdString;
 
       return {
         _id: answerDescifrada._id,
@@ -786,19 +762,16 @@ router.get("/mail/:mail", async (req, res) => {
         user: answerDescifrada.user,
         status: answerDescifrada.status,
         createdAt: answerDescifrada.createdAt,
-        approvedAt: answerDescifrada.approvedAt,
         updatedAt: answerDescifrada.updatedAt,
-        signedAt: answerDescifrada.signedAt,
-        finalizedAt: answerDescifrada.finalizedAt,
-        // Mantener otros campos relevantes
-        hasCorrection: answerDescifrada.hasCorrection,
-        correctionFileName: answerDescifrada.correctionFileName,
-        // Datos del formulario para referencia
-        totalFields: answerDescifrada.responses ? Object.keys(answerDescifrada.responses).length : 0
+        compartida: esCompartida, // TAG SOLICITADO
+        isShared: esCompartida,    // Alias para compatibilidad
+        metadata: {
+          esPropia: !esCompartida
+        }
       };
     });
 
-    // Ordenar por fecha de creación (más recientes primero)
+    // Ordenar por fecha (más recientes primero)
     answersProcessed.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     res.json({
@@ -806,19 +779,14 @@ router.get("/mail/:mail", async (req, res) => {
       usuario: nombreUsuario,
       mail: cleanMail,
       total: answersProcessed.length,
-      respuestas: answersProcessed,
-      metadata: {
-        usuarioId: user._id,
-        buscadoPor: "mail_index",
-        fechaConsulta: new Date().toISOString()
-      }
+      respuestas: answersProcessed
     });
 
   } catch (err) {
     console.error("Error en GET /mail/:mail:", err);
     res.status(500).json({
-      error: "Error al obtener formularios por email: " + err.message,
-      step: "busqueda_mail_pqc"
+      success: false,
+      error: "Error al procesar la solicitud de formularios compartidos."
     });
   }
 });
@@ -931,7 +899,6 @@ router.get("/mini", async (req, res) => {
 });
 
 // ruta mini mejorada con capacidad de filtros 
-
 
 router.get("/filtros", async (req, res) => {
   try {
