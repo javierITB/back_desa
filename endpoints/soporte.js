@@ -332,6 +332,9 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
       console.log(`Ticket creado: ${formId}`);
     }
 
+    // Capturar categoría del request
+    let { category } = req.body;
+
     const initialStatus = assignedTo ? "en_revision" : "pendiente";
     const assignedAt = assignedTo ? new Date().toISOString() : null;
 
@@ -342,6 +345,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
       formTitle,
       mail: correoRespaldo,
       status: initialStatus,
+      category: category || null,
       assignedTo,
       assignedAt,
       estimatedCompletionAt: estimatedCompletionAt || null,
