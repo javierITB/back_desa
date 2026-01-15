@@ -1497,59 +1497,7 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
    }
 });
 
-// ruta para compartir solicitudes con usuarios 
 
-router.post("/respuestas/compartir/", async (req, res) => {
-   try {
-      
-      const { usuarios, id } = req.body; 
-      const responseId = id;
-      
-      await verifyRequest(req);
-
-      // Validar que el array de usuarios exista
-      if (!usuarios || !Array.isArray(usuarios)) {
-         return res.status(400).json({ 
-            success: false, 
-            message: "Se requiere un array de IDs de usuarios (usuariosIds)." 
-         });
-      }
-
-      // 2. Actualización en la colección 'respuestas'
-      // Usamos la notación de punto para insertar 'compartidos' dentro del objeto 'user'
-      const result = await req.db.collection("respuestas").updateOne(
-         { _id: new ObjectId(responseId) },
-         { 
-            $set: { 
-               "user.compartidos": usuarios 
-            } 
-         }
-      );
-
-      if (result.matchedCount === 0) {
-         return res.status(404).json({ 
-            success: false, 
-            message: "La solicitud (respuesta) no fue encontrada." 
-         });
-      }
-
-      // 3. Respuesta exitosa
-      res.json({ 
-         success: true, 
-         message: "Solicitud compartida correctamente con los compañeros." 
-      });
-
-   } catch (err) {
-      console.error("Error en endpoint compartir:", err);
-      // Si verifyRequest lanza un error con status, lo capturamos aquí
-      if (err.status) return res.status(err.status).json({ message: err.message });
-      
-      res.status(500).json({ 
-         success: false, 
-         error: "Error interno al procesar la acción de compartir." 
-      });
-   }
-});
 
 
 router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
