@@ -856,7 +856,8 @@ router.get("/mini", async (req, res) => {
         adjuntosCount: answer.adjuntosCount || 0,
         category: answer.category,
         origin: answer.origin,
-        priority: answer.priority
+        origin: answer.origin,
+        priority: (answer.priority || answer.responses?.['Prioridad'] || answer.responses?.['priority'] || 'media').toLowerCase()
       };
     });
 
