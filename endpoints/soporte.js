@@ -335,7 +335,29 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
     // Capturar categoría del request
     let { category } = req.body;
 
-    const initialStatus = assignedTo ? "en_revision" : "pendiente";
+    // Lógica para Estado Inicial Dinámico
+    let initialStatus = "pendiente";
+
+    // 1. Intentar buscar configuración para la categoría
+    if (category) {
+      try {
+        const config = await req.db.collection("config_tickets").findOne({ key: category });
+        if (config && config.statuses && config.statuses.length > 0) {
+          // Usar el primer estado definido en la configuración
+          initialStatus = config.statuses[0].value;
+        } else {
+          // Fallback para Sistema (o categoría sin config)
+          initialStatus = assignedTo ? "en_revision" : "pendiente";
+        }
+      } catch (err) {
+        console.error("Error buscando configuración de ticket:", err);
+        initialStatus = "pendiente";
+      }
+    } else {
+      // Sin categoría (comportamiento default)
+      initialStatus = assignedTo ? "en_revision" : "pendiente";
+    }
+
     const assignedAt = assignedTo ? new Date().toISOString() : null;
 
     const result = await req.db.collection("soporte").insertOne({
