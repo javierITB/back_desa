@@ -1499,11 +1499,12 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
 
 // ruta para compartir solicitudes con usuarios 
 
-router.post("/respuestas/compartir/:id", async (req, res) => {
+router.post("/respuestas/compartir/", async (req, res) => {
    try {
-      const responseId = req.params.id;
-      const { token, usuarios } = req.body; 
-
+      
+      const { usuarios, id } = req.body; 
+      const responseId = id;
+      
       await verifyRequest(req);
 
       // Validar que el array de usuarios exista
