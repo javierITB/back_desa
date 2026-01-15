@@ -982,9 +982,18 @@ router.put("/:id/status", async (req, res) => {
       return res.status(400).json({ error: "Estado requerido" });
     }
 
-    const estadosPermitidos = ['pendiente', 'en_revision', 'finalizado', 'archivado'];
+    // Obtener estados permitidos dinámicos desde config_tickets
+    let dynamicStatuses = [];
+    try {
+      const configs = await req.db.collection('config_tickets').find({}).toArray();
+      dynamicStatuses = configs.flatMap(c => c.statuses?.map(s => s.value) || []);
+    } catch (e) {
+      console.warn("Could not fetch config_tickets for validation", e);
+    }
+
+    const estadosPermitidos = ['pendiente', 'en_revaision', 'finalizado', 'archivado', ...dynamicStatuses];
     if (!estadosPermitidos.includes(status)) {
-      return res.status(400).json({ error: "Estado no válido" });
+      return res.status(400).json({ error: "Estado no válido (" + status + ")" });
     }
 
     const respuesta = await req.db.collection("soporte").findOne({
