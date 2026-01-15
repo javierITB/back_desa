@@ -428,7 +428,7 @@ router.post("/", async (req, res) => {
         // Anexo
         try {
             await generarAnexoDesdeRespuesta(responses, result.insertedId.toString(), req.db, form.section, {
-                nombre: null, empresa: "acciona", uid: null,
+                nombre: null, empresa: "Acciona Centro de Negocios Spa.", uid: null,
             }, formId, formTitle);
         } catch (error) {
             console.error("Error generando documento:", error.message);
@@ -822,7 +822,7 @@ router.post("/:id/regenerate-document", async (req, res) => {
                 form.section,
                 {
                     nombre: nombreUsuario,
-                    empresa: empresaUsuario,
+                    empresa: "Acciona Centro de Negocios Spa",
                     uid: uidUsuario,
                     mail: mailUsuario
                 },

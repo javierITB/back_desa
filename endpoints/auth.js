@@ -1452,38 +1452,37 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
       await verifyRequest(req);
       const emailABuscar = req.params.email;
 
-      // 1. USUARIO PIVOTE OPTIMIZADO:
-      // Solo traemos el campo 'empresa' (encriptado) para encontrar el vínculo organizacional.
-      // Usamos el mail_index para que la búsqueda sea por hash y no por texto plano.
-      const usuarioPivote = await req.db.collection("usuarios").findOne(
-         { mail_index: createBlindIndex(emailABuscar.toLowerCase().trim()) },
-         { projection: { empresa: 1, _id: 0 } } 
-      );
+      // 1. OBTENEMOS TODOS LOS USUARIOS
+      // Necesario para poder desencriptar y comparar el nombre de la empresa correctamente
+      const todosLosUsuarios = await req.db.collection("usuarios").find().toArray();
+
+      // 2. IDENTIFICAR AL USUARIO PIVOTE
+      const hashBusqueda = createBlindIndex(emailABuscar.toLowerCase().trim());
+      const usuarioPivote = todosLosUsuarios.find(u => u.mail_index === hashBusqueda);
 
       if (!usuarioPivote) {
          return res.status(404).json({ success: false, message: "Usuario no encontrado" });
       }
 
-      // 2. BÚSQUEDA FILTRADA (CONFIDENCIALIDAD):
-      // Traemos solo los campos permitidos. Se excluyen pass, rol, cargo, estado, etc.
-      const usuariosRaw = await req.db.collection("usuarios")
-         .find({ empresa: usuarioPivote.empresa }) 
-         .project({ 
-            _id: 1, 
-            nombre: 1, 
-            apellido: 1, 
-            mail: 1 
-         })
-         .toArray();
+      // Desencriptamos la empresa del pivote para tener la referencia de comparación
+      const empresaReferencia = decrypt(usuarioPivote.empresa);
 
-      // 3. DESENCRIPTADO Y FORMATEO:
-      // Convertimos los datos encriptados a texto legible para el frontend.
-      const usuariosProcesados = usuariosRaw.map(u => ({
-         id: u._id.toString(),
-         nombre: u.nombre ? decrypt(u.nombre) : "",
-         apellido: u.apellido ? decrypt(u.apellido) : "",
-         mail: u.mail ? decrypt(u.mail) : ""
-      }));
+      // 3. FILTRADO POST-DESENCRIPTACIÓN Y FORMATEO
+      const usuariosProcesados = todosLosUsuarios
+         .filter(u => {
+            try {
+               // Comparamos el texto plano de la empresa (evita errores por IV distinto)
+               return decrypt(u.empresa) === empresaReferencia;
+            } catch (e) {
+               return false; 
+            }
+         })
+         .map(u => ({
+            id: u._id.toString(),
+            nombre: u.nombre ? decrypt(u.nombre) : "",
+            apellido: u.apellido ? decrypt(u.apellido) : "",
+            mail: u.mail ? decrypt(u.mail) : ""
+         }));
 
       res.json({
          success: true,
@@ -1495,6 +1494,59 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
       console.error("Error al listar usuarios de empresa:", err);
       if (err.status) return res.status(err.status).json({ message: err.message });
       res.status(500).json({ error: "Error al obtener la lista de empresa" });
+   }
+});
+
+// ruta para compartir solicitudes con usuarios 
+
+router.post("/respuestas/compartir/:id", async (req, res) => {
+   try {
+      const responseId = req.params.id;
+      const { token, usuarios } = req.body; 
+
+      await verifyRequest(req);
+
+      // Validar que el array de usuarios exista
+      if (!usuarios || !Array.isArray(usuarios)) {
+         return res.status(400).json({ 
+            success: false, 
+            message: "Se requiere un array de IDs de usuarios (usuariosIds)." 
+         });
+      }
+
+      // 2. Actualización en la colección 'respuestas'
+      // Usamos la notación de punto para insertar 'compartidos' dentro del objeto 'user'
+      const result = await req.db.collection("respuestas").updateOne(
+         { _id: new ObjectId(responseId) },
+         { 
+            $set: { 
+               "user.compartidos": usuarios 
+            } 
+         }
+      );
+
+      if (result.matchedCount === 0) {
+         return res.status(404).json({ 
+            success: false, 
+            message: "La solicitud (respuesta) no fue encontrada." 
+         });
+      }
+
+      // 3. Respuesta exitosa
+      res.json({ 
+         success: true, 
+         message: "Solicitud compartida correctamente con los compañeros." 
+      });
+
+   } catch (err) {
+      console.error("Error en endpoint compartir:", err);
+      // Si verifyRequest lanza un error con status, lo capturamos aquí
+      if (err.status) return res.status(err.status).json({ message: err.message });
+      
+      res.status(500).json({ 
+         success: false, 
+         error: "Error interno al procesar la acción de compartir." 
+      });
    }
 });
 
