@@ -1001,16 +1001,29 @@ router.get("/filtros", async (req, res) => {
     // Filtro Search Global
     if (search && search.trim() !== "") {
       const term = search.toLowerCase();
-      filteredTickets = filteredTickets.filter(t =>
-        String(t.formTitle || '').toLowerCase().includes(term) ||
-        String(t.formId || '').toLowerCase().includes(term) ||
-        String(t.trabajador || '').toLowerCase().includes(term) ||
-        String(t.rutTrabajador || '').toLowerCase().includes(term) ||
-        String(t.company || '').toLowerCase().includes(term) ||
-        String(t.submittedBy || '').toLowerCase().includes(term) ||
-        String(t.responses?.Asunto || '').toLowerCase().includes(term) ||
-        String(t.responses?.asunto || '').toLowerCase().includes(term)
-      );
+      filteredTickets = filteredTickets.filter(t => {
+        // 1. Campos directos / Base
+        if (
+          String(t.formTitle || '').toLowerCase().includes(term) ||
+          String(t.formId || '').toLowerCase().includes(term) ||
+          String(t.trabajador || '').toLowerCase().includes(term) ||
+          String(t.rutTrabajador || '').toLowerCase().includes(term) ||
+          String(t.company || '').toLowerCase().includes(term) ||
+          String(t.submittedBy || '').toLowerCase().includes(term) ||
+          String(t.user?.email || '').toLowerCase().includes(term) ||
+          String(t.mail || '').toLowerCase().includes(term)
+        ) return true;
+
+        // 2. Busqueda profunda en respuestas (Asunto, Descripción, Subcategoría, etc.)
+        if (t.responses && typeof t.responses === 'object') {
+          const values = Object.values(t.responses);
+          for (const val of values) {
+            if (val && String(val).toLowerCase().includes(term)) return true;
+          }
+        }
+
+        return false;
+      });
     }
 
     // Filtro Company Específico
