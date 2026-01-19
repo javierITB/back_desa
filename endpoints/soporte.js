@@ -901,8 +901,6 @@ router.get("/filtros", async (req, res) => {
 
     // B. Filtro por Categoría (Robusto: Category OR Origin OR FormId)
     if (category && category !== "") {
-      // Usamos Regex para búsqueda case-insensitive y para coincidir si es ID o Texto
-      // Esto cubre: category field, origin field, formId field.
       const catRegex = new RegExp(category, 'i');
       query.$or = [
         { category: catRegex },
@@ -925,8 +923,6 @@ router.get("/filtros", async (req, res) => {
     const collection = req.db.collection("soporte");
 
     // 3. Ejecutar Query BD (Sin paginar aún, para poder filtrar en memoria después)
-    // NOTA: Si el dataset fuera MUY grande (>10k), filtrar en memoria sería lento.
-    // Dado el requisito de encriptación, es un tradeoff aceptado.
     const rawTickets = await collection.find(query)
       .sort({ createdAt: -1 })
       .project({
@@ -1026,21 +1022,24 @@ router.get("/filtros", async (req, res) => {
       );
     }
 
+    const stats = {
+      total: filteredTickets.length,
+      pendiente: filteredTickets.filter(t => t.status === 'pendiente').length,
+      en_proceso: filteredTickets.filter(t => t.status === 'en_proceso').length,
+      resuelto: filteredTickets.filter(t => t.status === 'resuelto').length,
+      archivado: filteredTickets.filter(t => t.status === 'archivado').length,
+    };
+
+    // APLICAR FILTRO DE VISTA 
+    if (!status || status === "") {
+      filteredTickets = filteredTickets.filter(t => t.status !== 'archivado');
+    }
+
     // 6. Paginación final
     const totalCount = filteredTickets.length;
     const totalPages = Math.ceil(totalCount / limit);
     const paginatedTickets = filteredTickets.slice(skip, skip + limit);
 
-    // 7. Generación de Estadísticas (Sobre el set filtrado o total? Respuestas usa filtered)
-    // Usaremos el set filtrado para que los contadores reflejen la búsqueda actual
-    const stats = {
-      total: totalCount,
-      pendiente: filteredTickets.filter(t => t.status === 'pendiente').length,
-      en_proceso: filteredTickets.filter(t => t.status === 'en_proceso').length,
-      resuelto: filteredTickets.filter(t => t.status === 'resuelto').length,
-      archivado: filteredTickets.filter(t => t.status === 'archivado').length,
-      // Agrega otros si son comunes
-    };
 
     res.json({
       data: paginatedTickets,
