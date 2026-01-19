@@ -1007,7 +1007,9 @@ router.get("/filtros", async (req, res) => {
         String(t.trabajador || '').toLowerCase().includes(term) ||
         String(t.rutTrabajador || '').toLowerCase().includes(term) ||
         String(t.company || '').toLowerCase().includes(term) ||
-        String(t.submittedBy || '').toLowerCase().includes(term)
+        String(t.submittedBy || '').toLowerCase().includes(term) ||
+        String(t.responses?.Asunto || '').toLowerCase().includes(term) ||
+        String(t.responses?.asunto || '').toLowerCase().includes(term)
       );
     }
 
