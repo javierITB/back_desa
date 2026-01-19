@@ -1042,16 +1042,14 @@ router.get("/filtros", async (req, res) => {
       );
     }
 
-    // --- CÁLCULO DE ESTADÍSTICAS INDEPENDIENTES ---
-    // Usamos agregación para contar totales reales en BD, ignorando filtros de búsqueda/estado actuales
-    // para que los contadores ("tabs") no se pongan en cero al navegar.
     const statsAggregation = await collection.aggregate([
       { $group: { _id: "$status", count: { $sum: 1 } } }
     ]).toArray();
 
     const statsMap = {};
     statsAggregation.forEach(s => {
-      statsMap[s._id] = s.count;
+      const key = String(s._id || '').toLowerCase();
+      statsMap[key] = s.count;
     });
 
     const stats = {
