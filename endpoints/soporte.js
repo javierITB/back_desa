@@ -905,7 +905,8 @@ router.get("/filtros", async (req, res) => {
       query.$or = [
         { category: catRegex },
         { origin: catRegex },
-        { formId: catRegex }
+        { formId: catRegex },
+        { formTitle: catRegex }
       ];
     }
 
