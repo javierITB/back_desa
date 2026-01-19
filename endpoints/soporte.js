@@ -797,7 +797,7 @@ router.get("/mini", async (req, res) => {
     const collection = req.db.collection("soporte");
 
     // Ejecutar en paralelo: Datos paginados, Conteo Total, Estadísticas Globales
-    const [answers, totalCount, statsAggregation] = await Promise.all([
+    const [answers, totalCount, statsAggregation, last24hAggregation] = await Promise.all([
       collection.find({ status: { $ne: 'archivado' } })
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -813,8 +813,41 @@ router.get("/mini", async (req, res) => {
       collection.countDocuments({ status: { $ne: 'archivado' } }),
       collection.aggregate([
         { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]).toArray(),
+      collection.aggregate([
+        {
+          $match: { status: { $ne: 'archivado' } }
+        },
+        {
+          $group: {
+            _id: null,
+            last24hCreateCount: {
+              $sum: { $cond: [{ $gte: ["$createdAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            },
+            last24hPendingCount: {
+              $sum: { $cond: [{ $gte: ["$submittedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            },
+            last24hReviewCount: {
+              $sum: { $cond: [{ $gte: ["$reviewedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            },
+            last24hApprovedCount: {
+              $sum: { $cond: [{ $gte: ["$approvedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            },
+            last24hFinalizedCount: {
+              $sum: { $cond: [{ $gte: ["$finalizedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            }
+          }
+        }
       ]).toArray()
     ]);
+
+    const last24hStats = last24hAggregation[0] || {
+      last24hCreateCount: 0,
+      last24hPendingCount: 0,
+      last24hReviewCount: 0,
+      last24hApprovedCount: 0,
+      last24hFinalizedCount: 0
+    };
 
     // Procesar Estadísticas
     const statsMap = {};
@@ -825,7 +858,8 @@ router.get("/mini", async (req, res) => {
 
     const stats = {
       total: totalCount,
-      ...statsMap
+      ...statsMap,
+      last24h: last24hStats
     };
 
     // Procesar y descifrar las respuestas
@@ -1051,9 +1085,44 @@ router.get("/filtros", async (req, res) => {
       );
     }
 
-    const statsAggregation = await collection.aggregate([
-      { $group: { _id: "$status", count: { $sum: 1 } } }
-    ]).toArray();
+    const [statsAggregation, last24hAggregation] = await Promise.all([
+      collection.aggregate([
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]).toArray(),
+      collection.aggregate([
+        {
+          $match: { status: { $ne: 'archivado' } }
+        },
+        {
+          $group: {
+            _id: null,
+            last24hCreateCount: {
+              $sum: { $cond: [{ $gte: ["$createdAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            },
+            last24hPendingCount: {
+              $sum: { $cond: [{ $gte: ["$submittedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            },
+            last24hReviewCount: {
+              $sum: { $cond: [{ $gte: ["$reviewedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            },
+            last24hApprovedCount: {
+              $sum: { $cond: [{ $gte: ["$approvedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            },
+            last24hFinalizedCount: {
+              $sum: { $cond: [{ $gte: ["$finalizedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+            }
+          }
+        }
+      ]).toArray()
+    ]);
+
+    const last24hStats = last24hAggregation[0] || {
+      last24hCreateCount: 0,
+      last24hPendingCount: 0,
+      last24hReviewCount: 0,
+      last24hApprovedCount: 0,
+      last24hFinalizedCount: 0
+    };
 
     const statsMap = {};
     statsAggregation.forEach(s => {
