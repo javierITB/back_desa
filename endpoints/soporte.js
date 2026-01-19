@@ -817,31 +817,36 @@ router.get("/mini", async (req, res) => {
 
     // Procesar y descifrar las respuestas
     const answersProcessed = answers.map(answer => {
-      // Descifrar campos de usuario
-      let nombreDescifrado = answer.user?.nombre || "No especificado";
-      let empresaDescifrada = answer.user?.empresa || "No especificado";
+      // Helper para desencriptar
+      const safeDecrypt = (val) => {
+        if (!val) return "";
+        try {
+          if (val.includes(':')) return decrypt(val);
+          return val;
+        } catch (e) { return val; }
+      };
 
-      try {
-        if (nombreDescifrado.includes(':')) {
-          nombreDescifrado = decrypt(nombreDescifrado);
-        }
-        if (empresaDescifrada.includes(':')) {
-          empresaDescifrada = decrypt(empresaDescifrada);
-        }
-      } catch (error) {
-        console.error('Error descifrando datos en /mini:', error);
-      }
+      // Descifrar campos de usuario
+      const nombreUsuario = safeDecrypt(answer.user?.nombre || "No especificado");
+      const empresaUsuario = safeDecrypt(answer.user?.empresa || "No especificado");
+
+      const trabajadorEncrypted = answer.responses?.['Nombre del trabajador'];
+      const rutEncrypted = answer.responses?.['RUT del trabajador'] || answer.responses?.['RUT'];
+
+      const trabajador = trabajadorEncrypted ? safeDecrypt(trabajadorEncrypted) : nombreUsuario;
+      const rutTrabajador = rutEncrypted ? safeDecrypt(rutEncrypted) : "No especificado";
+
 
       return {
         _id: answer._id,
         formId: answer.formId,
-        formTitle: answer.formTitle,
-        trabajador: "No especificado",
-        rutTrabajador: "No especificado",
+        formTitle: answer.formTitle || 'Sin Título',
+        trabajador: trabajador,
+        rutTrabajador: rutTrabajador,
         submittedAt: answer.submittedAt,
         user: {
-          nombre: nombreDescifrado,
-          empresa: empresaDescifrada,
+          nombre: nombreUsuario,
+          empresa: empresaUsuario,
           uid: answer.user?.uid
         },
         status: answer.status,
@@ -856,16 +861,20 @@ router.get("/mini", async (req, res) => {
         updatedAt: answer.updatedAt,
         adjuntosCount: answer.adjuntosCount || 0,
         category: answer.category,
-        origin: answer.origin,
-        origin: answer.origin,
-        priority: (answer.priority || answer.responses?.['Prioridad'] || answer.responses?.['priority'] || 'media').toLowerCase()
+
+        // Campos extra para facilitar búsqueda en frontend
+        company: empresaUsuario,
+        submittedBy: nombreUsuario,
+        priority: (answer.priority || answer.responses?.['Prioridad'] || answer.responses?.['priority'] || 'media').toLowerCase(),
+        origin: answer.origin
       };
     });
 
     res.json(answersProcessed);
+
   } catch (err) {
     console.error("Error en /mini:", err);
-    res.status(500).json({ error: "Error al obtener formularios" });
+    res.status(500).json({ error: "Error al obtener tickets" });
   }
 });
 
