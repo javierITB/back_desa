@@ -906,7 +906,11 @@ router.get("/filtros", async (req, res) => {
         { category: catRegex },
         { origin: catRegex },
         { formId: catRegex },
-        { formTitle: catRegex }
+        { formTitle: catRegex },
+        { "responses.Categoría": catRegex },
+        { "responses.Subcategoría": catRegex },
+        { "responses.category": catRegex },
+        { "responses.subcategory": catRegex }
       ];
     }
 
