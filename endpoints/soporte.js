@@ -882,7 +882,7 @@ router.get("/filtros", async (req, res) => {
           String(item.trabajador).toLowerCase().includes(searchTerm) ||
           String(item.formTitle).toLowerCase().includes(searchTerm) ||
           String(item.submittedBy).toLowerCase().includes(searchTerm) ||
-          Stringitem.company.toLowerCase().includes(searchTerm) ||
+          // String(item.company).toLowerCase().includes(searchTerm) ||
           String(item.rutTrabajador).toLowerCase().includes(searchTerm) ||
           String(item._id).toLowerCase().includes(searchTerm)
         );
