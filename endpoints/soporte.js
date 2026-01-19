@@ -796,8 +796,11 @@ router.get("/mini", async (req, res) => {
 
     const collection = req.db.collection("soporte");
 
+    // Aggregation for Status Counts and 24h Changes
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
     // Ejecutar en paralelo: Datos paginados, Conteo Total, Estadísticas Globales
-    const [answers, totalCount, statsAggregation, last24hAggregation] = await Promise.all([
+    const [answers, totalCount, aggregationResult] = await Promise.all([
       collection.find({ status: { $ne: 'archivado' } })
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -812,54 +815,40 @@ router.get("/mini", async (req, res) => {
         .toArray(),
       collection.countDocuments({ status: { $ne: 'archivado' } }),
       collection.aggregate([
-        { $group: { _id: "$status", count: { $sum: 1 } } }
-      ]).toArray(),
-      collection.aggregate([
         {
-          $match: { status: { $ne: 'archivado' } }
-        },
-        {
-          $group: {
-            _id: null,
-            last24hCreateCount: {
-              $sum: { $cond: [{ $gte: ["$createdAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            },
-            last24hPendingCount: {
-              $sum: { $cond: [{ $gte: ["$submittedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            },
-            last24hReviewCount: {
-              $sum: { $cond: [{ $gte: ["$reviewedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            },
-            last24hApprovedCount: {
-              $sum: { $cond: [{ $gte: ["$approvedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            },
-            last24hFinalizedCount: {
-              $sum: { $cond: [{ $gte: ["$finalizedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            }
+          $facet: {
+            statusCounts: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+            changes: [{
+              $group: {
+                _id: null,
+                created: { $sum: { $cond: [{ $gte: ["$createdAt", oneDayAgo] }, 1, 0] } },
+                submitted: { $sum: { $cond: [{ $gte: ["$submittedAt", oneDayAgo] }, 1, 0] } },
+                reviewed: { $sum: { $cond: [{ $gte: ["$reviewedAt", oneDayAgo] }, 1, 0] } },
+                approved: { $sum: { $cond: [{ $gte: ["$approvedAt", oneDayAgo] }, 1, 0] } },
+                finalized: { $sum: { $cond: [{ $gte: ["$finalizedAt", oneDayAgo] }, 1, 0] } }
+              }
+            }]
           }
         }
       ]).toArray()
     ]);
 
-    const last24hStats = last24hAggregation[0] || {
-      last24hCreateCount: 0,
-      last24hPendingCount: 0,
-      last24hReviewCount: 0,
-      last24hApprovedCount: 0,
-      last24hFinalizedCount: 0
-    };
-
     // Procesar Estadísticas
     const statsMap = {};
-    statsAggregation.forEach(s => {
+    const agResult = aggregationResult[0]; // facet returns one document with arrays
+
+    (agResult.statusCounts || []).forEach(s => {
       const key = String(s._id || '').toLowerCase();
       statsMap[key] = s.count;
     });
 
+    const changes = (agResult.changes && agResult.changes[0]) ? agResult.changes[0] : { created: 0, submitted: 0, reviewed: 0, approved: 0, finalized: 0 };
+    delete changes._id;
+
     const stats = {
       total: totalCount,
       ...statsMap,
-      last24h: last24hStats
+      changes
     };
 
     // Procesar y descifrar las respuestas
@@ -1085,54 +1074,39 @@ router.get("/filtros", async (req, res) => {
       );
     }
 
-    const [statsAggregation, last24hAggregation] = await Promise.all([
-      collection.aggregate([
-        { $group: { _id: "$status", count: { $sum: 1 } } }
-      ]).toArray(),
-      collection.aggregate([
-        {
-          $match: { status: { $ne: 'archivado' } }
-        },
-        {
-          $group: {
-            _id: null,
-            last24hCreateCount: {
-              $sum: { $cond: [{ $gte: ["$createdAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            },
-            last24hPendingCount: {
-              $sum: { $cond: [{ $gte: ["$submittedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            },
-            last24hReviewCount: {
-              $sum: { $cond: [{ $gte: ["$reviewedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            },
-            last24hApprovedCount: {
-              $sum: { $cond: [{ $gte: ["$approvedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
-            },
-            last24hFinalizedCount: {
-              $sum: { $cond: [{ $gte: ["$finalizedAt", new Date(Date.now() - 24 * 60 * 60 * 1000)] }, 1, 0] }
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const aggregationResult = await collection.aggregate([
+      {
+        $facet: {
+          statusCounts: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+          changes: [{
+            $group: {
+              _id: null,
+              created: { $sum: { $cond: [{ $gte: ["$createdAt", oneDayAgo] }, 1, 0] } },
+              submitted: { $sum: { $cond: [{ $gte: ["$submittedAt", oneDayAgo] }, 1, 0] } },
+              reviewed: { $sum: { $cond: [{ $gte: ["$reviewedAt", oneDayAgo] }, 1, 0] } },
+              approved: { $sum: { $cond: [{ $gte: ["$approvedAt", oneDayAgo] }, 1, 0] } },
+              finalized: { $sum: { $cond: [{ $gte: ["$finalizedAt", oneDayAgo] }, 1, 0] } }
             }
-          }
+          }]
         }
-      ]).toArray()
-    ]);
+      }
+    ]).toArray();
 
-    const last24hStats = last24hAggregation[0] || {
-      last24hCreateCount: 0,
-      last24hPendingCount: 0,
-      last24hReviewCount: 0,
-      last24hApprovedCount: 0,
-      last24hFinalizedCount: 0
-    };
-
+    const agResult = aggregationResult[0];
     const statsMap = {};
-    statsAggregation.forEach(s => {
+    (agResult.statusCounts || []).forEach(s => {
       const key = String(s._id || '').toLowerCase();
       statsMap[key] = s.count;
     });
 
+    const changes = (agResult.changes && agResult.changes[0]) ? agResult.changes[0] : { created: 0, submitted: 0, reviewed: 0, approved: 0, finalized: 0 };
+    delete changes._id;
+
     const stats = {
-      total: statsAggregation.reduce((acc, curr) => acc + curr.count, 0),
-      ...statsMap
+      total: (agResult.statusCounts || []).reduce((acc, curr) => acc + curr.count, 0),
+      ...statsMap,
+      changes
     };
 
     // APLICAR FILTRO DE VISTA 
