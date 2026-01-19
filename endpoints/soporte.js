@@ -789,60 +789,70 @@ router.get("/mini", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
-    const answers = await req.db.collection("soporte")
-      .find({})
-      .project({
-        _id: 1,
-        formId: 1,
-        formTitle: 1,
-        "responses": 1,
-        submittedAt: 1,
-        "user.nombre": 1,
-        "user.empresa": 1,
-        status: 1,
-        assignedTo: 1,
-        createdAt: 1,
-        assignedAt: 1,
-        estimatedCompletionAt: 1,
-        approvedAt: 1,
-        finalizedAt: 1,
-        updatedAt: 1,
-        reviewedAt: 1,
-        adjuntosCount: 1,
-        category: 1,
-        origin: 1,
-        priority: 1
-      })
-      .toArray();
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const skip = (page - 1) * limit;
+
+    const collection = req.db.collection("soporte");
+
+    // Ejecutar en paralelo: Datos paginados, Conteo Total, Estadísticas Globales
+    const [answers, totalCount, statsAggregation] = await Promise.all([
+      collection.find({})
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .project({
+          _id: 1, formId: 1, formTitle: 1, "responses": 1, submittedAt: 1,
+          "user.nombre": 1, "user.empresa": 1, "user.uid": 1, status: 1,
+          assignedTo: 1, createdAt: 1, assignedAt: 1, estimatedCompletionAt: 1,
+          approvedAt: 1, finalizedAt: 1, updatedAt: 1, reviewedAt: 1,
+          adjuntosCount: 1, category: 1, origin: 1, priority: 1
+        })
+        .toArray(),
+      collection.countDocuments({}),
+      collection.aggregate([
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]).toArray()
+    ]);
+
+    // Procesar Estadísticas
+    const statsMap = {};
+    statsAggregation.forEach(s => {
+      const key = String(s._id || '').toLowerCase();
+      statsMap[key] = s.count;
+    });
+
+    const stats = {
+      total: totalCount,
+      pendiente: statsMap['pendiente'] || 0,
+      en_proceso: statsMap['en_proceso'] || 0,
+      resuelto: statsMap['resuelto'] || 0,
+      archivado: statsMap['archivado'] || 0,
+    };
 
     // Procesar y descifrar las respuestas
+    const { decrypt } = require('../utils/seguridad.helper');
     const answersProcessed = answers.map(answer => {
-      // Helper para desencriptar
       const safeDecrypt = (val) => {
         if (!val) return "";
         try {
-          if (val.includes(':')) return decrypt(val);
+          if (val && typeof val === 'string' && val.includes(':')) return decrypt(val);
           return val;
         } catch (e) { return val; }
       };
 
-      // Descifrar campos de usuario
       const nombreUsuario = safeDecrypt(answer.user?.nombre || "No especificado");
       const empresaUsuario = safeDecrypt(answer.user?.empresa || "No especificado");
-
       const trabajadorEncrypted = answer.responses?.['Nombre del trabajador'];
       const rutEncrypted = answer.responses?.['RUT del trabajador'] || answer.responses?.['RUT'];
-
-      const trabajador = trabajadorEncrypted ? safeDecrypt(trabajadorEncrypted) : nombreUsuario;
-      const rutTrabajador = rutEncrypted ? safeDecrypt(rutEncrypted) : "No especificado";
-
 
       return {
         _id: answer._id,
         formId: answer.formId,
         formTitle: answer.formTitle || 'Sin Título',
-        trabajador: trabajador,
-        rutTrabajador: rutTrabajador,
+        trabajador: trabajadorEncrypted ? safeDecrypt(trabajadorEncrypted) : nombreUsuario,
+        rutTrabajador: rutEncrypted ? safeDecrypt(rutEncrypted) : "No especificado",
         submittedAt: answer.submittedAt,
         user: {
           nombre: nombreUsuario,
@@ -853,24 +863,26 @@ router.get("/mini", async (req, res) => {
         assignedTo: answer.assignedTo,
         responses: answer.responses,
         createdAt: answer.createdAt,
-        assignedAt: answer.assignedAt,
-        estimatedCompletionAt: answer.estimatedCompletionAt,
-        reviewedAt: answer.reviewedAt,
-        approvedAt: answer.approvedAt,
-        finalizedAt: answer.finalizedAt,
         updatedAt: answer.updatedAt,
         adjuntosCount: answer.adjuntosCount || 0,
         category: answer.category,
-
-        // Campos extra para facilitar búsqueda en frontend
         company: empresaUsuario,
         submittedBy: nombreUsuario,
-        priority: (answer.priority || answer.responses?.['Prioridad'] || answer.responses?.['priority'] || 'media').toLowerCase(),
+        priority: (answer.priority || answer.responses?.['Prioridad'] || 'media').toLowerCase(),
         origin: answer.origin
       };
     });
 
-    res.json(answersProcessed);
+    res.json({
+      data: answersProcessed,
+      pagination: {
+        total: totalCount,
+        page,
+        limit,
+        totalPages: Math.ceil(totalCount / limit)
+      },
+      stats
+    });
 
   } catch (err) {
     console.error("Error en /mini:", err);
