@@ -1445,6 +1445,58 @@ router.delete("/empresas/:id", async (req, res) => {
       res.status(500).json({ error: "Error al eliminar" });
    }
 });
+// ruta para recopilar todos los usuarios de la empresa asociados a un email 
+
+router.get("/empresas/usuarios/:email", async (req, res) => {
+   try {
+      await verifyRequest(req);
+      const emailABuscar = req.params.email;
+
+      // 1. OBTENEMOS TODOS LOS USUARIOS
+      // Necesario para poder desencriptar y comparar el nombre de la empresa correctamente
+      const todosLosUsuarios = await req.db.collection("usuarios").find().toArray();
+
+      // 2. IDENTIFICAR AL USUARIO PIVOTE
+      const hashBusqueda = createBlindIndex(emailABuscar.toLowerCase().trim());
+      const usuarioPivote = todosLosUsuarios.find(u => u.mail_index === hashBusqueda);
+
+      if (!usuarioPivote) {
+         return res.status(404).json({ success: false, message: "Usuario no encontrado" });
+      }
+
+      // Desencriptamos la empresa del pivote para tener la referencia de comparación
+      const empresaReferencia = decrypt(usuarioPivote.empresa);
+
+      // 3. FILTRADO POST-DESENCRIPTACIÓN Y FORMATEO
+      const usuariosProcesados = todosLosUsuarios
+         .filter(u => {
+            try {
+               // Comparamos el texto plano de la empresa (evita errores por IV distinto)
+               return decrypt(u.empresa) === empresaReferencia;
+            } catch (e) {
+               return false; 
+            }
+         })
+         .map(u => ({
+            id: u._id.toString(),
+            nombre: u.nombre ? decrypt(u.nombre) : "",
+            apellido: u.apellido ? decrypt(u.apellido) : "",
+            mail: u.mail ? decrypt(u.mail) : ""
+         }));
+
+      res.json({
+         success: true,
+         count: usuariosProcesados.length,
+         data: usuariosProcesados
+      });
+
+   } catch (err) {
+      console.error("Error al listar usuarios de empresa:", err);
+      if (err.status) return res.status(err.status).json({ message: err.message });
+      res.status(500).json({ error: "Error al obtener la lista de empresa" });
+   }
+});
+
 
 router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
    try {
@@ -1656,5 +1708,7 @@ router.get("/mantenimiento/migrar-tokens-pqc", async (req, res) => {
       res.status(500).json({ error: err.message });
    }
 });
+
+
 
 module.exports = router;
