@@ -825,10 +825,7 @@ router.get("/mini", async (req, res) => {
 
     const stats = {
       total: totalCount,
-      pendiente: statsMap['pendiente'] || 0,
-      en_proceso: statsMap['en_proceso'] || 0,
-      resuelto: statsMap['resuelto'] || 0,
-      archivado: statsMap['archivado'] || 0,
+      ...statsMap
     };
 
     // Procesar y descifrar las respuestas
@@ -1066,10 +1063,7 @@ router.get("/filtros", async (req, res) => {
 
     const stats = {
       total: statsAggregation.reduce((acc, curr) => acc + curr.count, 0),
-      pendiente: statsMap['pendiente'] || 0,
-      en_proceso: statsMap['en_proceso'] || 0,
-      resuelto: statsMap['resuelto'] || 0,
-      archivado: statsMap['archivado'] || 0,
+      ...statsMap
     };
 
     // APLICAR FILTRO DE VISTA 
