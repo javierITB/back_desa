@@ -1105,4 +1105,185 @@ router.put("/:id/status", async (req, res) => {
   }
 });
 
+// 15. GET /filtros - Filtrado y Paginación Server-Side (Simil Respuestas)
+router.get("/filtros", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    // 1. Obtener parámetros de Query
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const skip = (page - 1) * limit;
+
+    const { status, company, search, startDate, endDate, category, submittedBy } = req.query;
+
+    // 2. Query Inicial de Base de Datos (Campos indexados/no cifrados)
+    let query = {};
+
+    // A. Filtro por Estado (Exacto)
+    if (status && status !== "") {
+      query["status"] = status;
+    }
+
+    // B. Filtro por Categoría (Robusto: Category OR Origin OR FormId)
+    if (category && category !== "") {
+      // Usamos Regex para búsqueda case-insensitive y para coincidir si es ID o Texto
+      // Esto cubre: category field, origin field, formId field.
+      const catRegex = new RegExp(category, 'i');
+      query.$or = [
+        { category: catRegex },
+        { origin: catRegex },
+        { formId: catRegex }
+      ];
+    }
+
+    // C. Filtro por Rango de Fechas
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    const collection = req.db.collection("soporte");
+
+    // 3. Ejecutar Query BD (Sin paginar aún, para poder filtrar en memoria después)
+    // NOTA: Si el dataset fuera MUY grande (>10k), filtrar en memoria sería lento.
+    // Dado el requisito de encriptación, es un tradeoff aceptado.
+    const rawTickets = await collection.find(query)
+      .sort({ createdAt: -1 })
+      .project({
+        _id: 1,
+        formId: 1,
+        formTitle: 1,
+        "responses": 1,
+        submittedAt: 1,
+        "user.nombre": 1,
+        "user.empresa": 1,
+        status: 1,
+        assignedTo: 1,
+        createdAt: 1,
+        assignedAt: 1,
+        estimatedCompletionAt: 1,
+        reviewedAt: 1,
+        approvedAt: 1,
+        finalizedAt: 1,
+        updatedAt: 1,
+        adjuntosCount: 1,
+        category: 1,
+        origin: 1,
+        priority: 1
+      })
+      .toArray();
+
+    // 4. Procesamiento y Desencriptación en Memoria
+    const { decrypt } = require('../utils/seguridad.helper');
+
+    // Helper seguro
+    const safeDecrypt = (val) => {
+      if (!val) return "";
+      try {
+        if (val.includes(':')) return decrypt(val);
+        return val;
+      } catch (e) { return val; }
+    };
+
+    const processedTickets = rawTickets.map(ticket => {
+      // Desencriptar Usuario y Empresa
+      const nombreUsuario = safeDecrypt(ticket.user?.nombre || "No especificado");
+      const empresaUsuario = safeDecrypt(ticket.user?.empresa || "No especificado");
+
+      // Desencriptar Trabajador/RUT desde responses (si existen)
+      const trabajadorEncrypted = ticket.responses?.['Nombre del trabajador'];
+      const rutEncrypted = ticket.responses?.['RUT del trabajador'] || ticket.responses?.['RUT'];
+
+      const trabajador = trabajadorEncrypted ? safeDecrypt(trabajadorEncrypted) : nombreUsuario;
+      const rutTrabajador = rutEncrypted ? safeDecrypt(rutEncrypted) : "No especificado";
+
+      const priority = (ticket.priority || ticket.responses?.['Prioridad'] || ticket.responses?.['priority'] || 'media').toLowerCase();
+
+      return {
+        ...ticket,
+        user: {
+          ...ticket.user,
+          nombre: nombreUsuario,
+          empresa: empresaUsuario
+        },
+        trabajador,
+        rutTrabajador,
+        company: empresaUsuario, // Alias para filtro
+        submittedBy: nombreUsuario, // Alias para filtro
+        priority
+      };
+    });
+
+    // 5. Filtrado en Memoria (Búsqueda por Texto y Campos Desencriptados)
+    let filteredTickets = processedTickets;
+
+    // Filtro Search Global
+    if (search && search.trim() !== "") {
+      const term = search.toLowerCase();
+      filteredTickets = filteredTickets.filter(t =>
+        String(t.formTitle || '').toLowerCase().includes(term) ||
+        String(t.formId || '').toLowerCase().includes(term) ||
+        String(t.trabajador || '').toLowerCase().includes(term) ||
+        String(t.rutTrabajador || '').toLowerCase().includes(term) ||
+        String(t.company || '').toLowerCase().includes(term) ||
+        String(t.submittedBy || '').toLowerCase().includes(term)
+      );
+    }
+
+    // Filtro Company Específico
+    if (company && company.trim() !== "") {
+      const term = company.toLowerCase();
+      filteredTickets = filteredTickets.filter(t =>
+        String(t.company || '').toLowerCase().includes(term)
+      );
+    }
+
+    // Filtro SubmittedBy Específico
+    if (submittedBy && submittedBy.trim() !== "") {
+      const term = submittedBy.toLowerCase();
+      filteredTickets = filteredTickets.filter(t =>
+        String(t.submittedBy || '').toLowerCase().includes(term)
+      );
+    }
+
+    // 6. Paginación final
+    const totalCount = filteredTickets.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    const paginatedTickets = filteredTickets.slice(skip, skip + limit);
+
+    // 7. Generación de Estadísticas (Sobre el set filtrado o total? Respuestas usa filtered)
+    // Usaremos el set filtrado para que los contadores reflejen la búsqueda actual
+    const stats = {
+      total: totalCount,
+      pendiente: filteredTickets.filter(t => t.status === 'pendiente').length,
+      en_proceso: filteredTickets.filter(t => t.status === 'en_proceso').length,
+      resuelto: filteredTickets.filter(t => t.status === 'resuelto').length,
+      archivado: filteredTickets.filter(t => t.status === 'archivado').length,
+      // Agrega otros si son comunes
+    };
+
+    res.json({
+      data: paginatedTickets,
+      pagination: {
+        total: totalCount,
+        page,
+        limit,
+        totalPages
+      },
+      stats
+    });
+
+  } catch (err) {
+    console.error("Error en /filtros:", err);
+    res.status(500).json({ error: "Error al obtener tickets filtrados" });
+  }
+});
+
 module.exports = router;
