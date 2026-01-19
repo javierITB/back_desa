@@ -1042,12 +1042,24 @@ router.get("/filtros", async (req, res) => {
       );
     }
 
+    // --- CÁLCULO DE ESTADÍSTICAS INDEPENDIENTES ---
+    // Usamos agregación para contar totales reales en BD, ignorando filtros de búsqueda/estado actuales
+    // para que los contadores ("tabs") no se pongan en cero al navegar.
+    const statsAggregation = await collection.aggregate([
+      { $group: { _id: "$status", count: { $sum: 1 } } }
+    ]).toArray();
+
+    const statsMap = {};
+    statsAggregation.forEach(s => {
+      statsMap[s._id] = s.count;
+    });
+
     const stats = {
-      total: filteredTickets.length,
-      pendiente: filteredTickets.filter(t => t.status === 'pendiente').length,
-      en_proceso: filteredTickets.filter(t => t.status === 'en_proceso').length,
-      resuelto: filteredTickets.filter(t => t.status === 'resuelto').length,
-      archivado: filteredTickets.filter(t => t.status === 'archivado').length,
+      total: statsAggregation.reduce((acc, curr) => acc + curr.count, 0),
+      pendiente: statsMap['pendiente'] || 0,
+      en_proceso: statsMap['en_proceso'] || 0,
+      resuelto: statsMap['resuelto'] || 0,
+      archivado: statsMap['archivado'] || 0,
     };
 
     // APLICAR FILTRO DE VISTA 
