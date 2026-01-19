@@ -798,7 +798,7 @@ router.get("/mini", async (req, res) => {
 
     // Ejecutar en paralelo: Datos paginados, Conteo Total, Estadísticas Globales
     const [answers, totalCount, statsAggregation] = await Promise.all([
-      collection.find({})
+      collection.find({ status: { $ne: 'archivado' } })
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -810,7 +810,7 @@ router.get("/mini", async (req, res) => {
           adjuntosCount: 1, category: 1, origin: 1, priority: 1
         })
         .toArray(),
-      collection.countDocuments({}),
+      collection.countDocuments({ status: { $ne: 'archivado' } }),
       collection.aggregate([
         { $group: { _id: "$status", count: { $sum: 1 } } }
       ]).toArray()
