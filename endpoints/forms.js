@@ -99,7 +99,7 @@ router.get("/mini", async (req, res) => {
     }
 
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 30;
+    const limit = parseInt(req.query.limit) || 15;
     const skip = (page - 1) * limit;
 
     const query = {};
