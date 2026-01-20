@@ -962,9 +962,16 @@ router.get("/filtros", async (req, res) => {
 
     // 3. Obtenemos todos los registros que cumplen los filtros base de la DB
     // No limitamos aquí porque necesitamos desencriptar para buscar por 'search'
-    const answers = await collection.find(query)
-      .sort({ createdAt: -1 })
-      .toArray();
+    const statsQuery = { ...query };
+    delete statsQuery.status;
+
+    const [answers, statusCounts] = await Promise.all([
+      collection.find(query).sort({ createdAt: -1 }).toArray(),
+      collection.aggregate([
+        { $match: statsQuery },
+        { $group: { _id: "$status", count: { $sum: 1 } } }
+      ]).toArray()
+    ]);
 
     // 4. Procesamiento, Desencriptación y Mapeo
     let answersProcessed = answers.map(answer => {
@@ -1051,16 +1058,18 @@ router.get("/filtros", async (req, res) => {
     const skip = (page - 1) * limit;
     const paginatedData = answersProcessed.slice(skip, skip + limit);
 
-    // 8. Stats de estados (Basados en el universo filtrado por fecha/status de DB)
-    // Para que los stats sean precisos, los calculamos del array procesado
+    // 8. Stats de estados (Basados en la agregación global)
+    // Mapeamos los resultados del group by
+    const getCount = (s) => statusCounts.find(x => x._id === s)?.count || 0;
+
     const stats = {
-      total: totalCount,
-      pendiente: answersProcessed.filter(a => a.status === 'pendiente').length,
-      en_revision: answersProcessed.filter(a => a.status === 'en_revision').length,
-      aprobado: answersProcessed.filter(a => a.status === 'aprobado').length,
-      finalizado: answersProcessed.filter(a => a.status === 'finalizado').length,
-      archivado: answersProcessed.filter(a => a.status === 'archivado').length,
-      firmado: answersProcessed.filter(a => a.status === 'firmado').length
+      total: totalCount, // Total VISIBLE (filtrado)
+      pendiente: getCount('pendiente'),
+      en_revision: getCount('en_revision'),
+      aprobado: getCount('aprobado'),
+      finalizado: getCount('finalizado'),
+      archivado: getCount('archivado'),
+      firmado: getCount('firmado')
     };
 
     // 9. Respuesta final
