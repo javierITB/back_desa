@@ -90,7 +90,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Listar todos los formularios - SOLO CAMBIO DE MENSAJES DE ERROR
+// Listar todos los formularios con Paginación
 router.get("/", async (req, res) => {
   try {
     // Validar token con el helper
@@ -99,9 +99,48 @@ router.get("/", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const forms = await req.db.collection("forms").find().toArray();
-    res.json(forms);
+    // Parámetros de Paginación
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const skip = (page - 1) * limit;
+
+    // Filtros opcionales 
+    const query = {};
+    if (req.query.search) {
+      query.$or = [
+        { title: { $regex: req.query.search, $options: "i" } },
+        { description: { $regex: req.query.search, $options: "i" } }
+      ];
+    }
+    if (req.query.category && req.query.category !== 'all') {
+      query.section = req.query.category; // 
+    }
+    if (req.query.status) {
+      // Si el status es un array o string separado por comas
+      const statuses = req.query.status.split(',');
+      if (statuses.length > 0) {
+        query.status = { $in: statuses };
+      }
+    }
+
+    // Ejecutar consulta con paginación
+    const totalForms = await req.db.collection("forms").countDocuments(query);
+    const forms = await req.db.collection("forms")
+      .find(query)
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    res.json({
+      data: forms,
+      total: totalForms,
+      page: page,
+      pages: Math.ceil(totalForms / limit),
+      limit: limit
+    });
   } catch (err) {
+    console.error("Error en GET /forms:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
