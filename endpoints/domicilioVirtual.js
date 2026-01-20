@@ -285,7 +285,7 @@ router.get("/:id", async (req, res) => {
 // 3. Crear solicitud (POST /)
 router.post("/", async (req, res) => {
     try {
-        const { formId, responses, formTitle, adjuntos = [], user } = req.body;
+        const { formId, responses, formTitle, adjuntos = [], user, expirationDate: bodyExpirationDate } = req.body;
 
         // Verificar formulario
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
@@ -395,17 +395,20 @@ router.post("/", async (req, res) => {
             } catch (ignore) { }
 
             // Fecha experación Ticket de Domicilio Virtual
-            let expirationDate = null;
-            const planKey = keys.find(k => normalizeKey(k).includes('plan de servicio seleccionado'));
+            let expirationDate = bodyExpirationDate ? new Date(bodyExpirationDate) : null;
+            if (!expirationDate) {
+                // Fallback: Calcular si no viene en el body
+                const planKey = keys.find(k => normalizeKey(k).includes('plan de servicio seleccionado'));
 
-            if (planKey && responses[planKey]) {
-                const planValue = String(responses[planKey]).toLowerCase();
-                const now = new Date();
+                if (planKey && responses[planKey]) {
+                    const planValue = String(responses[planKey]).toLowerCase();
+                    const now = new Date();
 
-                if (planValue.includes('anual')) {
-                    expirationDate = new Date(now.setFullYear(now.getFullYear() + 1));
-                } else if (planValue.includes('semestral')) {
-                    expirationDate = new Date(now.setMonth(now.getMonth() + 6));
+                    if (planValue.includes('anual')) {
+                        expirationDate = new Date(now.setFullYear(now.getFullYear() + 1));
+                    } else if (planValue.includes('semestral')) {
+                        expirationDate = new Date(now.setMonth(now.getMonth() + 6));
+                    }
                 }
             }
 
