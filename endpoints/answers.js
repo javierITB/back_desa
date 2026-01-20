@@ -134,9 +134,6 @@ router.post("/", async (req, res) => {
       return res.status(403).json({ error: `La empresa ${empresa} no está autorizada.` });
     }
 
-    // CIFRAR LOS DATOS SENSIBLES ANTES DE GUARDAR
-    console.log("Cifrando datos sensibles...");
-
     // Función simple para cifrar un objeto completo campo por campo
     const cifrarObjeto = (obj) => {
       if (!obj || typeof obj !== 'object') return obj;
@@ -172,11 +169,9 @@ router.post("/", async (req, res) => {
 
     // 1. Cifrar objeto 'user' campo por campo
     const userCifrado = cifrarObjeto(user);
-    console.log("Objeto 'user' cifrado");
 
     // 2. Cifrar objeto 'responses' campo por campo
     const responsesCifrado = cifrarObjeto(responses);
-    console.log("Objeto 'responses' cifrado");
 
     // Guardar respuesta con datos CIFRADOS
     const result = await req.db.collection("respuestas").insertOne({
@@ -190,7 +185,6 @@ router.post("/", async (req, res) => {
       updatedAt: new Date()
     });
 
-    console.log(`Respuesta guardada con ID: ${result.insertedId}`);
 
     // Manejar adjuntos si existen
     if (adjuntos.length > 0) {
@@ -438,8 +432,6 @@ router.post("/:id/adjuntos", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    console.log(`Subiendo adjunto ${index + 1} de ${total} para respuesta:`, id);
-
     if (!adjunto || typeof index === 'undefined' || !total) {
       return res.status(400).json({
         error: "Faltan campos: adjunto, index o total"
@@ -465,10 +457,6 @@ router.post("/:id/adjuntos", async (req, res) => {
       uploadedAt: new Date().toISOString()
     };
 
-    console.log(`Procesando adjunto ${index + 1}:`, {
-      fileName: adjuntoNormalizado.fileName,
-      size: adjuntoNormalizado.size
-    });
 
     // Buscar el documento de adjuntos
     const documentoAdjuntos = await req.db.collection("adjuntos").findOne({
@@ -493,7 +481,6 @@ router.post("/:id/adjuntos", async (req, res) => {
           $push: { adjuntos: adjuntoNormalizado }
         }
       );
-      console.log(`Adjunto ${index + 1} agregado al documento existente`);
     }
 
     res.json({
@@ -519,7 +506,6 @@ router.get("/:id/adjuntos/:index", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    console.log("Descargando adjunto:", { id, index });
 
     let query = {};
 
@@ -532,7 +518,6 @@ router.get("/:id/adjuntos/:index", async (req, res) => {
     const documentoAdjunto = await req.db.collection("adjuntos").findOne(query);
 
     if (!documentoAdjunto) {
-      console.log("Adjunto no encontrado con query:", query);
       return res.status(404).json({ error: "Archivo adjunto no encontrado" });
     }
 
@@ -718,7 +703,7 @@ router.get("/mail/:mail", async (req, res) => {
     const descifrarObjeto = (obj) => {
       if (!obj || typeof obj !== 'object') return obj;
       if (Array.isArray(obj)) return obj.map(item => descifrarCampo(item));
-      
+
       const resultado = {};
       for (const key in obj) {
         const valor = obj[key];
@@ -767,8 +752,50 @@ router.get("/mail/:mail", async (req, res) => {
         isShared: esCompartida,    // Alias para compatibilidad
         metadata: {
           esPropia: !esCompartida
-        }
+        },
+        // Placeholder for form data, to be populated below
+        form: null
       };
+    });
+
+    // Recolectar IDs únicos de formularios
+    const formIds = [...new Set(answersProcessed.map(a => a.formId).filter(id => id))];
+
+    // Buscar detalles de formularios
+    const formsDetails = await req.db.collection("forms").find({
+      _id: { $in: formIds.map(id => new ObjectId(id)) } 
+    }).project({
+      title: 1,
+      icon: 1,
+      primaryColor: 1,
+      section: 1,
+      description: 1,
+      updatedAt: 1
+    }).toArray();
+
+    // Crear mapa para acceso rápido
+    const formsMap = new Map();
+    formsDetails.forEach(f => formsMap.set(f._id.toString(), f));
+
+    // Inyectar datos del formulario en cada respuesta
+    answersProcessed.forEach(answer => {
+      if (answer.formId && formsMap.has(answer.formId)) {
+        const formData = formsMap.get(answer.formId);
+        answer.form = {
+          _id: formData._id,
+          title: formData.title,
+          icon: formData.icon,
+          primaryColor: formData.primaryColor,
+          section: formData.section,
+          description: formData.description,
+          updatedAt: formData.updatedAt
+        };
+
+        // Si no tiene título propio la respuesta, usar el del formulario
+        if (!answer.formTitle) {
+          answer.formTitle = formData.title;
+        }
+      }
     });
 
     // Ordenar por fecha (más recientes primero)
@@ -1056,55 +1083,55 @@ router.get("/filtros", async (req, res) => {
 
 // ruta para compartir solicitudes con usuarios 
 router.post("/compartir/", async (req, res) => {
-   try {
-      
-      const { usuarios, id } = req.body; 
-      const responseId = id;
-      
-      await verifyRequest(req);
+  try {
 
-      // Validar que el array de usuarios exista
-      if (!usuarios || !Array.isArray(usuarios)) {
-         return res.status(400).json({ 
-            success: false, 
-            message: "Se requiere un array de IDs de usuarios (usuariosIds)." 
-         });
-      }
+    const { usuarios, id } = req.body;
+    const responseId = id;
 
-      // 2. Actualización en la colección 'respuestas'
-      // Usamos la notación de punto para insertar 'compartidos' dentro del objeto 'user'
-      const result = await req.db.collection("respuestas").updateOne(
-         { _id: new ObjectId(responseId) },
-         { 
-            $set: { 
-               "user.compartidos": usuarios 
-            } 
-         }
-      );
+    await verifyRequest(req);
 
-      if (result.matchedCount === 0) {
-         return res.status(404).json({ 
-            success: false, 
-            message: "La solicitud (respuesta) no fue encontrada." 
-         });
-      }
-
-      // 3. Respuesta exitosa
-      res.json({ 
-         success: true, 
-         message: "Solicitud compartida correctamente con los compañeros." 
+    // Validar que el array de usuarios exista
+    if (!usuarios || !Array.isArray(usuarios)) {
+      return res.status(400).json({
+        success: false,
+        message: "Se requiere un array de IDs de usuarios (usuariosIds)."
       });
+    }
 
-   } catch (err) {
-      console.error("Error en endpoint compartir:", err);
-      // Si verifyRequest lanza un error con status, lo capturamos aquí
-      if (err.status) return res.status(err.status).json({ message: err.message });
-      
-      res.status(500).json({ 
-         success: false, 
-         error: "Error interno al procesar la acción de compartir." 
+    // 2. Actualización en la colección 'respuestas'
+    // Usamos la notación de punto para insertar 'compartidos' dentro del objeto 'user'
+    const result = await req.db.collection("respuestas").updateOne(
+      { _id: new ObjectId(responseId) },
+      {
+        $set: {
+          "user.compartidos": usuarios
+        }
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "La solicitud (respuesta) no fue encontrada."
       });
-   }
+    }
+
+    // 3. Respuesta exitosa
+    res.json({
+      success: true,
+      message: "Solicitud compartida correctamente con los compañeros."
+    });
+
+  } catch (err) {
+    console.error("Error en endpoint compartir:", err);
+    // Si verifyRequest lanza un error con status, lo capturamos aquí
+    if (err.status) return res.status(err.status).json({ message: err.message });
+
+    res.status(500).json({
+      success: false,
+      error: "Error interno al procesar la acción de compartir."
+    });
+  }
 });
 
 // Obtener respuesta por ID - Versión simplificada
@@ -1232,17 +1259,14 @@ router.put("/:id", async (req, res) => {
 
     // 1. Si viene 'user' en la actualización, CIFRARLO antes de guardar
     if (user && typeof user === 'object') {
-      console.log("Cifrando objeto 'user' para actualización...");
       updateData.user = cifrarObjeto(user);
     }
 
     // 2. Si viene 'responses' en la actualización, CIFRARLO antes de guardar
     if (responses && typeof responses === 'object') {
-      console.log("Cifrando objeto 'responses' para actualización...");
       updateData.responses = cifrarObjeto(responses);
     }
 
-    console.log("Datos a actualizar (cifrados):", Object.keys(updateData));
 
     // Actualizar en la base de datos
     const result = await req.db.collection("respuestas").findOneAndUpdate(
@@ -1252,7 +1276,6 @@ router.put("/:id", async (req, res) => {
     );
 
     if (!result.value) {
-      console.log("Respuesta no encontrada para ID:", req.params.id);
       return res.status(404).json({ error: "Formulario no encontrado" });
     }
 
@@ -1658,9 +1681,6 @@ router.post("/chat", async (req, res) => {
             subject: `Nuevo mensaje - Plataforma RRHH - ${formName}`,
             html: emailHtml
           });
-
-          console.log(`Correo enviado exitosamente a: ${userEmail}`);
-          console.log(`URL de respuesta: ${responseUrl}`);
         }
       } catch (emailError) {
         console.error("Error enviando correo:", emailError);
@@ -1793,7 +1813,6 @@ router.get("/:id/finalized", async (req, res) => {
     });
 
     if (!respuesta) {
-      console.log("Respuesta no encontrada para ID:", id);
       return res.status(404).json({ error: "Respuesta no encontrada" });
     }
 
@@ -1812,7 +1831,6 @@ router.get("/:id/finalized", async (req, res) => {
       return res.status(404).json({ error: "No se pudo actualizar la respuesta" });
     }
 
-    console.log(`Respuesta ${id} actualizada a estado: finalizado`);
 
     res.json({
       success: true,
@@ -1875,7 +1893,6 @@ router.get("/mantenimiento/limpiar-archivos-archivados", async (req, res) => {
       }
     };
 
-    console.log("Limpieza masiva de archivos archivados completada:", stats);
 
     res.json({
       success: true,
@@ -1909,7 +1926,6 @@ router.get("/:id/archived", async (req, res) => {
     });
 
     if (!respuesta) {
-      console.log("Respuesta no encontrada para ID:", id);
       return res.status(404).json({ error: "Respuesta no encontrada" });
     }
 
@@ -1940,11 +1956,7 @@ router.get("/:id/archived", async (req, res) => {
       req.db.collection("docxs").deleteMany({ responseId: id })
     ]);
 
-    console.log(`Respuesta ${id} archivada. Limpieza completada:`, {
-      aprobados: cleanupResults[0].deletedCount,
-      adjuntos: cleanupResults[1].deletedCount,
-      docxs: cleanupResults[2].deletedCount
-    });
+
 
     // Respuesta final al cliente
     res.json({
@@ -1972,8 +1984,7 @@ router.post("/upload-corrected-files", async (req, res) => {
     // Nota: Como usamos uploadMultiple.array, multer procesa primero. 
     // Podríamos verificar el token dentro del callback, ya que req.body estará poblado ahí.
 
-    console.log("=== DEBUG BACKEND - HEADERS ===");
-    console.log("Content-Type:", req.headers['content-type']);
+
 
     uploadMultiple.array('files', 10)(req, res, async (err) => {
       if (err) {
@@ -1986,12 +1997,7 @@ router.post("/upload-corrected-files", async (req, res) => {
       const auth = await verifyRequest(req);
       if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-      // VERIFICAR SI SE RECIBIERON FILES
-      console.log("Files recibidos:", req.files ? req.files.length : 'NONE');
-      console.log("Body fields:", Object.keys(req.body));
-      console.log("responseId:", req.body.responseId);
-      console.log("index:", req.body.index, "type:", typeof req.body.index);
-      console.log("total:", req.body.total, "type:", typeof req.body.total);
+
 
       const { responseId, index, total } = req.body;
       const files = req.files;
@@ -2020,9 +2026,6 @@ router.post("/upload-corrected-files", async (req, res) => {
           _id: new ObjectId(responseId)
         });
 
-        console.log("=== DEBUG USUARIO ===");
-        console.log("Respuesta encontrada:", response ? "SÍ" : "NO");
-
         if (response) {
           // OBTENER EMAIL Y NOMBRE DEL USUARIO DESDE LA RESPUESTA
           // El email está en texto plano en response.user.mail
@@ -2030,13 +2033,8 @@ router.post("/upload-corrected-files", async (req, res) => {
             userEmail = response.user.mail;
             userName = response.user.nombre || "Usuario";
             userId = response.user.uid;
-
-            console.log("Email obtenido de response.user.mail:", userEmail);
-            console.log("Nombre obtenido:", userName);
-            console.log("User ID obtenido:", userId);
           } else {
             console.log("No se encontró response.user.mail en la respuesta");
-            console.log("Estructura de response.user:", response.user);
           }
 
           // OBTENER NOMBRE DEL FORMULARIO
@@ -2047,21 +2045,19 @@ router.post("/upload-corrected-files", async (req, res) => {
 
             if (form && form.title) {
               formName = form.title;
-              console.log("Nombre del formulario obtenido de DB:", formName);
             } else {
               // Fallback: usar formTitle del _contexto si existe
               if (response._contexto && response._contexto.formTitle) {
                 formName = response._contexto.formTitle;
-                console.log("Usando formTitle de _contexto:", formName);
               }
             }
           } else if (response._contexto && response._contexto.formTitle) {
             // Si no hay formId, usar el del contexto
             formName = response._contexto.formTitle;
-            console.log("Usando formTitle de _contexto (sin formId):", formName);
+
           }
         } else {
-          console.log("No se encontró la respuesta con ID:", responseId);
+          console.log("No se encontró la respuesta");
         }
       } catch (userInfoError) {
         console.error("Error obteniendo información del usuario/formulario:", userInfoError);
@@ -2069,7 +2065,6 @@ router.post("/upload-corrected-files", async (req, res) => {
 
       // PROCESAR CADA ARCHIVO
       for (const file of files) {
-        console.log(`Procesando archivo: ${file.originalname}, size: ${file.size}`);
 
         const correctedFile = {
           fileName: normalizeFilename(file.originalname),
@@ -2095,7 +2090,6 @@ router.post("/upload-corrected-files", async (req, res) => {
             },
             { returnDocument: 'after' }
           );
-          console.log(`Archivo agregado a DB. Total ahora:`, result.value?.correctedFiles?.length);
         } else {
           await req.db.collection("aprobados").insertOne({
             responseId: responseId,
@@ -2168,8 +2162,6 @@ router.post("/upload-corrected-files", async (req, res) => {
             </html>
           `;
 
-          console.log("📧 Enviando correo a:", userEmail);
-          console.log("📧 Asunto: Documentos aprobados disponibles - ${formName} - Acciona");
 
           await sendEmail({
             to: userEmail,
@@ -2178,7 +2170,6 @@ router.post("/upload-corrected-files", async (req, res) => {
           });
 
           emailSent = true;
-          console.log(`Correo enviado exitosamente a: ${userEmail}`);
 
         } catch (emailError) {
           console.error("Error enviando correo:", emailError);
@@ -2186,7 +2177,6 @@ router.post("/upload-corrected-files", async (req, res) => {
         }
       } else {
         console.log("No se pudo obtener el email del usuario, no se envía correo");
-        console.log("response.user.mail era:", userEmail);
       }
 
       res.json({
@@ -2458,14 +2448,12 @@ router.delete("/delete-corrected-file/:responseId", async (req, res) => {
 router.post("/:id/approve", async (req, res) => {
   try {
     const responseId = req.params.id;
-    console.log("=== INICIO APPROVE CON MÚLTIPLES ARCHIVOS ===", responseId);
 
     const respuesta = await req.db.collection("respuestas").findOne({
       _id: new ObjectId(responseId)
     });
 
     if (!respuesta) {
-      console.log("Respuesta no encontrada para ID:", responseId);
       return res.status(404).json({ error: "Respuesta no encontrada" });
     }
 
@@ -2475,13 +2463,11 @@ router.post("/:id/approve", async (req, res) => {
     });
 
     if (!approvedDoc || !approvedDoc.correctedFiles || approvedDoc.correctedFiles.length === 0) {
-      console.log("No hay archivos corregidos para aprobar:", responseId);
       return res.status(400).json({
         error: "No hay archivos corregidos para aprobar. Debe subir al menos un archivo PDF primero."
       });
     }
 
-    console.log(`Aprobando respuesta ${responseId} con ${approvedDoc.correctedFiles.length} archivo(s)`);
 
     const existingSignature = await req.db.collection("firmados").findOne({
       responseId: responseId
@@ -2552,19 +2538,16 @@ router.get("/data-approved/:responseId", async (req, res) => {
   try {
     const { responseId } = req.params;
 
-    console.log("Obteniendo datos de archivos aprobados para:", responseId);
 
     const approvedDoc = await req.db.collection("aprobados").findOne({
       responseId: responseId
     });
 
     if (!approvedDoc) {
-      console.log("No se encontró documento aprobado para responseId:", responseId);
       return res.status(404).json({ error: "Documento aprobado no encontrado" });
     }
 
     if (!approvedDoc.correctedFiles || approvedDoc.correctedFiles.length === 0) {
-      console.log("No hay archivos corregidos en el documento aprobado:", responseId);
       return res.status(404).json({ error: "Archivos corregidos no disponibles" });
     }
 
@@ -2585,7 +2568,6 @@ router.get("/data-approved/:responseId", async (req, res) => {
       totalFiles: filesInfo.length
     };
 
-    console.log("Datos retornados para responseId:", responseId, responseData);
 
     res.json(responseData);
 
@@ -2605,7 +2587,6 @@ router.get("/download-approved-pdf/:responseId", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    console.log("Descargando PDF aprobado para:", responseId, "index:", index);
 
     const approvedDoc = await req.db.collection("aprobados").findOne({
       responseId: responseId
@@ -2634,14 +2615,6 @@ router.get("/download-approved-pdf/:responseId", async (req, res) => {
       return res.status(404).json({ error: "Archivo PDF no disponible" });
     }
 
-    // DEPURACIÓN: Ver qué datos tenemos realmente
-    console.log("DEBUG - File object:", {
-      hasFileName: !!file.fileName,
-      fileName: file.fileName,
-      fileSize: file.fileSize,
-      mimeType: file.mimeType,
-      tipo: file.tipo
-    });
 
     // CORREGIDO: Asegurar que fileName existe
     const fileName = file.fileName || `documento_aprobado_${responseId}.pdf`;
@@ -2655,7 +2628,6 @@ router.get("/download-approved-pdf/:responseId", async (req, res) => {
     const fileBuffer = file.fileData.buffer || file.fileData;
     res.send(fileBuffer);
 
-    console.log(`PDF aprobado enviado: ${fileName}`);
 
   } catch (err) {
     console.error("Error descargando PDF aprobado:", err);
@@ -2672,7 +2644,6 @@ router.delete("/:id/remove-correction", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    console.log("=== INICIO REMOVE-CORRECTION PARA MÚLTIPLES ARCHIVOS ===", responseId);
 
     const existingSignature = await req.db.collection("firmados").findOne({
       responseId: responseId
@@ -2697,7 +2668,6 @@ router.delete("/:id/remove-correction", async (req, res) => {
       responseId: responseId
     });
 
-    console.log("Resultado de la eliminación en aprobados:", deleteResult);
 
     // Actualizar la respuesta principal
     const updateResult = await req.db.collection("respuestas").updateOne(
@@ -2714,10 +2684,8 @@ router.delete("/:id/remove-correction", async (req, res) => {
       }
     );
 
-    console.log("Resultado de actualización en respuestas:", updateResult);
 
     if (updateResult.matchedCount === 0) {
-      console.log("No se encontró la respuesta con ID:", responseId);
       return res.status(404).json({ error: "Respuesta no encontrada" });
     }
 
@@ -2834,37 +2802,25 @@ router.get("/:responseId/client-signature", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    console.log(`Descargando documento firmado para: ${responseId}`);
 
     const signature = await req.db.collection("firmados").findOne({
       responseId: responseId
     });
 
     if (!signature) {
-      console.log(`No se encontró documento firmado para responseId: ${responseId}`);
       return res.status(404).json({ error: "Documento firmado no encontrado" });
     }
 
     const pdfData = signature.clientSignedPdf;
 
     if (!pdfData || !pdfData.fileData) {
-      console.log(`Documento firmado sin datos para responseId: ${responseId}`);
       return res.status(404).json({ error: "Archivo PDF no disponible" });
     }
-
-    // DEPURACIÓN: Ver qué datos tenemos realmente
-    console.log("DEBUG - PDF Data:", {
-      hasFileName: !!pdfData.fileName,
-      fileName: pdfData.fileName,
-      fileSize: pdfData.fileSize,
-      mimeType: pdfData.mimeType
-    });
 
     // Obtener el buffer de datos
     const fileBuffer = pdfData.fileData.buffer || pdfData.fileData;
 
     if (!fileBuffer || fileBuffer.length === 0) {
-      console.log(`Buffer de archivo vacío para responseId: ${responseId}`);
       return res.status(404).json({ error: "Datos del archivo no disponibles" });
     }
 
@@ -2879,7 +2835,6 @@ router.get("/:responseId/client-signature", async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    console.log(`Enviando documento firmado: ${fileName}, tamaño: ${pdfData.fileSize || fileBuffer.length} bytes`);
 
     res.send(fileBuffer);
 
@@ -2974,7 +2929,6 @@ router.post("/:id/regenerate-document", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    console.log(`Regenerando documento para respuesta: ${id}`);
 
     const respuesta = await req.db.collection("respuestas").findOne({
       _id: new ObjectId(id)
@@ -2992,7 +2946,6 @@ router.post("/:id/regenerate-document", async (req, res) => {
       return res.status(404).json({ error: "Formulario original no encontrado" });
     }
 
-    console.log(`Regenerando documento para formulario: ${form.title}`);
 
     try {
       // Si el usuario en la respuesta tiene datos cifrados, descifrarlos
@@ -3043,7 +2996,6 @@ router.post("/:id/regenerate-document", async (req, res) => {
         respuesta.formTitle
       );
 
-      console.log(`Documento regenerado exitosamente para respuesta: ${id}`);
 
       res.json({
         success: true,
@@ -3212,8 +3164,7 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
     let totalCamposCifrados = 0;
     let errores = 0;
 
-    console.log(`Iniciando migración PQC de ${respuestas.length} respuestas...`);
-    console.log("Solo se cifrarán los objetos 'user' y 'responses'\n");
+
 
     // Función para cifrar todos los strings en un objeto/array
     const cifrarObjetoCompleto = (obj) => {
@@ -3267,7 +3218,6 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
 
     // Procesar cada respuesta
     for (let respuesta of respuestas) {
-      console.log(`\nProcesando respuesta ${respuesta._id}:`);
       const updates = {};
       let cambios = false;
       let camposEstaRespuesta = 0;
@@ -3282,7 +3232,6 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
             updates.user = userCifrado;
             cambios = true;
             camposEstaRespuesta += userCifrados;
-            console.log(`  user: ${userCifrados} campos cifrados`);
           } else {
             console.log(`  user: ya cifrado o sin texto`);
           }
@@ -3297,7 +3246,6 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
             updates.responses = responsesCifrado;
             cambios = true;
             camposEstaRespuesta += responsesCifrados;
-            console.log(`  responses: ${responsesCifrados} campos cifrados`);
           } else {
             console.log(`  responses: ya cifrado o sin texto`);
           }
@@ -3324,7 +3272,6 @@ router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
 
           cont++;
           totalCamposCifrados += camposEstaRespuesta;
-          console.log(` Guardado: ${camposEstaRespuesta} campos cifrados en total`);
         } else {
           console.log(` Sin cambios necesarios`);
         }
