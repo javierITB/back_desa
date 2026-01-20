@@ -1,5 +1,8 @@
 const crypto = require("crypto");
-const argon2 = require("argon2");
+
+// const argon2 = require("argon2");
+
+const { hash, verify, Algorithm } = require('@node-rs/argon2');
 
 // En producción, usa process.env.MASTER_KEY (debe ser de 32 bytes / 64 caracteres hex)
 const MASTER_KEY = Buffer.from(process.env.MASTER_KEY || "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", 'hex');
@@ -62,9 +65,9 @@ const decrypt = (encryptedData) => {
  * Hashea contraseñas con Argon2id (Post-Quantum Resistant)
  */
 const hashPassword = async (password) => {
-    return await argon2.hash(password, {
-        type: argon2.argon2id,
-        memoryCost: 2 ** 16, // 64MB
+    return await hash(password, {
+        algorithm: Algorithm.Argon2id, // Cambio: 'type' por 'algorithm'
+        memoryCost: 2 ** 16,
         timeCost: 3,
         parallelism: 1
     });
@@ -73,9 +76,10 @@ const hashPassword = async (password) => {
 /**
  * Verifica contraseñas contra un hash Argon2id
  */
-const verifyPassword = async (hash, password) => {
+const verifyPassword = async (passwordHash, password) => {
     try {
-        return await argon2.verify(hash, password);
+        // Cambio: Llamamos a 'verify' directamente
+        return await verify(passwordHash, password);
     } catch (err) {
         return false;
     }
