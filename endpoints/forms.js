@@ -123,45 +123,89 @@ router.get("/mini", async (req, res) => {
 
     const pipeline = [
       { $match: query },
-      { $sort: { updatedAt: -1, createdAt: -1 } },
-      { $skip: skip },
-      { $limit: limit },
       {
-        $project: {
-          _id: 1,
-          title: 1,
-          description: 1,
-          category: 1,
-          icon: 1,
-          primaryColor: 1,
-          status: 1,
-          priority: 1,
-          responseTime: 1,
-          documentsRequired: 1,
-          tags: 1,
-          companies: 1,
-          updatedAt: 1,
-          createdAt: 1,
-          section: 1,
-          fields: {
-            $cond: {
-              if: { $isArray: "$questions" },
-              then: { $size: "$questions" },
-              else: 0
+        $facet: {
+          data: [
+            { $sort: { updatedAt: -1, createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 1,
+                title: 1,
+                description: 1,
+                category: 1,
+                icon: 1,
+                primaryColor: 1,
+                status: 1,
+                priority: 1,
+                responseTime: 1,
+                documentsRequired: 1,
+                tags: 1,
+                companies: 1,
+                updatedAt: 1,
+                createdAt: 1,
+                section: 1,
+                fields: {
+                  $cond: {
+                    if: { $isArray: "$questions" },
+                    then: { $size: "$questions" },
+                    else: 0
+                  }
+                }
+              }
             }
-          }
+          ],
+          statsStatus: [
+            { $group: { _id: "$status", count: { $sum: 1 } } }
+          ],
+          statsSection: [
+            { $group: { _id: "$section", count: { $sum: 1 } } }
+          ],
+          statsGlobal: [
+            {
+              $group: {
+                _id: null,
+                total: { $sum: 1 },
+                recent: {
+                  $sum: {
+                    $cond: [
+                      { $gte: ["$updatedAt", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)] },
+                      1,
+                      0
+                    ]
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     ];
 
-    const forms = await req.db.collection("forms").aggregate(pipeline).toArray();
+    const [result] = await req.db.collection("forms").aggregate(pipeline).toArray();
+
+    const forms = result.data || [];
+    const statsStatus = result.statsStatus || [];
+    const statsSection = result.statsSection || [];
+    const statsGlobal = result.statsGlobal[0] || { total: 0, recent: 0 };
+
+    const mapCounts = (arr) => arr.reduce((acc, curr) => ({ ...acc, [curr._id]: curr.count }), {});
+
+    const stats = {
+      total: statsGlobal.total,
+      recent: statsGlobal.recent,
+      status: mapCounts(statsStatus),
+      section: mapCounts(statsSection)
+    };
 
     res.json({
       data: forms,
       total: totalForms,
       page: page,
       pages: Math.ceil(totalForms / limit),
-      limit: limit
+      limit: limit,
+      stats: stats
     });
   } catch (err) {
     console.error("Error en GET /forms/mini:", err);
