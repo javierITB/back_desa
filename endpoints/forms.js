@@ -90,7 +90,86 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Listar todos los formularios con Paginación
+// Listar todos los formularios con PAGINACIÓN 
+router.get("/mini", async (req, res) => {
+  try {
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const skip = (page - 1) * limit;
+
+    const query = {};
+    if (req.query.search) {
+      query.$or = [
+        { title: { $regex: req.query.search, $options: "i" } },
+        { description: { $regex: req.query.search, $options: "i" } }
+      ];
+    }
+    if (req.query.category && req.query.category !== 'all') {
+      query.section = req.query.category;
+    }
+    if (req.query.status) {
+      const statuses = req.query.status.split(',');
+      if (statuses.length > 0) {
+        query.status = { $in: statuses };
+      }
+    }
+
+    const totalForms = await req.db.collection("forms").countDocuments(query);
+
+    const pipeline = [
+      { $match: query },
+      { $sort: { updatedAt: -1, createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          title: 1,
+          description: 1,
+          category: 1,
+          icon: 1,
+          primaryColor: 1,
+          status: 1,
+          priority: 1,
+          responseTime: 1,
+          documentsRequired: 1,
+          tags: 1,
+          companies: 1,
+          updatedAt: 1,
+          createdAt: 1,
+          section: 1,
+          fields: {
+            $cond: {
+              if: { $isArray: "$questions" },
+              then: { $size: "$questions" },
+              else: 0
+            }
+          }
+        }
+      }
+    ];
+
+    const forms = await req.db.collection("forms").aggregate(pipeline).toArray();
+
+    res.json({
+      data: forms,
+      total: totalForms,
+      page: page,
+      pages: Math.ceil(totalForms / limit),
+      limit: limit
+    });
+  } catch (err) {
+    console.error("Error en GET /forms/mini:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Listar todos los formularios con Paginación FULL 
 router.get("/", async (req, res) => {
   try {
     // Validar token con el helper
