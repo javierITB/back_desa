@@ -758,18 +758,19 @@ router.get("/mail/:mail", async (req, res) => {
       };
     });
 
+    // --- OPTIMIZACIÓN: BUSCAR DATOS DE FORMULARIOS DEL SERVIDOR (LOOKUP) ---
     // Recolectar IDs únicos de formularios
     const formIds = [...new Set(answersProcessed.map(a => a.formId).filter(id => id))];
 
     // Buscar detalles de formularios
     const formsDetails = await req.db.collection("forms").find({
-      _id: { $in: formIds.map(id => new ObjectId(id)) } 
+      _id: { $in: formIds.map(id => new ObjectId(id)) } // Asumiendo que formId es string de ObjectId
     }).project({
       title: 1,
       icon: 1,
       primaryColor: 1,
       section: 1,
-      description: 1,
+      description: 1, // Útil para mostrar detalles
       updatedAt: 1
     }).toArray();
 
@@ -797,6 +798,7 @@ router.get("/mail/:mail", async (req, res) => {
         }
       }
     });
+    // -----------------------------------------------------------------------
 
     // Ordenar por fecha (más recientes primero)
     answersProcessed.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -942,6 +944,8 @@ router.get("/filtros", async (req, res) => {
 
     if (status && status !== "") {
       query["status"] = status;
+    } else {
+      query["status"] = { $ne: "archivado" };
     }
 
     if (startDate || endDate) {
