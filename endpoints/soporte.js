@@ -810,7 +810,7 @@ router.get("/mini", async (req, res) => {
           "user.nombre": 1, "user.empresa": 1, "user.uid": 1, status: 1,
           assignedTo: 1, createdAt: 1, assignedAt: 1, estimatedCompletionAt: 1,
           approvedAt: 1, finalizedAt: 1, updatedAt: 1, reviewedAt: 1,
-          adjuntosCount: 1, category: 1, origin: 1, priority: 1
+          adjuntosCount: 1, category: 1, origin: 1, priority: 1, expirationDate: 1
         })
         .toArray(),
       collection.countDocuments({ status: { $ne: 'archivado' } }),
@@ -889,7 +889,8 @@ router.get("/mini", async (req, res) => {
         company: empresaUsuario,
         submittedBy: nombreUsuario,
         priority: (answer.priority || answer.responses?.['Prioridad'] || 'media').toLowerCase(),
-        origin: answer.origin
+        origin: answer.origin,
+        expirationDate: answer.expirationDate
       };
     });
 
@@ -982,7 +983,8 @@ router.get("/filtros", async (req, res) => {
         adjuntosCount: 1,
         category: 1,
         origin: 1,
-        priority: 1
+        priority: 1,
+        expirationDate: 1
       })
       .toArray();
 
