@@ -630,6 +630,10 @@ router.get("/", async (req, res) => {
 // Obtener respuestas por email
 router.get("/mail/:mail", async (req, res) => {
   try {
+    // Verificar token
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
     const cleanMail = req.params.mail.toLowerCase().trim();
 
     // 1. Buscar usuario por Blind Index (el mail está cifrado en la BD)
@@ -816,6 +820,101 @@ router.get("/mail/:mail", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Error al procesar la solicitud de formularios compartidos."
+    });
+  }
+});
+
+// quitar acceso a solicitudes compartidas 
+
+router.post("/quitar-acceso", async (req, res) => {
+  try {
+    // 1. Verificar token de seguridad
+    const auth = await verifyRequest(req);
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+    const { respuestaId, usuarioAQuitarId, mailAutor } = req.body;
+
+    if (!respuestaId || !usuarioAQuitarId || !mailAutor) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Faltan datos requeridos (ID respuesta, ID usuario o Mail autor)." 
+      });
+    }
+
+    // 2. Buscar al autor en la BD por Blind Index para obtener su _id real
+    const autor = await req.db.collection("usuarios").findOne({
+      mail_index: createBlindIndex(mailAutor.toLowerCase().trim())
+    });
+
+    if (!autor) {
+      return res.status(404).json({ success: false, message: "Autor no encontrado." });
+    }
+
+    const autorIdString = autor._id.toString();
+
+    // 3. REGLA DE NEGOCIO: El propietario no puede auto-quitarse el acceso
+    if (autorIdString === usuarioAQuitarId) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "No puedes revocar tu propio acceso siendo el propietario." 
+      });
+    }
+
+    // 4. Buscar la respuesta para validar propiedad
+    const respuesta = await req.db.collection("respuestas").findOne({
+      _id: new ObjectId(respuestaId)
+    });
+
+    if (!respuesta) {
+      return res.status(404).json({ success: false, message: "Solicitud no encontrada." });
+    }
+
+    // 5. Validar que quien solicita sea el dueño real (desencriptando UID)
+    let uidDueno = respuesta.user?.uid;
+    const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+
+    if (typeof uidDueno === 'string' && encryptedRegex.test(uidDueno)) {
+      try {
+        uidDueno = decrypt(uidDueno);
+      } catch (e) {
+        return res.status(500).json({ success: false, message: "Error al validar propiedad." });
+      }
+    }
+
+    // REGLA DE SEGURIDAD: Solo el propietario original puede quitar accesos
+    if (uidDueno !== autorIdString) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Acción denegada. Solo el propietario puede gestionar los accesos." 
+      });
+    }
+
+    // 6. Eliminar el acceso usando $pull para remover el ID del array
+    const result = await req.db.collection("respuestas").updateOne(
+      { _id: new ObjectId(respuestaId) },
+      { 
+        $pull: { "user.compartidos": usuarioAQuitarId },
+        $set: { updatedAt: new Date() } 
+      }
+    );
+
+    if (result.modifiedCount > 0) {
+      res.json({
+        success: true,
+        message: "Acceso eliminado correctamente."
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: "El usuario no tenía acceso o ya ha sido eliminado."
+      });
+    }
+
+  } catch (err) {
+    console.error("Error en POST /quitar-acceso:", err);
+    res.status(500).json({
+      success: false,
+      message: "Error interno al procesar la revocación de acceso."
     });
   }
 });
