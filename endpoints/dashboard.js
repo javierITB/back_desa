@@ -131,7 +131,7 @@ router.get("/metrics", async (req, res) => {
         const weeklyPerformanceRaw = await req.db.collection("respuestas").aggregate([
             {
                 $match: {
-                    createdAt: { $gte: queryStartDate.toISOString() }
+                    createdAt: { $gte: queryStartDate }
                 }
             },
             {
@@ -139,7 +139,7 @@ router.get("/metrics", async (req, res) => {
                     dateStr: {
                         $dateToString: {
                             format: "%Y-%m-%d",
-                            date: { $toDate: "$createdAt" },
+                            date: "$createdAt",
                             timezone: "America/Santiago"
                         }
                     }
