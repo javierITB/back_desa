@@ -1188,6 +1188,47 @@ router.get("/:id", async (req, res) => {
         userProcesado[key] = procesarCampo(respuestaProcesada.user[key]);
       }
       respuestaProcesada.user = userProcesado;
+
+      if (respuestaProcesada.user.compartidos && Array.isArray(respuestaProcesada.user.compartidos) && respuestaProcesada.user.compartidos.length > 0) {
+        try {
+          const sharedIds = respuestaProcesada.user.compartidos.map(id => {
+            return (typeof id === 'string' && id.length === 24) ? new ObjectId(id) : null;
+          }).filter(id => id !== null);
+
+          if (sharedIds.length > 0) {
+            const usersFound = await req.db.collection("usuarios").find({
+              _id: { $in: sharedIds }
+            }).toArray();
+
+            const populatedShared = usersFound.map(u => {
+              let nombre = "Usuario";
+              let email = "Sin correo";
+
+              if (u.nombre && u.nombre.includes(':')) {
+                try { nombre = decrypt(u.nombre); } catch (e) { }
+              } else if (u.nombre) {
+                nombre = u.nombre;
+              }
+
+              if (u.mail && u.mail.includes(':')) {
+                try { email = decrypt(u.mail); } catch (e) { }
+              } else if (u.mail) {
+                email = u.mail;
+              }
+
+              return {
+                id: u._id.toString(),
+                nombre: nombre,
+                email: email
+              };
+            });
+
+            respuestaProcesada.user.compartidos_data = populatedShared;
+          }
+        } catch (popError) {
+          console.error("Error poblando usuarios compartidos:", popError);
+        }
+      }
     }
 
     // Procesar responses (recursivo simple)
