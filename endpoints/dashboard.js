@@ -140,7 +140,7 @@ router.get("/metrics", async (req, res) => {
                         $dateToString: {
                             format: "%Y-%m-%d",
                             date: "$createdAt",
-                            timezone: "America/Santiago"
+                            timezone: "-03:00"
                         }
                     }
                 }
