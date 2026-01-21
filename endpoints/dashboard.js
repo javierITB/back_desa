@@ -109,10 +109,29 @@ router.get("/metrics", async (req, res) => {
         const globalRate = totalRequests > 0 ? Math.round((finalizedRequests / totalRequests) * 100) : 0;
 
         // 4. Performance Semanal
+
+        // Obtener fecha actual
+        const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' });
+        const todayStr = fmt.format(new Date()); // YYYY-MM-DD
+        const [y, m, d] = todayStr.split('-').map(Number);
+
+        // Crear objeto fecha 
+        const currentSantiagoDate = new Date(y, m - 1, d, 12, 0, 0);
+
+        // Encontrar el Lunes de esta semana
+        const day = currentSantiagoDate.getDay();
+        const diffToMonday = (day === 0 ? -6 : 1) - day;
+        const monday = new Date(currentSantiagoDate);
+        monday.setDate(currentSantiagoDate.getDate() + diffToMonday);
+
+        // Calcular fecha inicio para la query 
+        const queryStartDate = new Date(monday);
+        queryStartDate.setDate(monday.getDate() - 1);
+
         const weeklyPerformanceRaw = await req.db.collection("respuestas").aggregate([
             {
                 $match: {
-                    createdAt: { $gte: oneWeekAgo.toISOString() }
+                    createdAt: { $gte: queryStartDate.toISOString() }
                 }
             },
             {
@@ -134,18 +153,23 @@ router.get("/metrics", async (req, res) => {
             }
         ]).toArray();
 
-        const daysOfWeek = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+        // Generar array Lun-Dom
+        const daysName = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
         const weeklyPerformance = [];
 
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dateStr = d.toISOString().split('T')[0];
-            const dayName = daysOfWeek[d.getDay()];
+        for (let i = 0; i < 7; i++) {
+            const loopDate = new Date(monday);
+            loopDate.setDate(monday.getDate() + i);
+
+            // Formatear a YYYY-MM-DD manualmente para coincidir con el aggregate
+            const ly = loopDate.getFullYear();
+            const lm = String(loopDate.getMonth() + 1).padStart(2, '0');
+            const ld = String(loopDate.getDate()).padStart(2, '0');
+            const dateStr = `${ly}-${lm}-${ld}`;
 
             const found = weeklyPerformanceRaw.find(item => item._id === dateStr);
             weeklyPerformance.push({
-                name: dayName,
+                name: daysName[i],
                 solicitudes: found ? found.count : 0,
                 fullDate: dateStr
             });
