@@ -59,7 +59,6 @@ router.get("/metrics", async (req, res) => {
                             else: null
                         }
                     },
-                    // Si no existe finalizedAt, usamos updatedAt si status es finalizado
                     timeToFinalize: {
                         $cond: {
                             if: { $and: ["$status", "finalizado", "$signedAt"] },
@@ -109,6 +108,49 @@ router.get("/metrics", async (req, res) => {
         const finalizedRequests = await req.db.collection("respuestas").countDocuments({ status: "finalizado" });
         const globalRate = totalRequests > 0 ? Math.round((finalizedRequests / totalRequests) * 100) : 0;
 
+        // 4. Performance Semanal
+        const weeklyPerformanceRaw = await req.db.collection("respuestas").aggregate([
+            {
+                $match: {
+                    createdAt: { $gte: oneWeekAgo.toISOString() }
+                }
+            },
+            {
+                $project: {
+                    dateStr: {
+                        $dateToString: {
+                            format: "%Y-%m-%d",
+                            date: { $toDate: "$createdAt" },
+                            timezone: "America/Santiago"
+                        }
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: "$dateStr",
+                    count: { $sum: 1 }
+                }
+            }
+        ]).toArray();
+
+        const daysOfWeek = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+        const weeklyPerformance = [];
+
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dateStr = d.toISOString().split('T')[0];
+            const dayName = daysOfWeek[d.getDay()];
+
+            const found = weeklyPerformanceRaw.find(item => item._id === dateStr);
+            weeklyPerformance.push({
+                name: dayName,
+                solicitudes: found ? found.count : 0,
+                fullDate: dateStr
+            });
+        }
+
         res.json({
             success: true,
             data: {
@@ -118,13 +160,7 @@ router.get("/metrics", async (req, res) => {
                 weeklyRequests,
                 globalRate,
                 statusDistribution, // Nuevo dato
-                weeklyPerformance: [
-                    { name: 'Lun', solicitudes: 4 },
-                    { name: 'Mar', solicitudes: 7 },
-                    { name: 'Mie', solicitudes: 5 },
-                    { name: 'Jue', solicitudes: 10 },
-                    { name: 'Vie', solicitudes: 6 },
-                ]
+                weeklyPerformance
             }
         });
     } catch (err) {
