@@ -1111,6 +1111,52 @@ router.post("/compartir/", async (req, res) => {
       });
     }
 
+    // 1. Obtener la solicitud para saber la empresa del dueño
+    const solicitud = await req.db.collection("respuestas").findOne({ _id: new ObjectId(responseId) });
+    if (!solicitud) {
+      return res.status(404).json({ success: false, message: "Solicitud no encontrada para validar permisos." });
+    }
+
+    // 2. Desencriptar empresa del dueño 
+    let empresaDueño = "";
+    try {
+      empresaDueño = decrypt(solicitud.user.empresa);
+    } catch (e) {
+      console.error("Error desencriptando empresa del dueño:", e);
+      return res.status(500).json({ success: false, message: "Error de seguridad al validar la empresa." });
+    }
+
+    // 3. Buscar usuarios destino para verificar sus empresas
+    const usuariosDestino = await req.db.collection("usuarios").find({
+      _id: { $in: usuarios.map(uid => new ObjectId(uid)) }
+    }).toArray();
+
+    // 4. Verificar uno por uno
+    const usuariosInvalidos = [];
+
+    usuariosDestino.forEach(u => {
+      let empresaUsuario = "";
+      try {
+        empresaUsuario = decrypt(u.empresa);
+      } catch (e) {
+        console.error(`Error desencriptando empresa de usuario ${u._id}`);
+        usuariosInvalidos.push(u._id);
+        return;
+      }
+
+      if (empresaUsuario.trim().toLowerCase() !== empresaDueño.trim().toLowerCase()) {
+        usuariosInvalidos.push(u._id);
+      }
+    });
+
+    if (usuariosInvalidos.length > 0) {
+      console.warn(`Intento de compartir cruzado bloqueado. IDs: ${usuariosInvalidos.join(', ')}`);
+      return res.status(403).json({
+        success: false,
+        message: "Acción denegada: Solo puedes compartir con usuarios de tu misma empresa."
+      });
+    }
+
     // 2. Actualización en la colección 'respuestas'
     // Usamos la notación de punto para insertar 'compartidos' dentro del objeto 'user'
     const result = await req.db.collection("respuestas").updateOne(
