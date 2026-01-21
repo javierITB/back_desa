@@ -15,6 +15,7 @@ const anunciosRouter = require("./endpoints/anuncios");
 const soporteRoutes = require("./endpoints/soporte");
 const domicilioVirtualRoutes = require("./endpoints/domicilioVirtual");
 const configTicketsRoutes = require("./endpoints/configTickets");
+const dashboardRoutes = require("./endpoints/dashboard");
 const app = express();
 
 // Configuración CORS
@@ -64,6 +65,7 @@ app.use("/api/anuncios", anunciosRouter);
 app.use("/api/soporte", soporteRoutes);
 app.use("/api/domicilio-virtual", domicilioVirtualRoutes);
 app.use("/api/config-tickets", configTicketsRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // Ruta base
 app.get("/", (req, res) => {
