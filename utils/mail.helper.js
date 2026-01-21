@@ -87,7 +87,7 @@ const sendEmail = async ({ to, subject, html, text, from }) => {
     return { ok: true, messageId: info.messageId, response: info.response };
   } catch (err) {
     console.error("Error interno en Nodemailer:", err);
-    throw { status: 500, message: `Fallo interno al enviar correo: ${err.message}` };
+    throw { status: 500, message: "Fallo interno al enviar correo." };
   }
 };
 

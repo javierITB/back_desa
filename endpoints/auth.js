@@ -645,7 +645,7 @@ router.post("/send-2fa-code", async (req, res) => {
       console.error("Error en /send-2fa-code:", err);
       res.status(500).json({
          success: false,
-         message: `[DEBUG_V2] Error interno: ${err.message || err}`,
+         message: "Error interno al procesar la solicitud.",
       });
    }
 });
