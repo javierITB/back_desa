@@ -139,7 +139,8 @@ router.get("/metrics", async (req, res) => {
                     dateStr: {
                         $dateToString: {
                             format: "%Y-%m-%d",
-                            date: { $subtract: ["$createdAt", 1000 * 60 * 60 * 3] } // Forzar resta de 3 horas (UTC-3)
+                            date: "$createdAt",
+                            timezone: "-03:00"
                         }
                     }
                 }
@@ -153,7 +154,7 @@ router.get("/metrics", async (req, res) => {
         ]).toArray();
 
         // Generar array Lun-Dom
-        const daysName = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+        const daysName = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
         const weeklyPerformance = [];
 
         for (let i = 0; i < 7; i++) {
