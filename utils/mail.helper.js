@@ -26,9 +26,9 @@ const transporter = nodemailer.createTransport({
 // Verificación de conexión al iniciar
 transporter.verify((error, success) => {
   if (error) {
-    console.error("❌ Error al conectar al SMTP:", error);
+    console.error(" Error al conectar al SMTP:", error);
   } else {
-    console.log("✅ Servidor SMTP listo para enviar correos");
+    console.log(" Servidor SMTP listo para enviar correos");
   }
 });
 
@@ -87,7 +87,7 @@ const sendEmail = async ({ to, subject, html, text, from }) => {
     return { ok: true, messageId: info.messageId, response: info.response };
   } catch (err) {
     console.error("Error interno en Nodemailer:", err);
-    throw { status: 500, message: "Fallo interno al enviar correo." };
+    throw { status: 500, message: `Fallo interno al enviar correo: ${err.message}` };
   }
 };
 

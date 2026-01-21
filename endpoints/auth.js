@@ -396,11 +396,7 @@ router.post("/login", async (req, res) => {
 router.post("/verify-login-2fa", async (req, res) => {
    const { email, verificationCode } = req.body;
 
-   console.log("DEBUG verify-login-2fa - Datos recibidos:", {
-      email: email,
-      verificationCode: verificationCode,
-      codeLength: verificationCode?.length,
-   });
+
 
    if (!email || !verificationCode || verificationCode.length !== 6) {
       return res.status(400).json({
@@ -418,7 +414,6 @@ router.post("/verify-login-2fa", async (req, res) => {
       });
 
       if (!user) {
-         console.log("DEBUG: Usuario no encontrado para email:", email);
          return res.status(401).json({
             success: false,
             message: "Usuario no encontrado.",
@@ -426,7 +421,6 @@ router.post("/verify-login-2fa", async (req, res) => {
       }
 
       const userId = user._id.toString();
-      console.log("DEBUG: Usuario encontrado, ID:", userId);
 
       // Buscar código 2FA activo para LOGIN
       const codeRecord = await req.db.collection("2fa_codes").findOne({
@@ -437,7 +431,6 @@ router.post("/verify-login-2fa", async (req, res) => {
          expiresAt: { $gt: now },
       });
 
-      console.log("DEBUG: Código encontrado:", codeRecord);
 
       if (!codeRecord) {
          // Verificar si hay códigos pero expirados
@@ -514,7 +507,6 @@ router.post("/verify-login-2fa", async (req, res) => {
          now: now,
       });
 
-      console.log("DEBUG: Login 2FA exitoso para usuario:", userEmail);
 
       return res.json({
          success: true,
@@ -645,7 +637,7 @@ router.post("/send-2fa-code", async (req, res) => {
       console.error("Error en /send-2fa-code:", err);
       res.status(500).json({
          success: false,
-         message: "Error interno al procesar la solicitud.",
+         message: `Error interno al procesar la solicitud: ${err.message || err}`,
       });
    }
 });
@@ -653,7 +645,6 @@ router.post("/send-2fa-code", async (req, res) => {
 router.post("/verify-2fa-activation", async (req, res) => {
    const { email, verificationCode } = req.body;
 
-   console.log("DEBUG verify-2fa-activation - Body recibido:", req.body);
 
    if (!email || !verificationCode || verificationCode.length !== 6) {
       return res.status(400).json({
@@ -718,7 +709,6 @@ router.post("/verify-2fa-activation", async (req, res) => {
 router.post("/disable-2fa", async (req, res) => {
    const { email } = req.body;
 
-   console.log("DEBUG disable-2fa tokenizada - Body recibido:", req.body);
 
    if (!email) {
       return res.status(400).json({ error: "Bad request" });
@@ -728,7 +718,6 @@ router.post("/disable-2fa", async (req, res) => {
       // ==================== 1. VALIDAR TOKEN (MISMA LÓGICA QUE TODAS) ====================
       const tokenCheck = await verifyRequest(req);
 
-      console.log("tokenCheck.ok:", tokenCheck.ok);
 
       if (!tokenCheck.ok) {
          return res.status(401).json({ error: "Unauthorized" });
@@ -738,7 +727,6 @@ router.post("/disable-2fa", async (req, res) => {
 
       // ==================== 2. VERIFICAR CORRESPONDENCIA EMAIL ====================
       if (tokenCheck.data.email !== emailNormalizado) {
-         console.log("DEBUG: Email no coincide - Token email:", tokenCheck.data.email, "Body email:", emailNormalizado);
          return res.status(401).json({ error: "Unauthorized" });
       }
 
@@ -784,7 +772,6 @@ router.post("/disable-2fa", async (req, res) => {
          console.error("Error registrando en logs:", logError);
       }
 
-      console.log("DEBUG: 2FA deshabilitado exitosamente para:", emailNormalizado);
 
       res.status(200).json({
          success: true,
@@ -813,11 +800,7 @@ router.post("/validate", async (req, res) => {
    if (!token || !email || !cargo) return res.status(401).json({ valid: false, message: "Acceso inválido" });
 
    try {
-      console.log("Validando token:", {
-         token: token.substring(0, 10) + "...",
-         email,
-         cargo,
-      });
+
 
       // Buscar token (el campo 'token' no está cifrado)
       const tokenRecord = await req.db.collection("tokens").findOne({
@@ -832,14 +815,7 @@ router.post("/validate", async (req, res) => {
          });
       }
 
-      console.log("Token encontrado en BD:", {
-         _id: tokenRecord._id,
-         email: tokenRecord.email?.substring(0, 20) + "...",
-         hasEmailIndex: !!tokenRecord.email_index,
-         active: tokenRecord.active?.substring(0, 20) + "...",
-         revokedAt: tokenRecord.revokedAt,
-         expiresAt: tokenRecord.expiresAt,
-      });
+
 
       // 1. Verificar si está activo (descifrar campo 'active')
       let activeDescifrado = "false"; // Por defecto
@@ -847,7 +823,6 @@ router.post("/validate", async (req, res) => {
       try {
          if (tokenRecord.active && tokenRecord.active.includes(":")) {
             activeDescifrado = decrypt(tokenRecord.active);
-            console.log("Active descifrado:", activeDescifrado);
          }
       } catch (error) {
          console.error("Error descifrando active:", error);
@@ -858,21 +833,19 @@ router.post("/validate", async (req, res) => {
       }
 
       if (activeDescifrado !== "true") {
-         console.log("Token NO está activo. Active descifrado:", activeDescifrado);
          return res.status(401).json({
             valid: false,
             message: "Token inactivo o revocado",
          });
       }
 
-      console.log("Token está activo ✓");
+      console.log("Token está activo ");
 
       // 2. Verificar expiración
       const now = new Date();
       const expiresAt = new Date(tokenRecord.expiresAt);
 
       if (expiresAt < now) {
-         console.log("Token EXPIRADO. ExpiresAt:", expiresAt, "Now:", now);
 
          // Desactivar token (cifrar como "false")
          await req.db.collection("tokens").updateOne(
@@ -891,14 +864,13 @@ router.post("/validate", async (req, res) => {
          });
       }
 
-      console.log("Token NO expirado ✓");
+      console.log("Token NO expirado ");
 
       // 3. Verificar email del token
       let tokenEmailDescifrado = "";
       try {
          if (tokenRecord.email && tokenRecord.email.includes(":")) {
             tokenEmailDescifrado = decrypt(tokenRecord.email);
-            console.log("Email descifrado del token:", tokenEmailDescifrado);
          }
       } catch (error) {
          console.error("Error descifrando email del token:", error);
@@ -910,21 +882,19 @@ router.post("/validate", async (req, res) => {
 
       const emailNormalizado = email.toLowerCase().trim();
       if (tokenEmailDescifrado !== emailNormalizado) {
-         console.log("Email NO coincide. Token email:", tokenEmailDescifrado, "Request email:", emailNormalizado);
          return res.status(401).json({
             valid: false,
             message: "Token no corresponde al usuario",
          });
       }
 
-      console.log("Email coincide ✓");
+      console.log("Email coincide ");
 
       // 4. Verificar rol del token
       let tokenRolDescifrado = "";
       try {
          if (tokenRecord.rol && tokenRecord.rol.includes(":")) {
             tokenRolDescifrado = decrypt(tokenRecord.rol);
-            console.log("Rol descifrado del token:", tokenRolDescifrado);
          }
       } catch (error) {
          console.error("Error descifrando rol del token:", error);
@@ -935,14 +905,13 @@ router.post("/validate", async (req, res) => {
       }
 
       if (tokenRolDescifrado !== cargo) {
-         console.log("Rol NO coincide. Token rol:", tokenRolDescifrado, "Request cargo:", cargo);
          return res.status(401).json({
             valid: false,
             message: "Cargo no corresponde al usuario",
          });
       }
 
-      console.log("Rol coincide ✓");
+      console.log("Rol coincide ");
       console.log("Token VALIDADO EXITOSAMENTE");
 
       return res.json({
@@ -1474,7 +1443,7 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
                // Comparamos el texto plano de la empresa (evita errores por IV distinto)
                return decrypt(u.empresa) === empresaReferencia;
             } catch (e) {
-               return false; 
+               return false;
             }
          })
          .map(u => ({
@@ -1498,6 +1467,8 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
 });
 
 
+
+
 router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
    try {
       const empresas = await req.db.collection("empresas").find().toArray();
@@ -1506,54 +1477,51 @@ router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
       let logosConError = 0;
       let logosYaCifrados = 0;
 
-      console.log(`Iniciando migración de ${empresas.length} empresas...`);
 
       for (let emp of empresas) {
          const updates = {};
          let procesado = false;
 
-         console.log(`\nProcesando empresa ${emp._id}:`);
 
          // 1. Cifrar campos de texto
          if (emp.nombre && !emp.nombre.includes(":")) {
             updates.nombre = encrypt(emp.nombre);
             updates.nombre_index = createBlindIndex(emp.nombre);
             procesado = true;
-            console.log(`  ✓ Nombre cifrado`);
+            console.log(`   Nombre cifrado`);
          }
 
          if (emp.rut && !emp.rut.includes(":")) {
             updates.rut = encrypt(emp.rut);
             updates.rut_index = createBlindIndex(emp.rut);
             procesado = true;
-            console.log(`  ✓ RUT cifrado`);
+            console.log(`   RUT cifrado`);
          }
 
          if (emp.direccion && !emp.direccion.includes(":")) {
             updates.direccion = encrypt(emp.direccion);
             procesado = true;
-            console.log(`  ✓ Dirección cifrada`);
+            console.log(`   Dirección cifrada`);
          }
 
          if (emp.encargado && !emp.encargado.includes(":")) {
             updates.encargado = encrypt(emp.encargado);
             procesado = true;
-            console.log(`  ✓ Encargado cifrado`);
+            console.log(`   Encargado cifrado`);
          }
 
          if (emp.rut_encargado && !emp.rut_encargado.includes(":")) {
             updates.rut_encargado = encrypt(emp.rut_encargado);
             procesado = true;
-            console.log(`  ✓ RUT encargado cifrado`);
+            console.log(`   RUT encargado cifrado`);
          }
 
          // 2. Cifrar logo (LA PARTE IMPORTANTE)
          if (emp.logo && emp.logo.fileData) {
-            console.log(`  Logo encontrado: ${emp.logo.fileName}`);
 
             // Verificar si ya está cifrado
             if (typeof emp.logo.fileData === "string" && emp.logo.fileData.includes(":")) {
-               console.log(`  ⚠ Logo ya cifrado, saltando`);
+               console.log(`   Logo ya cifrado, saltando`);
                logosYaCifrados++;
                continue;
             }
@@ -1583,31 +1551,29 @@ router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
                   if (isBase64) {
                      base64Str = emp.logo.fileData;
                   } else {
-                     console.log(`  ⚠ String no es Base64 válido, intentando convertir...`);
+                     console.log(`   String no es Base64 válido, intentando convertir...`);
                      // Intentar tratar como binary string
                      base64Str = Buffer.from(emp.logo.fileData, "binary").toString("base64");
                   }
                } else {
-                  console.log(`  ❌ Tipo no reconocido:`, typeof emp.logo.fileData, emp.logo.fileData);
                   logosConError++;
                   continue;
                }
 
                // Verificar que tenemos Base64 válido
                if (!base64Str || !/^[A-Za-z0-9+/]+=*$/.test(base64Str.substring(0, 100))) {
-                  console.log(`  ❌ Base64 no válido generado`);
+                  console.log(`   Base64 no válido generado`);
                   logosConError++;
                   continue;
                }
 
-               console.log(`  Base64 generado, longitud: ${base64Str.length}`);
 
                // CIFRAR (igual que el endpoint PUT)
                const fileDataCifrado = encrypt(base64Str);
 
                // Verificar cifrado
                if (!fileDataCifrado || !fileDataCifrado.includes(":")) {
-                  console.log(`  ❌ Cifrado falló`);
+                  console.log(`   Cifrado falló`);
                   logosConError++;
                   continue;
                }
@@ -1615,9 +1581,9 @@ router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
                updates["logo.fileData"] = fileDataCifrado;
                logosProcesados++;
                procesado = true;
-               console.log(`  ✓ Logo cifrado exitosamente`);
+               console.log(`   Logo cifrado exitosamente`);
             } catch (error) {
-               console.error(`  ❌ Error procesando logo:`, error.message);
+               console.error(`   Error procesando logo:`, error.message);
                logosConError++;
                // No actualizar el logo si hay error
             }
@@ -1628,12 +1594,12 @@ router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
             try {
                await req.db.collection("empresas").updateOne({ _id: emp._id }, { $set: updates });
                cont++;
-               console.log(`  ✅ Empresa actualizada en BD`);
+               console.log(`   Empresa actualizada en BD`);
             } catch (dbError) {
-               console.error(`  ❌ Error actualizando BD:`, dbError.message);
+               console.error(`   Error actualizando BD:`, dbError.message);
             }
          } else {
-            console.log(`  ⏭️ Sin cambios, saltando`);
+            console.log(`   Sin cambios, saltando`);
          }
       }
 
