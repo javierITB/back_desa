@@ -311,7 +311,15 @@ router.post("/login", async (req, res) => {
       }
 
       if (user.twoFactorEnabled === true) {
-         await generateAndSend2FACode(req.db, user, "2FA_LOGIN");
+         try {
+            await generateAndSend2FACode(req.db, user, "2FA_LOGIN");
+         } catch (mailError) {
+            console.error("Error enviando 2FA login:", mailError);
+            return res.status(500).json({
+               success: false,
+               message: "Error enviando código 2FA: " + (mailError.message || "Error desconocido")
+            });
+         }
 
          return res.json({
             success: true,
@@ -637,7 +645,7 @@ router.post("/send-2fa-code", async (req, res) => {
       console.error("Error en /send-2fa-code:", err);
       res.status(500).json({
          success: false,
-         message: `Error interno al procesar la solicitud: ${err.message || err}`,
+         message: `[DEBUG_V2] Error interno: ${err.message || err}`,
       });
    }
 });
