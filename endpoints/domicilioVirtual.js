@@ -166,7 +166,8 @@ router.get("/mini", async (req, res) => {
         if (company && company.trim() !== "") {
             const term = company.toLowerCase().trim();
             answersProcessed = answersProcessed.filter(a =>
-                a.rutEmpresa.toLowerCase().includes(term)
+                a.rutEmpresa.toLowerCase().includes(term) ||
+                a.nombreEmpresa.toLowerCase().includes(term)
             );
         }
 
@@ -182,6 +183,7 @@ router.get("/mini", async (req, res) => {
             answersProcessed = answersProcessed.filter(a =>
                 a.tuNombre.toLowerCase().includes(term) ||
                 a.rutEmpresa.toLowerCase().includes(term) ||
+                a.nombreEmpresa.toLowerCase().includes(term) ||
                 a.formTitle.toLowerCase().includes(term)
             );
         }
@@ -287,6 +289,7 @@ router.post("/", async (req, res) => {
     try {
         const { formId, responses, formTitle, adjuntos = [], user, expirationDate: bodyExpirationDate } = req.body;
 
+
         // Verificar formulario
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
         if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
@@ -341,7 +344,6 @@ router.post("/", async (req, res) => {
             // Extraer nombre del cliente/empresa (priorizando Empresa)
             let nombreCliente = "Sin Empresa";
             const keys = Object.keys(responses || {});
-            console.log("DEBUG: Keys available for ticket creation:", keys);
 
             const normalizeKey = (k) => k.toLowerCase().trim().replace(':', '');
 
@@ -427,7 +429,6 @@ router.post("/", async (req, res) => {
                 createdAt: new Date(),
                 updatedAt: new Date()
             });
-            console.log(`Ticket automático creado para solicitud ${result.insertedId}`);
 
         } catch (ticketError) {
             console.error("Error al crear ticket automático:", ticketError);
@@ -556,7 +557,6 @@ router.post("/:id/adjuntos", async (req, res) => {
                         { $push: { adjuntos: adjuntoNormalizado } }
                     );
                 }
-                console.log(`Adjunto sincronizado con ticket de soporte ${linkedTicket._id}`);
             }
         } catch (syncError) {
             console.error("Error sincronizando adjunto con soporte:", syncError);
@@ -785,7 +785,6 @@ router.post("/:id/regenerate-document", async (req, res) => {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-        console.log(`Regenerando documento Domicilio Virtual para respuesta: ${id}`);
 
         const respuesta = await req.db.collection("domicilio_virtual").findOne({
             _id: new ObjectId(id)
@@ -849,7 +848,6 @@ router.post("/:id/regenerate-document", async (req, res) => {
                 respuesta.formTitle
             );
 
-            console.log(`Documento regenerado exitosamente para Domicilio Virtual: ${id}`);
 
             // Actualizar timestamp y status
             await req.db.collection("domicilio_virtual").updateOne(
