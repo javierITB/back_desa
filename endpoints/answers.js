@@ -1116,8 +1116,8 @@ router.post("/compartir/", async (req, res) => {
     const result = await req.db.collection("respuestas").updateOne(
       { _id: new ObjectId(responseId) },
       {
-        $set: {
-          "user.compartidos": usuarios
+        $addToSet: {
+          "user.compartidos": { $each: usuarios }
         }
       }
     );
