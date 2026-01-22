@@ -156,7 +156,7 @@ router.get("/metrics", async (req, res) => {
         ]).toArray();
 
         // Generar array Lun-Dom
-        const daysName = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
+        const daysName = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
         const weeklyPerformance = [];
 
         for (let i = 0; i < 7; i++) {
