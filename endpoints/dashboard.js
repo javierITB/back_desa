@@ -35,7 +35,7 @@ router.get("/metrics", async (req, res) => {
             {
                 $match: {
                     $or: [
-                        { status: "revision", reviewedAt: { $exists: true } },
+                        { status: { $in: ["revision", "en_revision"] }, reviewedAt: { $exists: true } },
                         { status: "aprobado", approvedAt: { $exists: true } },
                         { status: "firmado", signedAt: { $exists: true } },
                         { status: "finalizado" }
@@ -95,7 +95,7 @@ router.get("/metrics", async (req, res) => {
                 $match: {
                     createdAt: { $gte: oneWeekAgo },
                     $or: [
-                        { status: "revision", reviewedAt: { $exists: true } },
+                        { status: { $in: ["revision", "en_revision"] }, reviewedAt: { $exists: true } },
                         { status: "aprobado", approvedAt: { $exists: true } },
                         { status: "firmado", signedAt: { $exists: true } },
                         { status: "finalizado" }
