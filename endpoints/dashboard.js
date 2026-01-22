@@ -108,7 +108,7 @@ router.get("/metrics", async (req, res) => {
         const finalizedRequests = await req.db.collection("respuestas").countDocuments({ status: "finalizado" });
         const globalRate = totalRequests > 0 ? Math.round((finalizedRequests / totalRequests) * 100) : 0;
 
-        // 4. Performance Semanal
+        // 4. Performance Semanal de la semana anterior
 
         // Obtener fecha actual
         const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' });
@@ -123,6 +123,8 @@ router.get("/metrics", async (req, res) => {
         const diffToMonday = (day === 0 ? -6 : 1) - day;
         const monday = new Date(currentSantiagoDate);
         monday.setDate(currentSantiagoDate.getDate() + diffToMonday);
+
+        monday.setDate(monday.getDate() - 7);
 
         // Calcular fecha inicio para la query 
         const queryStartDate = new Date(monday);
