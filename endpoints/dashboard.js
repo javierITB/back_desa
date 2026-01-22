@@ -85,11 +85,68 @@ router.get("/metrics", async (req, res) => {
             signedToFinalized: Math.round(metricsData.avgSignedToFinalize || 0)
         };
 
-        // 3. Stats Semanales y tasa global
+        // Definir fecha de referencia (1 semana atrás)
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
-        // Solicitudes creadas esta semana
+        // 3. Tiempos de Respuesta (SEMANALES)
+        const weeklyTimeMetricsArr = await req.db.collection("respuestas").aggregate([
+            {
+                $match: {
+                    createdAt: { $gte: oneWeekAgo.toISOString() },
+                    $or: [
+                        { status: "revision", reviewedAt: { $exists: true } },
+                        { status: "aprobado", approvedAt: { $exists: true } },
+                        { status: "firmado", signedAt: { $exists: true } },
+                        { status: "finalizado" }
+                    ]
+                }
+            },
+            {
+                $project: {
+                    status: 1,
+                    timeToReview: {
+                        $cond: {
+                            if: { $and: ["$reviewedAt", "$createdAt"] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$reviewedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60 * 24] },
+                            else: null
+                        }
+                    },
+                    timeToApprove: {
+                        $cond: {
+                            if: { $and: ["$approvedAt", "$createdAt"] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$approvedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60 * 24] },
+                            else: null
+                        }
+                    },
+                    timeToFinalize: {
+                        $cond: {
+                            if: { $and: ["$status", "finalizado", "$signedAt"] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$updatedAt" }, { $toDate: "$signedAt" }] }, 1000 * 60 * 60 * 24] },
+                            else: null
+                        }
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    avgCreationToReview: { $avg: "$timeToReview" },
+                    avgCreationToApprove: { $avg: "$timeToApprove" },
+                    avgSignedToFinalize: { $avg: "$timeToFinalize" }
+                }
+            }
+        ]).toArray();
+
+        const weeklyMetricsData = weeklyTimeMetricsArr[0] || {};
+        const weeklyTimes = {
+            creationToReview: Math.round(weeklyMetricsData.avgCreationToReview || 0),
+            creationToApproved: Math.round(weeklyMetricsData.avgCreationToApprove || 0),
+            signedToFinalized: Math.round(weeklyMetricsData.avgSignedToFinalize || 0)
+        };
+
+        // 4. Counts Semanales y tasa global
+
         const weeklyRequests = await req.db.collection("respuestas").countDocuments({
             createdAt: { $gte: oneWeekAgo.toISOString() }
         });
@@ -108,7 +165,7 @@ router.get("/metrics", async (req, res) => {
         const finalizedRequests = await req.db.collection("respuestas").countDocuments({ status: "finalizado" });
         const globalRate = totalRequests > 0 ? Math.round((finalizedRequests / totalRequests) * 100) : 0;
 
-        // 4. Performance Semanal de la semana anterior
+        // 5. Performance Semanal de la semana anterior
 
         // Obtener fecha actual
         const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' });
@@ -183,6 +240,7 @@ router.get("/metrics", async (req, res) => {
                 totalUsers,
                 totalRequests,
                 timeMetrics: times,
+                weeklyTimeMetrics: weeklyTimes,
                 weeklyRequests,
                 globalRate,
                 statusDistribution, // Nuevo dato
