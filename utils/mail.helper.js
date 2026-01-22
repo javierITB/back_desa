@@ -9,7 +9,7 @@ const MAIL_CREDENTIALS = {
   secure: true,
   auth: {
     user: "administracion@infoacciona.cl",
-    pass: "Vicente2025",
+    pass: "CorreoAdmin.1",
   },
 };
 
