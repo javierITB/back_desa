@@ -49,21 +49,21 @@ router.get("/metrics", async (req, res) => {
                     timeToReview: {
                         $cond: {
                             if: { $and: ["$reviewedAt", "$createdAt"] },
-                            then: { $divide: [{ $subtract: [{ $toDate: "$reviewedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60 * 24] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$reviewedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60] },
                             else: null
                         }
                     },
                     timeToApprove: {
                         $cond: {
                             if: { $and: ["$approvedAt", "$createdAt"] },
-                            then: { $divide: [{ $subtract: [{ $toDate: "$approvedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60 * 24] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$approvedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60] },
                             else: null
                         }
                     },
                     timeToFinalize: {
                         $cond: {
                             if: { $and: ["$status", "finalizado", "$signedAt"] },
-                            then: { $divide: [{ $subtract: [{ $toDate: "$updatedAt" }, { $toDate: "$signedAt" }] }, 1000 * 60 * 60 * 24] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$updatedAt" }, { $toDate: "$signedAt" }] }, 1000 * 60 * 60] },
                             else: null
                         }
                     }
@@ -81,9 +81,9 @@ router.get("/metrics", async (req, res) => {
 
         const metricsData = timeMetrics[0] || {};
         const times = {
-            creationToReview: Math.round(metricsData.avgCreationToReview || 0),
-            creationToApproved: Math.round(metricsData.avgCreationToApprove || 0),
-            signedToFinalized: Math.round(metricsData.avgSignedToFinalize || 0)
+            creationToReview: parseFloat((metricsData.avgCreationToReview || 0).toFixed(1)), // Horas
+            creationToApproved: parseFloat((metricsData.avgCreationToApprove || 0).toFixed(1)),
+            signedToFinalized: parseFloat((metricsData.avgSignedToFinalize || 0).toFixed(1))
         };
 
         // Definir fecha de referencia (1 semana atrás)
@@ -110,21 +110,21 @@ router.get("/metrics", async (req, res) => {
                     timeToReview: {
                         $cond: {
                             if: { $and: ["$reviewedAt", "$createdAt"] },
-                            then: { $divide: [{ $subtract: [{ $toDate: "$reviewedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60 * 24] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$reviewedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60] },
                             else: null
                         }
                     },
                     timeToApprove: {
                         $cond: {
                             if: { $and: ["$approvedAt", "$createdAt"] },
-                            then: { $divide: [{ $subtract: [{ $toDate: "$approvedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60 * 24] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$approvedAt" }, { $toDate: "$createdAt" }] }, 1000 * 60 * 60] },
                             else: null
                         }
                     },
                     timeToFinalize: {
                         $cond: {
                             if: { $and: ["$status", "finalizado", "$signedAt"] },
-                            then: { $divide: [{ $subtract: [{ $toDate: "$updatedAt" }, { $toDate: "$signedAt" }] }, 1000 * 60 * 60 * 24] },
+                            then: { $divide: [{ $subtract: [{ $toDate: "$updatedAt" }, { $toDate: "$signedAt" }] }, 1000 * 60 * 60] },
                             else: null
                         }
                     }
@@ -142,9 +142,9 @@ router.get("/metrics", async (req, res) => {
 
         const weeklyMetricsData = weeklyTimeMetricsArr[0] || {};
         const weeklyTimes = {
-            creationToReview: Math.round(weeklyMetricsData.avgCreationToReview || 0),
-            creationToApproved: Math.round(weeklyMetricsData.avgCreationToApprove || 0),
-            signedToFinalized: Math.round(weeklyMetricsData.avgSignedToFinalize || 0)
+            creationToReview: parseFloat((weeklyMetricsData.avgCreationToReview || 0).toFixed(1)), // Horas
+            creationToApproved: parseFloat((weeklyMetricsData.avgCreationToApprove || 0).toFixed(1)),
+            signedToFinalized: parseFloat((weeklyMetricsData.avgSignedToFinalize || 0).toFixed(1))
         };
 
         // 4. Counts Semanales y tasa global
