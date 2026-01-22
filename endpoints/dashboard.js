@@ -26,7 +26,7 @@ router.get("/metrics", async (req, res) => {
 
         // 1. Totales
         const totalUsers = await req.db.collection("usuarios").countDocuments({ estado: { $ne: "inactivo" } });
-        const totalRequests = await req.db.collection("respuestas").countDocuments({});
+        const totalRequests = await req.db.collection("respuestas").countDocuments({ status: { $ne: "archivado" } });
 
 
 
@@ -34,6 +34,7 @@ router.get("/metrics", async (req, res) => {
         const timeMetrics = await req.db.collection("respuestas").aggregate([
             {
                 $match: {
+                    status: { $ne: "archivado" },
                     $or: [
                         { status: { $in: ["revision", "en_revision"] }, reviewedAt: { $exists: true } },
                         { status: "aprobado", approvedAt: { $exists: true } },
@@ -94,6 +95,7 @@ router.get("/metrics", async (req, res) => {
             {
                 $match: {
                     createdAt: { $gte: oneWeekAgo },
+                    status: { $ne: "archivado" },
                     $or: [
                         { status: { $in: ["revision", "en_revision"] }, reviewedAt: { $exists: true } },
                         { status: "aprobado", approvedAt: { $exists: true } },
@@ -148,11 +150,13 @@ router.get("/metrics", async (req, res) => {
         // 4. Counts Semanales y tasa global
 
         const weeklyRequests = await req.db.collection("respuestas").countDocuments({
-            createdAt: { $gte: oneWeekAgo }
+            createdAt: { $gte: oneWeekAgo },
+            status: { $ne: "archivado" }
         });
 
         // Total por estado para gráficos
         const statusCounts = await req.db.collection("respuestas").aggregate([
+            { $match: { status: { $ne: "archivado" } } },
             { $group: { _id: "$status", count: { $sum: 1 } } }
         ]).toArray();
 
@@ -191,7 +195,8 @@ router.get("/metrics", async (req, res) => {
         const weeklyPerformanceRaw = await req.db.collection("respuestas").aggregate([
             {
                 $match: {
-                    createdAt: { $gte: queryStartDate }
+                    createdAt: { $gte: queryStartDate },
+                    status: { $ne: "archivado" }
                 }
             },
             {
