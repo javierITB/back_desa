@@ -148,7 +148,7 @@ router.get("/metrics", async (req, res) => {
         // 4. Counts Semanales y tasa global
 
         const weeklyRequests = await req.db.collection("respuestas").countDocuments({
-            createdAt: { $gte: oneWeekAgo.toISOString() }
+            createdAt: { $gte: oneWeekAgo }
         });
 
         // Total por estado para gráficos
