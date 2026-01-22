@@ -603,6 +603,82 @@ router.post("/recuperacion", async (req, res) => {
    }
 });
 
+
+router.post("/register-mail", async (req, res) => {
+   // Recibimos los datos y el 'origin' desde el frontend
+   const { nombre, apellido, mail, empresa, cargo, rol, origin } = req.body;
+
+   try {
+      const db = req.db;
+
+      // 1. VALIDACIÓN: Verificar si el usuario ya existe
+      const emailNormalizado = mail.toLowerCase().trim();
+      const userExists = await db.collection("usuarios").findOne({
+         mail_index: createBlindIndex(emailNormalizado),
+      });
+
+      if (userExists) {
+         return res.status(400).json({ error: "El correo ya está registrado." });
+      }
+
+      // 2. REGISTRO EN LA BASE DE DATOS
+      const newUser = {
+         nombre,
+         apellido,
+         mail: encrypt(emailNormalizado),
+         mail_index: createBlindIndex(emailNormalizado),
+         empresa,
+         cargo,
+         rol,
+         pass: "",
+         estado: "pendiente",
+         createdAt: new Date()
+      };
+
+      const result = await db.collection("usuarios").insertOne(newUser);
+      const savedUserId = result.insertedId.toString();
+
+      // 3. CONFIGURACIÓN DE URL DINÁMICA (Usando el origin del front)
+      const baseUrl = origin;
+      const setPasswordUrl = `${baseUrl}/set-password?userId=${savedUserId}`;
+
+      // 4. ENVÍO DEL CORREO (Contenido exacto solicitado)
+      await sendEmail({
+         to: emailNormalizado,
+         subject: "Completa tu registro",
+         html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #3B82F6;">¡Bienvenido a la plataforma!</h2>
+              <p>Hola <strong>${nombre} ${apellido}</strong>,</p>
+              <p>Has sido registrado en nuestra plataforma. Para completar tu registro y establecer tu contraseña, haz clic en el siguiente botón:</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${setPasswordUrl}" 
+                   style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                  Establecer Contraseña
+                </a>
+              </div>
+              <p><strong>Datos de tu cuenta:</strong></p>
+              <ul>
+                <li><strong>Empresa:</strong> ${empresa}</li>
+                <li><strong>Cargo:</strong> ${cargo}</li>
+              </ul>
+              <p style="color: #666; font-size: 12px;">Si no solicitaste este registro, por favor ignora este correo.</p>
+            </div>
+         `,
+      });
+
+      res.json({ 
+         success: true, 
+         message: "Usuario registrado y correo enviado correctamente.", 
+         userId: savedUserId 
+      });
+
+   } catch (err) {
+      console.error("Error en registro:", err);
+      res.status(500).json({ error: "Error interno del servidor" });
+   }
+});
+
 router.post("/borrarpass", async (req, res) => {
    const { email, code } = req.body;
    const now = new Date();
