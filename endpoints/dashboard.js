@@ -93,7 +93,7 @@ router.get("/metrics", async (req, res) => {
         const weeklyTimeMetricsArr = await req.db.collection("respuestas").aggregate([
             {
                 $match: {
-                    createdAt: { $gte: oneWeekAgo.toISOString() }, // Filtro adicional de tiempo
+                    createdAt: { $gte: oneWeekAgo },
                     $or: [
                         { status: "revision", reviewedAt: { $exists: true } },
                         { status: "aprobado", approvedAt: { $exists: true } },
