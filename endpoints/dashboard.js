@@ -163,7 +163,8 @@ router.get("/metrics", async (req, res) => {
         }));
 
         const finalizedRequests = await req.db.collection("respuestas").countDocuments({ status: "finalizado" });
-        const globalRate = totalRequests > 0 ? Math.round((finalizedRequests / totalRequests) * 100) : 0;
+        const requestsForRate = await req.db.collection("respuestas").countDocuments({ status: { $ne: "archivado" } });
+        const globalRate = requestsForRate > 0 ? Math.round((finalizedRequests / requestsForRate) * 100) : 0;
 
         // 5. Performance Semanal de la semana anterior
 
