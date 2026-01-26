@@ -1,4 +1,6 @@
-// utils/correoRespaldo.helper.js
+// Importamos directamente la lógica de envío desde el helper
+// Nota: La ruta supone que mail.helper.js está en la misma carpeta (utils/)
+const { sendEmail } = require("./mail.helper");
 
 /**
  * Genera el contenido del correo de respaldo usando la misma lógica que los TXT
@@ -7,16 +9,13 @@ const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, qu
 
   /**
    * Función para procesar preguntas y respuestas en formato texto
-   * Similar a generarDocumentoTxt pero adaptado para correo
    */
   const generarContenidoRespuestas = (responses, questions) => {
     let contenido = "RESPUESTAS DEL FORMULARIO\n";
     contenido += "========================\n\n";
 
-    // Usar la misma lógica que en generarDocumentoTxt pero estructurado por preguntas
     let index = 1;
 
-    // Procesar preguntas principales
     const procesarPreguntas = (preguntas, nivel = 0, contexto = '') => {
       let contenidoLocal = '';
       const indent = '  '.repeat(nivel);
@@ -27,7 +26,6 @@ const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, qu
         const tituloPregunta = pregunta.title;
         const respuesta = obtenerRespuestaPorTitulo(tituloPregunta, responses);
 
-        // Solo mostrar si tiene respuesta o es requerida
         const tieneRespuesta = respuesta !== undefined && respuesta !== null &&
           respuesta !== '' && !(Array.isArray(respuesta) && respuesta.length === 0);
 
@@ -37,7 +35,6 @@ const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, qu
 
           contenidoLocal += `${indent}${numeroPregunta} ${tituloCompleto}\n`;
 
-          // Formatear respuesta (igual que en TXT)
           if (Array.isArray(respuesta)) {
             contenidoLocal += `${indent}   - ${respuesta.join(`\n${indent}   - `)}\n\n`;
           } else if (respuesta && typeof respuesta === 'object') {
@@ -49,7 +46,6 @@ const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, qu
           if (nivel === 0) index++;
         }
 
-        // Procesar subsecciones (opciones con subformularios)
         if (pregunta.options) {
           pregunta.options.forEach((opcion, opcionIndex) => {
             if (typeof opcion === 'object' && opcion.hasSubform && opcion.subformQuestions) {
@@ -74,16 +70,13 @@ const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, qu
       return contenidoLocal;
     };
 
-    // Procesar preguntas principales
     contenido += procesarPreguntas(questions || []);
 
-    // Procesar información contextual (igual que en TXT)
     if (responses._contexto && Object.keys(responses._contexto).length > 0) {
       contenido += "\n--- INFORMACIÓN DETALLADA POR SECCIÓN ---\n\n";
 
       Object.keys(responses._contexto).forEach(contexto => {
         contenido += `SECCIÓN: ${contexto}\n`;
-
         Object.keys(responses._contexto[contexto]).forEach(pregunta => {
           const respuesta = responses._contexto[contexto][pregunta];
           contenido += `   ${pregunta}: ${respuesta}\n`;
@@ -95,16 +88,10 @@ const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, qu
     return contenido;
   };
 
-  /**
-   * Obtiene respuesta por título (igual que en la versión anterior)
-   */
   const obtenerRespuestaPorTitulo = (tituloPregunta, responses) => {
-    // Buscar directamente en responses
     if (responses[tituloPregunta] !== undefined) {
       return responses[tituloPregunta];
     }
-
-    // Si no encuentra, buscar en _contexto si existe
     if (responses._contexto) {
       for (const contexto in responses._contexto) {
         if (responses._contexto[contexto][tituloPregunta] !== undefined) {
@@ -112,16 +99,12 @@ const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, qu
         }
       }
     }
-
     return undefined;
   };
 
-  // Usar el nombre del trabajador de las respuestas si está disponible
   const nombreTrabajador = responses['Nombre del trabajador'] || usuario.nombre;
-
   const contenidoRespuestas = generarContenidoRespuestas(responses, questions);
 
-  // Contenido en texto plano (estructura similar al TXT)
   const texto = `RESPALDO DE RESPUESTAS - FORMULARIO: ${formTitle}
 =================================================
 
@@ -138,7 +121,6 @@ Este es un respaldo automático de las respuestas enviadas.
 Generado el: ${fecha}
 `;
 
-  // Contenido en HTML (manteniendo formato legible)
   const html = `
 <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
   <h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
@@ -171,7 +153,7 @@ ${contenidoRespuestas.replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;')}
 };
 
 /**
- * Envía el correo de respaldo usando el servicio de mail
+ * Envía el correo de respaldo importando el componente de mail directamente
  */
 const enviarCorreoRespaldo = async (correoRespaldo, formTitle, usuario, responses, questions) => {
   try {
@@ -193,30 +175,21 @@ const enviarCorreoRespaldo = async (correoRespaldo, formTitle, usuario, response
       questions
     );
 
-    const mailPayload = {
-      accessKey: "wBlL283JH9TqdEJRxon1QOBuI0A6jGVEwpUYchnyMGz", // Reemplaza con tu clave real
+    // Definimos el objeto para la función interna (sin necesidad de accessKey)
+    const emailData = {
       to: correoRespaldo.trim(),
       subject: `Respaldo de respuestas - ${formTitle}`,
       text: contenido.texto,
       html: contenido.html
     };
 
-    const mailResponse = await fetch('https://back-desa.vercel.app/api/mail/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(mailPayload),
-    });
+    // Llamamos directamente a la función del componente mail
+    const result = await sendEmail(emailData);
 
-    if (mailResponse.ok) {
-      console.log(`Correo de respaldo enviado a: ${correoRespaldo}`);
-      return { enviado: true };
-    } else {
-      const errorData = await mailResponse.json();
-      console.warn(`No se pudo enviar correo de respaldo a: ${correoRespaldo}`, errorData);
-      return { enviado: false, motivo: errorData.error };
-    }
+    return { enviado: true, result };
+
   } catch (error) {
-    console.error('Error enviando correo de respaldo:', error);
+    console.error('Error enviando correo de respaldo (interno):', error);
     return { enviado: false, motivo: error.message };
   }
 };

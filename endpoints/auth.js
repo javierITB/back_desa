@@ -604,85 +604,7 @@ router.post("/recuperacion", async (req, res) => {
 });
 
 
-router.post("/register-mail", async (req, res) => {
-   try {
-      // 1. VALIDACIÓN DE TOKEN: Verifica que quien hace la petición esté autorizado
-      await verifyRequest(req);
 
-      // Recibimos los datos (el 'origin' ya no es estrictamente necesario si está hardcodeado)
-      const { nombre, apellido, mail, empresa, cargo, rol } = req.body;
-      const db = req.db;
-
-      // 2. VALIDACIÓN DE EXISTENCIA: Verificar si el usuario ya existe
-      const emailNormalizado = mail.toLowerCase().trim();
-      const userExists = await db.collection("usuarios").findOne({
-         mail_index: createBlindIndex(emailNormalizado),
-      });
-
-      if (userExists) {
-         return res.status(400).json({ error: "El correo ya está registrado." });
-      }
-
-      // 3. REGISTRO EN LA BASE DE DATOS
-      const newUser = {
-         nombre,
-         apellido,
-         mail: encrypt(emailNormalizado),
-         mail_index: createBlindIndex(emailNormalizado),
-         empresa,
-         cargo,
-         rol,
-         pass: "",
-         estado: "pendiente",
-         createdAt: new Date()
-      };
-
-      const result = await db.collection("usuarios").insertOne(newUser);
-      const savedUserId = result.insertedId.toString();
-
-      // 4. URL HARDCODEADA (Fija a producción)
-      const baseUrl = "https://infodesa.vercel.app"; 
-      const setPasswordUrl = `${baseUrl}/set-password?userId=${savedUserId}`;
-
-      // 5. ENVÍO DEL CORREO
-      await sendEmail({
-         to: emailNormalizado,
-         subject: "Completa tu registro",
-         html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #3B82F6;">¡Bienvenido a la plataforma!</h2>
-              <p>Hola <strong>${nombre} ${apellido}</strong>,</p>
-              <p>Has sido registrado en nuestra plataforma. Para completar tu registro y establecer tu contraseña, haz clic en el siguiente botón:</p>
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${setPasswordUrl}" 
-                   style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                  Establecer Contraseña
-                </a>
-              </div>
-              <p><strong>Datos de tu cuenta:</strong></p>
-              <ul>
-                <li><strong>Empresa:</strong> ${empresa}</li>
-                <li><strong>Cargo:</strong> ${cargo}</li>
-              </ul>
-              <p style="color: #666; font-size: 12px;">Si no solicitaste este registro, por favor ignora este correo.</p>
-            </div>
-         `,
-      });
-
-      res.json({ 
-         success: true, 
-         message: "Usuario registrado y correo enviado correctamente.", 
-         userId: savedUserId 
-      });
-
-   } catch (err) {
-      console.error("Error en registro:", err);
-      // Si verifyRequest falla, suele lanzar un error que capturamos aquí
-      const status = err.status || 500;
-      const message = err.message || "Error interno al registrar usuario";
-      res.status(status).json({ error: message });
-   }
-});
 
 router.post("/borrarpass", async (req, res) => {
    const { email, code } = req.body;
@@ -1074,16 +996,13 @@ router.post("/logout", async (req, res) => {
 
 router.post("/register", async (req, res) => {
    try {
-      await verifyRequest(req); // Requiere admin
-      // Opcional: validar rol de admin aqui si es necesario
+      await verifyRequest(req); // Tu middleware de seguridad
       const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
       const m = mail.toLowerCase().trim();
 
       if (await req.db.collection("usuarios").findOne({ mail_index: createBlindIndex(m) })) {
          return res.status(400).json({ error: "El usuario ya existe" });
       }
-
-      const encrypt = require("../utils/seguridad.helper").encrypt;
 
       const newUser = {
          nombre: encrypt(nombre),
@@ -1101,26 +1020,88 @@ router.post("/register", async (req, res) => {
       };
 
       const result = await req.db.collection("usuarios").insertOne(newUser);
+      const userId = result.insertedId.toString();
 
+      // --- NOTIFICACIÓN Y EMAIL ---
+      
+      // 1. Notificación en DB
       await addNotification(req.db, {
-         userId: result.insertedId.toString(),
+         userId: userId,
          titulo: `Registro Exitoso!`,
-         descripcion: `Bienvenid@ a nuestra plataforma Virtual Acciona!`,
+         descripcion: `Bienvenid@ a nuestra plataforma!`,
          prioridad: 2,
          color: "#7afb24ff",
          icono: "User",
       });
 
-      res.status(201).json({
-         success: true,
-         message: "Usuario registrado",
-         userId: result.insertedId,
-      });
+      // 2. Envío de Email usando tu helper sendEmail
+      try {
+         const htmlContent = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+               <h2 style="color: #3B82F6;">¡Bienvenido, ${nombre}!</h2>
+               <p>Has sido registrado en la plataforma. Para activar tu cuenta, haz clic en el botón:</p>
+               <div style="text-align: center; margin: 30px 0;">
+                  <a href="https://infodesa.vercel.app/set-password?userId=${userId}" 
+                     style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                     Configurar mi Contraseña
+                  </a>
+               </div>
+               <p style="font-size: 12px; color: #666;">Empresa: ${empresa}</p>
+            </div>`;
+
+         // Llamamos a tu helper directamente
+         await sendEmail({
+            to: m,
+            subject: "Completa tu registro",
+            html: htmlContent
+         });
+      } catch (mailError) {
+         console.error("Error enviando email:", mailError);
+      }
+
+      res.status(201).json({ success: true, message: "Usuario registrado y correo enviado", userId });
    } catch (err) {
-      console.error("Error al registrar:", err);
       res.status(500).json({ error: "Error al registrar" });
    }
 });
+
+router.post("/set-initial-password", async (req, res) => {
+   try {
+     const { userId, password } = req.body;
+ 
+     if (!userId || !password) {
+       return res.status(400).json({ error: "Datos incompletos" });
+     }
+ 
+     // Usamos createFromHexString para evitar el error de "deprecado"
+     const user = await req.db.collection("usuarios").findOne({ 
+       _id: ObjectId.createFromHexString(String(userId)) 
+     });
+ 
+     if (!user || user.estado !== "pendiente" || user.pass !== "") {
+       return res.status(403).json({ error: "El enlace ha expirado o ya es inválido" });
+     }
+ 
+     // Usamos tus helpers de seguridad
+     const { hashPassword } = require("../utils/seguridad.helper"); 
+     const hashedPassword = await hashPassword(password);
+ 
+     await req.db.collection("usuarios").updateOne(
+       { _id: ObjectId.createFromHexString(String(userId)) },
+       { 
+         $set: { 
+           pass: hashedPassword, 
+           estado: "activo",
+           updatedAt: new Date().toISOString() 
+         } 
+       }
+     );
+ 
+     res.json({ success: true, message: "Contraseña creada exitosamente" });
+   } catch (err) {
+     res.status(500).json({ error: "Error al procesar la solicitud" });
+   }
+ });
 
 router.post("/change-password", async (req, res) => {
    const { email, currentPassword, newPassword } = req.body;
