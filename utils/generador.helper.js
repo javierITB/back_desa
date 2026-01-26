@@ -184,21 +184,33 @@ function crearLogoImagen(logoData) {
 async function buscarPlantillaPorFormId(formId, db) {
     try {
         console.log("=== BUSCANDO PLANTILLA POR FORMID ===");
+        console.log("FormId buscado:", formId);
 
         if (!db || typeof db.collection !== 'function') {
             throw new Error("Base de datos no disponible");
         }
 
-        const plantilla = await db.collection('plantillas').findOne({
-            formId: formId,
-            status: "publicado"
-        });
+        let query = { status: "publicado" };
+
+        // Intentar buscar tanto como String como ObjectId para evitar errores de tipo
+        const possibleIds = [formId];
+        try {
+            if (typeof formId === 'string' && formId.length === 24) {
+                const { ObjectId } = require('mongodb'); // Asegurar importación si no está disponible scope global
+                possibleIds.push(new ObjectId(formId));
+            }
+        } catch (e) {
+        }
+
+        query.formId = { $in: possibleIds };
+
+        const plantilla = await db.collection('plantillas').findOne(query);
 
         if (plantilla) {
-            console.log("Plantilla encontrada");
+            console.log(`Plantilla encontrada: ${plantilla._id} (Tipo formId: ${typeof plantilla.formId})`);
             return plantilla;
         } else {
-            console.log("No se encontró plantilla");
+            console.log("No se encontró plantilla (ni como string ni como ObjectId)");
             return null;
         }
     } catch (error) {
@@ -926,11 +938,14 @@ async function generarAnexoDesdeRespuesta(responses, responseId, db, section, us
             return await generarDocumentoTxt(responses, responseId, db, formTitle);
         }
 
+        console.log(`Buscando plantilla para formId: ${formId}`);
         const plantilla = await buscarPlantillaPorFormId(formId, db);
 
         if (plantilla) {
+            console.log(`Plantilla encontrada: ${plantilla._id}`);
             return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
         } else {
+            console.log("No se encontró plantilla publicada - Fallback a TXT");
             return await generarDocumentoTxt(responses, responseId, db, formTitle);
         }
 
