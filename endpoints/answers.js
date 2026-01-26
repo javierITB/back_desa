@@ -3180,8 +3180,48 @@ router.post("/:id/regenerate-document", async (req, res) => {
         }
       }
 
+      // Helper para descifrar campos individuales
+      const descifrarCampo = (valor) => {
+        const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+        if (typeof valor === 'string' && encryptedRegex.test(valor)) {
+          try {
+            return decrypt(valor);
+          } catch (e) { return valor; }
+        }
+        return valor;
+      };
+
+      // Helper para descifrar objetos recursivamente
+      const descifrarObjeto = (obj) => {
+        if (!obj || typeof obj !== 'object') return obj;
+
+        if (Array.isArray(obj)) {
+          return obj.map(item => {
+            if (typeof item === 'string') return descifrarCampo(item);
+            if (typeof item === 'object') return descifrarObjeto(item);
+            return item;
+          });
+        }
+
+        const resultado = {};
+        for (const key in obj) {
+          const valor = obj[key];
+          if (typeof valor === 'string') {
+            resultado[key] = descifrarCampo(valor);
+          } else if (typeof valor === 'object') {
+            resultado[key] = descifrarObjeto(valor);
+          } else {
+            resultado[key] = valor;
+          }
+        }
+        return resultado;
+      };
+
+      // Descifrar el objeto de respuestas completo
+      const responsesDescifrado = descifrarObjeto(respuesta.responses);
+
       await generarAnexoDesdeRespuesta(
-        respuesta.responses,
+        responsesDescifrado,
         respuesta._id.toString(),
         req.db,
         form.section,
