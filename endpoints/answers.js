@@ -212,8 +212,8 @@ router.post("/", async (req, res) => {
       actionUrl: `/RespuestasForms?id=${result.insertedId}`,
     };
 
-    await addNotification(req.db, { filtro: { cargo: "RRHH" }, ...notifData });
-    await addNotification(req.db, { filtro: { cargo: "admin" }, ...notifData });
+    await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifData });
+    await addNotification(req.db, { filtro: { rol: "admin" }, ...notifData });
     console.log("✓ Notificaciones a RRHH y Admin enviadas");
 
     // Notificación al usuario
@@ -835,9 +835,9 @@ router.post("/quitar-acceso", async (req, res) => {
     const { respuestaId, usuarioAQuitarId, mailAutor } = req.body;
 
     if (!respuestaId || !usuarioAQuitarId || !mailAutor) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Faltan datos requeridos (ID respuesta, ID usuario o Mail autor)." 
+      return res.status(400).json({
+        success: false,
+        message: "Faltan datos requeridos (ID respuesta, ID usuario o Mail autor)."
       });
     }
 
@@ -854,9 +854,9 @@ router.post("/quitar-acceso", async (req, res) => {
 
     // 3. REGLA DE NEGOCIO: El propietario no puede auto-quitarse el acceso
     if (autorIdString === usuarioAQuitarId) {
-      return res.status(403).json({ 
-        success: false, 
-        message: "No puedes revocar tu propio acceso siendo el propietario." 
+      return res.status(403).json({
+        success: false,
+        message: "No puedes revocar tu propio acceso siendo el propietario."
       });
     }
 
@@ -883,18 +883,18 @@ router.post("/quitar-acceso", async (req, res) => {
 
     // REGLA DE SEGURIDAD: Solo el propietario original puede quitar accesos
     if (uidDueno !== autorIdString) {
-      return res.status(403).json({ 
-        success: false, 
-        message: "Acción denegada. Solo el propietario puede gestionar los accesos." 
+      return res.status(403).json({
+        success: false,
+        message: "Acción denegada. Solo el propietario puede gestionar los accesos."
       });
     }
 
     // 6. Eliminar el acceso usando $pull para remover el ID del array
     const result = await req.db.collection("respuestas").updateOne(
       { _id: new ObjectId(respuestaId) },
-      { 
+      {
         $pull: { "user.compartidos": usuarioAQuitarId },
-        $set: { updatedAt: new Date() } 
+        $set: { updatedAt: new Date() }
       }
     );
 
@@ -2307,7 +2307,7 @@ router.post("/upload-corrected-files", async (req, res) => {
       if (userEmail) {
         try {
           const { sendEmail } = require("../utils/mail.helper");
-          const portalUrl = process.env.PORTAL_URL || "https://infoacciona.cl";
+          const portalUrl = process.env.PORTAL_URL || "https://infodesa.vercel.app";
           const responseUrl = `${portalUrl}/preview?type=details&id=${responseId}`;
 
 

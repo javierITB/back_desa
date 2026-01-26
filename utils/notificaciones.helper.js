@@ -102,25 +102,6 @@ async function addNotification(
         let match = true;
 
         for (const filter of memoryFilters) {
-          // Desencriptar valor del usuario
-          const userValueRaw = u[filter.key];
-          const userValue = decrypt(userValueRaw);
-
-          const filterVal = filter.value;
-
-          // Lógica de comparación
-          if (filterVal && filterVal.$in && Array.isArray(filterVal.$in)) {
-            if (!filterVal.$in.includes(userValue)) match = false;
-          } else if (Array.isArray(filterVal)) {
-            if (!filterVal.includes(userValue)) match = false;
-          } else {
-            if (userValue !== filterVal) match = false;
-          }
-
-          if (!match) break;
-        }
-
-        if (match) {
           matchingIds.push(u._id);
         }
       }
