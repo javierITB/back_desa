@@ -605,13 +605,15 @@ router.post("/recuperacion", async (req, res) => {
 
 
 router.post("/register-mail", async (req, res) => {
-   // Recibimos los datos y el 'origin' desde el frontend
-   const { nombre, apellido, mail, empresa, cargo, rol, origin } = req.body;
-
    try {
+      // 1. VALIDACIÓN DE TOKEN: Verifica que quien hace la petición esté autorizado
+      await verifyRequest(req);
+
+      // Recibimos los datos (el 'origin' ya no es estrictamente necesario si está hardcodeado)
+      const { nombre, apellido, mail, empresa, cargo, rol } = req.body;
       const db = req.db;
 
-      // 1. VALIDACIÓN: Verificar si el usuario ya existe
+      // 2. VALIDACIÓN DE EXISTENCIA: Verificar si el usuario ya existe
       const emailNormalizado = mail.toLowerCase().trim();
       const userExists = await db.collection("usuarios").findOne({
          mail_index: createBlindIndex(emailNormalizado),
@@ -621,7 +623,7 @@ router.post("/register-mail", async (req, res) => {
          return res.status(400).json({ error: "El correo ya está registrado." });
       }
 
-      // 2. REGISTRO EN LA BASE DE DATOS
+      // 3. REGISTRO EN LA BASE DE DATOS
       const newUser = {
          nombre,
          apellido,
@@ -638,11 +640,11 @@ router.post("/register-mail", async (req, res) => {
       const result = await db.collection("usuarios").insertOne(newUser);
       const savedUserId = result.insertedId.toString();
 
-      // 3. CONFIGURACIÓN DE URL DINÁMICA (Usando el origin del front)
-      const baseUrl = origin;
+      // 4. URL HARDCODEADA (Fija a producción)
+      const baseUrl = "https://infodesa.vercel.app"; 
       const setPasswordUrl = `${baseUrl}/set-password?userId=${savedUserId}`;
 
-      // 4. ENVÍO DEL CORREO (Contenido exacto solicitado)
+      // 5. ENVÍO DEL CORREO
       await sendEmail({
          to: emailNormalizado,
          subject: "Completa tu registro",
@@ -675,7 +677,10 @@ router.post("/register-mail", async (req, res) => {
 
    } catch (err) {
       console.error("Error en registro:", err);
-      res.status(500).json({ error: "Error interno del servidor" });
+      // Si verifyRequest falla, suele lanzar un error que capturamos aquí
+      const status = err.status || 500;
+      const message = err.message || "Error interno al registrar usuario";
+      res.status(status).json({ error: message });
    }
 });
 
