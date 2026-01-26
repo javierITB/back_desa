@@ -448,19 +448,22 @@ function procesarHTML(html, variables) {
     for (const bloque of bloques) {
         let texto = bloque.contenido;
 
-        // --- DETECCIÓN DE ETIQUETAS LÓGICAS ---
-        // [[IF:VAR]]
-        const matchIf = texto.match(/^\[\[IF:(.*?)\]\]$/i);
+        // --- DETECCIÓN DE ETIQUETAS LÓGICAS (Mejorada) ---
+        // Limpiamos etiquetas HTML básicas para detectar el comnado logicamente
+        const textoPlano = texto.replace(/<[^>]*>/g, '').trim();
+
+        // [[IF:VAR]] - Permitir espacios y ser case-insensitive
+        const matchIf = textoPlano.match(/^\[\[\s*IF:(.*?)\s*\]\]$/i);
         if (matchIf) {
-            const condicion = matchIf[1];
+            const condicion = matchIf[1].trim();
             const debeMostrar = evaluarCondicional(condicion, variables);
             pilaCondicionales.push(mostrarBloque);
             mostrarBloque = mostrarBloque && debeMostrar;
-            continue;
+            continue; // No renderizamos la línea del IF
         }
 
         // [[ENDIF]]
-        if (texto.match(/^\[\[ENDIF\]\]$/i)) {
+        if (textoPlano.match(/^\[\[\s*ENDIF\s*\]\]$/i)) {
             if (pilaCondicionales.length > 0) {
                 mostrarBloque = pilaCondicionales.pop();
             } else {
@@ -471,7 +474,7 @@ function procesarHTML(html, variables) {
 
         if (!mostrarBloque) continue;
 
-        // --- PARSEO DE ESTILOS INLINE
+        // --- PARSEO DE ESTILOS INLINE (Mantenido)
         const regexTokens = /(<\/?(?:strong|b|em|i|u)>)/gi;
         const partes = texto.split(regexTokens);
 
@@ -675,7 +678,6 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
             children.push(new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
-                columnWidths: [4000, 4000],
                 borders: {
                     top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
                     bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
@@ -687,14 +689,26 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 rows: [
                     new TableRow({
                         children: [
-                            new TableCell({ children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })] }),
-                            new TableCell({ children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })] })
+                            new TableCell({
+                                width: { size: 50, type: WidthType.PERCENTAGE },
+                                children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })]
+                            }),
+                            new TableCell({
+                                width: { size: 50, type: WidthType.PERCENTAGE },
+                                children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })]
+                            })
                         ]
                     }),
                     new TableRow({
                         children: [
-                            new TableCell({ children: [new Paragraph({ text: firma1, alignment: AlignmentType.CENTER })] }),
-                            new TableCell({ children: [new Paragraph({ text: firma2, alignment: AlignmentType.CENTER })] })
+                            new TableCell({
+                                width: { size: 50, type: WidthType.PERCENTAGE },
+                                children: [new Paragraph({ text: firma1, alignment: AlignmentType.CENTER })]
+                            }),
+                            new TableCell({
+                                width: { size: 50, type: WidthType.PERCENTAGE },
+                                children: [new Paragraph({ text: firma2, alignment: AlignmentType.CENTER })]
+                            })
                         ]
                     })
                 ]
