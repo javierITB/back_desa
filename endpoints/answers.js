@@ -8,6 +8,7 @@ const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper");
 const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
+const { registerEvent, CODES, TARGET_TYPES, ACTOR_ROLES, RESULTS, STATUS } = require("../utils/registerEvent");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -3180,48 +3181,8 @@ router.post("/:id/regenerate-document", async (req, res) => {
         }
       }
 
-      // Helper para descifrar campos individuales
-      const descifrarCampo = (valor) => {
-        const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
-        if (typeof valor === 'string' && encryptedRegex.test(valor)) {
-          try {
-            return decrypt(valor);
-          } catch (e) { return valor; }
-        }
-        return valor;
-      };
-
-      // Helper para descifrar objetos recursivamente
-      const descifrarObjeto = (obj) => {
-        if (!obj || typeof obj !== 'object') return obj;
-
-        if (Array.isArray(obj)) {
-          return obj.map(item => {
-            if (typeof item === 'string') return descifrarCampo(item);
-            if (typeof item === 'object') return descifrarObjeto(item);
-            return item;
-          });
-        }
-
-        const resultado = {};
-        for (const key in obj) {
-          const valor = obj[key];
-          if (typeof valor === 'string') {
-            resultado[key] = descifrarCampo(valor);
-          } else if (typeof valor === 'object') {
-            resultado[key] = descifrarObjeto(valor);
-          } else {
-            resultado[key] = valor;
-          }
-        }
-        return resultado;
-      };
-
-      // Descifrar el objeto de respuestas completo
-      const responsesDescifrado = descifrarObjeto(respuesta.responses);
-
       await generarAnexoDesdeRespuesta(
-        responsesDescifrado,
+        respuesta.responses,
         respuesta._id.toString(),
         req.db,
         form.section,
@@ -3389,6 +3350,32 @@ router.put("/:id/status", async (req, res) => {
   } catch (err) {
     console.error("Error cambiando estado:", err);
     res.status(500).json({ error: "Error cambiando estado: " + err.message });
+  }
+
+  // Registrar evento
+  try {
+     await registerEvent(req, {
+        code: CODES.SOLICITUD_CAMBIO_ESTADO,
+        target: {
+           type: TARGET_TYPES.SOLICITUD,
+           _id: updatedResponse._id,
+        },
+        actor: {
+           uid: updatedResponse.user.uid,
+           name: updatedResponse.user.nombre,
+           role: ACTOR_ROLES.ADMIN,
+           email: updatedResponse.user.mail,
+           empresa: updatedResponse.user.empresa,
+        },
+        description: `Cambio de estado de solicitud "${updatedResponse.formTitle}" a ${updatedResponse.status}`,
+
+        metadata: {
+          nombre_de_solicitud: updatedResponse.formTitle,
+          nuevo_estado: updatedResponse.status,
+        },
+     });
+  } catch (error) {
+     console.error("Error registrando evento:", error);
   }
 });
 
