@@ -3195,7 +3195,28 @@ router.post("/:id/regenerate-document", async (req, res) => {
         respuesta.formId,
         respuesta.formTitle
       );
-
+      
+      // Registrar evento
+      registerEvent(req, {
+        code: CODES.SOLICITUD_REGENERACION_DOCUMENTO,
+        target: {
+           type: TARGET_TYPES.SOLICITUD,
+           _id: respuesta._id.toString(),
+        },
+        actor: {
+           uid: respuesta.user.uid.toString(),
+           name: respuesta.user.nombre,
+           role: ACTOR_ROLES.ADMIN,
+           email: respuesta.user.mail,
+           empresa: respuesta.user.empresa,
+        },
+        description: `Regeneración de documento de solicitud "${respuesta.formTitle}"`,
+        metadata: {
+          nombre_de_solicitud: respuesta.formTitle,
+          nuevo_estado: respuesta.status,
+        },
+        result: RESULTS.SUCCESS,
+     });
 
       res.json({
         success: true,
@@ -3346,10 +3367,10 @@ router.put("/:id/status", async (req, res) => {
         code: CODES.SOLICITUD_CAMBIO_ESTADO,
         target: {
            type: TARGET_TYPES.SOLICITUD,
-           _id: updatedResponse._id,
+           _id: updatedResponse._id.toString(),
         },
         actor: {
-           uid: updatedResponse.user.uid,
+           uid: updatedResponse.user.uid.toString(),
            name: updatedResponse.user.nombre,
            role: ACTOR_ROLES.ADMIN,
            email: updatedResponse.user.mail,
@@ -3380,10 +3401,10 @@ router.put("/:id/status", async (req, res) => {
       code: CODES.SOLICITUD_CAMBIO_ESTADO,
       target: {
          type: TARGET_TYPES.SOLICITUD,
-         _id: updatedResponse._id,
+         _id: updatedResponse._id.toString(),
       },
       actor: {
-         uid: updatedResponse.user.uid,
+         uid: updatedResponse.user.uid.toString(),
          name: updatedResponse.user.nombre,
          role: ACTOR_ROLES.ADMIN,
          email: updatedResponse.user.mail,
@@ -3399,7 +3420,7 @@ router.put("/:id/status", async (req, res) => {
 
 
     res.status(500).json({ error: "Error cambiando estado: " + err.message });
-    
+
   }
 
 

@@ -19,6 +19,7 @@ export async function registerEvent(req, event) {
 // codes
 export const CODES = {
    SOLICITUD_CAMBIO_ESTADO: "SOLICITUD_CAMBIO_ESTADO",
+   SOLICITUD_REGENERACION_DOCUMENTO: "SOLICITUD_REGENERACION_DOCUMENTO",
 };
 
 // target types
