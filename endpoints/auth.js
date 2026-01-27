@@ -363,6 +363,8 @@ router.post("/login", async (req, res) => {
       try {
          nombre = decrypt(user.nombre);
          apellido = user.apellido ? decrypt(user.apellido) : ""; 
+         rol = decrypt(user.cargo);
+
       } catch {
          nombre = user.nombre || "";
          apellido = user.apellido || "";
@@ -1581,16 +1583,7 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
    }
 });
 
-router.get("/registros/todos", async (req, res) => {
-   try {
-      await verifyRequest(req);
-      const tkn = await req.db.collection("cambios").find().toArray();
-      res.json(tkn);
-   } catch (err) {
-      if (err.status) return res.status(err.status).json({ message: err.message });
-      res.status(500).json({ error: "Error al obtener registros" });
-   }
-});
+
 
 
 router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
