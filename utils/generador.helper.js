@@ -550,11 +550,12 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         if (plantilla.signature1Text || plantilla.signature2Text) {
             children.push(new Paragraph({ text: "", spacing: { before: 800 } })); // Espacio antes de firma
 
-            // Helper para procesar firma: dividir por líneas, filtrar texto no deseado y generar runs
+            // Helper para procesar firma: retorna array de Paragraphs para mejor control
             const procesarFirma = (textoFirma) => {
-                if (!textoFirma) return [];
+                const parrafosFirma = [];
+                if (!textoFirma) return parrafosFirma;
+
                 const lineas = textoFirma.split(/\r?\n/);
-                const runsFirma = [];
 
                 for (let i = 0; i < lineas.length; i++) {
                     const linea = lineas[i];
@@ -564,44 +565,48 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         linea.toLowerCase().includes('firma del empleado')) {
                         continue;
                     }
+
                     if (linea.trim() === '') {
-                        runsFirma.push(new TextRun({ text: "", break: 1 }));
+                        // Línea vacía con espacio vertical explícito (10pt aprox)
+                        parrafosFirma.push(new Paragraph({ text: "", spacing: { after: 200 } }));
                         continue;
                     }
 
                     const runsLinea = reemplazarVariablesEnTexto(linea, variables, { size: 24, bold: true }, null);
-                    runsFirma.push(...runsLinea);
 
-                    if (i < lineas.length - 1) {
-                        runsFirma.push(new TextRun({ text: "", break: 1 }));
-                    }
+                    // Cada línea es un Párrafo centrado independiente
+                    parrafosFirma.push(new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: runsLinea,
+                        spacing: { after: 0 } // Control fino del espaciado
+                    }));
                 }
-                return runsFirma;
+                return parrafosFirma;
             };
 
-            const firma1Runs = procesarFirma(plantilla.signature1Text);
-            const firma2Runs = procesarFirma(plantilla.signature2Text);
+            const firma1Parrafos = procesarFirma(plantilla.signature1Text);
+            const firma2Parrafos = procesarFirma(plantilla.signature2Text);
 
             children.push(new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
                 borders: {
-                    top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }
+                    top: { style: BorderStyle.NIL, size: 0, color: "auto" },
+                    bottom: { style: BorderStyle.NIL, size: 0, color: "auto" },
+                    left: { style: BorderStyle.NIL, size: 0, color: "auto" },
+                    right: { style: BorderStyle.NIL, size: 0, color: "auto" },
+                    insideHorizontal: { style: BorderStyle.NIL, size: 0, color: "auto" },
+                    insideVertical: { style: BorderStyle.NIL, size: 0, color: "auto" }
                 },
                 rows: [
                     new TableRow({
                         children: [
                             new TableCell({
                                 width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: firma1Runs.length > 0 ? firma1Runs : [new Paragraph({})]
+                                children: firma1Parrafos.length > 0 ? firma1Parrafos : [new Paragraph({})]
                             }),
                             new TableCell({
                                 width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: firma2Runs.length > 0 ? firma2Runs : [new Paragraph({})]
+                                children: firma2Parrafos.length > 0 ? firma2Parrafos : [new Paragraph({})]
                             })
                         ]
                     })
