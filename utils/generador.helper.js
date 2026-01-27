@@ -368,26 +368,30 @@ function procesarHTML(html, variables) {
 
     // Helper para parsear estilos inline de etiquetas HTML
     function parsearEstilosInline(htmlTag) {
-        const styleMatch = htmlTag.match(/style=["'](.*?)["']/i);
-        const classMatch = htmlTag.match(/class=["'](.*?)["']/i);
-        const styles = { textAlign: AlignmentType.JUSTIFIED };
+        // Normalizamos comillas y espacios para facilitar regex
+        const tagNormalized = htmlTag.replace(/'/g, '"').replace(/\s+/g, ' ');
+
+        const styleMatch = tagNormalized.match(/style="([^"]*)"/i);
+        const classMatch = tagNormalized.match(/class="([^"]*)"/i);
+
+        const styles = { textAlign: AlignmentType.JUSTIFIED }; // Default
 
         // Check Inline Styles
         if (styleMatch && styleMatch[1]) {
             const styleStr = styleMatch[1].toLowerCase();
-            if (styleStr.includes('text-align: center')) styles.textAlign = AlignmentType.CENTER;
-            else if (styleStr.includes('text-align: right')) styles.textAlign = AlignmentType.RIGHT;
-            else if (styleStr.includes('text-align: left')) styles.textAlign = AlignmentType.LEFT;
-            else if (styleStr.includes('text-align: justify')) styles.textAlign = AlignmentType.JUSTIFIED;
+            if (styleStr.includes('text-align:center') || styleStr.includes('text-align: center')) styles.textAlign = AlignmentType.CENTER;
+            else if (styleStr.includes('text-align:right') || styleStr.includes('text-align: right')) styles.textAlign = AlignmentType.RIGHT;
+            else if (styleStr.includes('text-align:left') || styleStr.includes('text-align: left')) styles.textAlign = AlignmentType.LEFT;
+            else if (styleStr.includes('text-align:justify') || styleStr.includes('text-align: justify')) styles.textAlign = AlignmentType.JUSTIFIED;
         }
 
-        // Check Classes (Tiptap standard or standard css)
+        // Check Classes
         if (classMatch && classMatch[1]) {
             const classStr = classMatch[1].toLowerCase();
-            if (classStr.includes('center') || classStr.includes('is-center')) styles.textAlign = AlignmentType.CENTER;
-            else if (classStr.includes('right') || classStr.includes('is-right')) styles.textAlign = AlignmentType.RIGHT;
-            else if (classStr.includes('left') || classStr.includes('is-left')) styles.textAlign = AlignmentType.LEFT;
-            else if (classStr.includes('justify') || classStr.includes('is-justify')) styles.textAlign = AlignmentType.JUSTIFIED;
+            if (classStr.includes('center')) styles.textAlign = AlignmentType.CENTER;
+            else if (classStr.includes('right')) styles.textAlign = AlignmentType.RIGHT;
+            else if (classStr.includes('left')) styles.textAlign = AlignmentType.LEFT;
+            else if (classStr.includes('justify')) styles.textAlign = AlignmentType.JUSTIFIED;
         }
 
         return styles;
@@ -545,14 +549,37 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         if (plantilla.signature1Text || plantilla.signature2Text) {
             children.push(new Paragraph({ text: "", spacing: { before: 800 } })); // Espacio antes de firma
 
-            const firma1Runs = plantilla.signature1Text
-                ? reemplazarVariablesEnTexto(plantilla.signature1Text, variables, { size: 24, bold: true }, null)
-                : [];
+            // Helper para procesar firma: dividir por líneas, filtrar texto no deseado y generar runs
+            const procesarFirma = (textoFirma) => {
+                if (!textoFirma) return [];
+                const lineas = textoFirma.split('\n');
+                const runsFirma = [];
 
-            // Si hay firma 2, la procesamos. Si no, usamos texto vacío.
-            const firma2Runs = plantilla.signature2Text
-                ? reemplazarVariablesEnTexto(plantilla.signature2Text, variables, { size: 24, bold: true }, null)
-                : [];
+                for (let i = 0; i < lineas.length; i++) {
+                    const linea = lineas[i];
+
+                    // FILTRO DE TEXTO NO DESEADO
+                    if (linea.toLowerCase().includes('firma del empleador') ||
+                        linea.toLowerCase().includes('firma del empleado')) {
+                        continue;
+                    }
+                    if (linea.trim() === '') {
+                        runsFirma.push(new TextRun({ text: "", break: 1 }));
+                        continue;
+                    }
+
+                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, { size: 24, bold: true }, null);
+                    runsFirma.push(...runsLinea);
+
+                    if (i < lineas.length - 1) {
+                        runsFirma.push(new TextRun({ text: "", break: 1 }));
+                    }
+                }
+                return runsFirma;
+            };
+
+            const firma1Runs = procesarFirma(plantilla.signature1Text);
+            const firma2Runs = procesarFirma(plantilla.signature2Text);
 
             children.push(new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
@@ -571,7 +598,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                                 width: { size: 50, type: WidthType.PERCENTAGE },
                                 children: [
                                     new Paragraph({
-                                        alignment: AlignmentType.CENTER,
+                                        alignment: AlignmentType.LEFT,
                                         children: firma1Runs
                                     })
                                 ]
@@ -580,7 +607,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                                 width: { size: 50, type: WidthType.PERCENTAGE },
                                 children: [
                                     new Paragraph({
-                                        alignment: AlignmentType.CENTER,
+                                        alignment: AlignmentType.LEFT,
                                         children: firma2Runs
                                     })
                                 ]
