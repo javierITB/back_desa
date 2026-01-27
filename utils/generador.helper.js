@@ -2,7 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const docx = require("docx");
-const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, ImageRun, BorderStyle, HeadingLevel } = docx;
+const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, ImageRun, BorderStyle, HeadingLevel, TableLayoutType } = docx;
 const { createBlindIndex, decrypt } = require("./seguridad.helper");
 
 // ========== UTILS: NORMALIZACIÓN Y FECHAS ==========
