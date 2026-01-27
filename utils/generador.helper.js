@@ -369,19 +369,27 @@ function procesarHTML(html, variables) {
     // Helper para parsear estilos inline de etiquetas HTML
     function parsearEstilosInline(htmlTag) {
         const styleMatch = htmlTag.match(/style=["'](.*?)["']/i);
-        const styles = { textAlign: AlignmentType.JUSTIFIED }; // Default justify per user request legacy? or just Justified default
+        const classMatch = htmlTag.match(/class=["'](.*?)["']/i);
+        const styles = { textAlign: AlignmentType.JUSTIFIED };
 
+        // Check Inline Styles
         if (styleMatch && styleMatch[1]) {
             const styleStr = styleMatch[1].toLowerCase();
-
-            // Text Align
             if (styleStr.includes('text-align: center')) styles.textAlign = AlignmentType.CENTER;
             else if (styleStr.includes('text-align: right')) styles.textAlign = AlignmentType.RIGHT;
             else if (styleStr.includes('text-align: left')) styles.textAlign = AlignmentType.LEFT;
             else if (styleStr.includes('text-align: justify')) styles.textAlign = AlignmentType.JUSTIFIED;
-
-            // Text Decoration / Underline handled in inner loop, but if P has it? Tiptap usually puts it on spans.
         }
+
+        // Check Classes (Tiptap standard or standard css)
+        if (classMatch && classMatch[1]) {
+            const classStr = classMatch[1].toLowerCase();
+            if (classStr.includes('center') || classStr.includes('is-center')) styles.textAlign = AlignmentType.CENTER;
+            else if (classStr.includes('right') || classStr.includes('is-right')) styles.textAlign = AlignmentType.RIGHT;
+            else if (classStr.includes('left') || classStr.includes('is-left')) styles.textAlign = AlignmentType.LEFT;
+            else if (classStr.includes('justify') || classStr.includes('is-justify')) styles.textAlign = AlignmentType.JUSTIFIED;
+        }
+
         return styles;
     }
 
