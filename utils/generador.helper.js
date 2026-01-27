@@ -244,7 +244,8 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase, contadorNumera
 
     while ((match = regexVar.exec(texto)) !== null) {
         const fullVar = match[0];
-        const rawVarName = match[1].trim();
+        // Quitar posibles dos puntos al final (ej: {{VAR:}})
+        const rawVarName = match[1].trim().replace(/:$/, '');
         const idx = match.index;
 
         // Texto previo
