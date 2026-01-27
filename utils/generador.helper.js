@@ -638,21 +638,22 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             };
 
             children.push(new Table({
-                width: { size: 9000, type: WidthType.DXA }, // Ancho fijo (~15.8cm)
-                alignment: AlignmentType.CENTER, // Centrar tabla en la hoja
-                borders: bordersNoneConfig, // Bordes de la tabla NULOS
+                width: { size: 8500, type: WidthType.DXA }, // Ancho más seguro (aprox 15cm) para Carta con márgenes
+                alignment: AlignmentType.CENTER, // Centrar tabla
+                layout: TableLayoutType.FIXED, // IMPORTANTE: Fija el ancho de columnas estrictamente
+                borders: bordersNoneConfig,
                 rows: [
                     new TableRow({
-                        cantSplit: true, // Evita que la fila se rompa entre páginas
+                        cantSplit: true,
                         children: [
                             new TableCell({
-                                width: { size: 4500, type: WidthType.DXA }, // 50% exacto en twips
-                                borders: bordersNoneConfig, // Bordes de celda NULOS explícitamente
+                                width: { size: 4250, type: WidthType.DXA }, // 50% exacto (4250 DXA)
+                                borders: bordersNoneConfig,
                                 children: cell1Children
                             }),
                             new TableCell({
-                                width: { size: 4500, type: WidthType.DXA }, // 50% exacto en twips
-                                borders: bordersNoneConfig, // Bordes de celda NULOS explícitamente
+                                width: { size: 4250, type: WidthType.DXA }, // 50% exacto (4250 DXA)
+                                borders: bordersNoneConfig,
                                 children: cell2Children
                             })
                         ]
