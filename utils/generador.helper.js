@@ -533,10 +533,8 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 for (let i = 0; i < lineas.length; i++) {
                     const linea = lineas[i];
 
-                    if (linea.toLowerCase().includes('firma del empleador') ||
-                        linea.toLowerCase().includes('firma del empleado') ||
-                        linea.toLowerCase().includes('representante legal') ||
-                        linea.toLowerCase().includes('______')) {
+                    // Filtro solo para evitar líneas de firma duplicadas si el usuario las puso manual
+                    if (linea.trim().match(/^_+$/)) {
                         continue;
                     }
 
