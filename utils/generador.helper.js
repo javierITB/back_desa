@@ -334,10 +334,6 @@ function parsearEstilosInline(elementStr) {
     if (elementStr.includes('text-align: right')) style.textAlign = AlignmentType.RIGHT;
     if (elementStr.includes('text-align: left')) style.textAlign = AlignmentType.LEFT;
 
-    // Fuentes y tamaños podrían venir en style="..."
-    // Simplificación: Tiptap suele usar extensiones que ponen style="font-size: 20px;"
-    // TODO: Parser más avanzado de atributos style si es necesario
-
     return style;
 }
 
@@ -356,8 +352,6 @@ function procesarHTML(html, variables) {
     const contadorNumeral = { valor: 1 };
     const children = [];
 
-    // Regex para dividir por bloques grandes: Párrafos y Tablas
-    // Nota: Es un parser simple. Tablas anidadas o estructuras complejas pueden fallar.
     const regexBloques = /<(p|table)[^>]*>([\s\S]*?)<\/\1>/gi;
     let match;
 
@@ -372,15 +366,30 @@ function procesarHTML(html, variables) {
         cleanHtml = `<p>${cleanHtml}</p>`;
     }
 
+    // Helper para parsear estilos inline de etiquetas HTML
+    function parsearEstilosInline(htmlTag) {
+        const styleMatch = htmlTag.match(/style=["'](.*?)["']/i);
+        const styles = { textAlign: AlignmentType.JUSTIFIED }; // Default justify per user request legacy? or just Justified default
+
+        if (styleMatch && styleMatch[1]) {
+            const styleStr = styleMatch[1].toLowerCase();
+
+            // Text Align
+            if (styleStr.includes('text-align: center')) styles.textAlign = AlignmentType.CENTER;
+            else if (styleStr.includes('text-align: right')) styles.textAlign = AlignmentType.RIGHT;
+            else if (styleStr.includes('text-align: left')) styles.textAlign = AlignmentType.LEFT;
+            else if (styleStr.includes('text-align: justify')) styles.textAlign = AlignmentType.JUSTIFIED;
+
+            // Text Decoration / Underline handled in inner loop, but if P has it? Tiptap usually puts it on spans.
+        }
+        return styles;
+    }
+
     // Iteramos sobre los bloques encontrados
     while ((match = regexBloques.exec(cleanHtml)) !== null) {
         const fullTag = match[0];
         const tagName = match[1].toLowerCase();
         const innerContent = match[2];
-
-        // --- MANEJO DE CONDICIONALES ---
-        // Buscamos si el contenido del bloque es puramente una instrucción lógica
-        // Ejemplo: <p>[[IF:VAR]]</p>
 
         // Mejor limpieza para detectar lógica: decoded entities, sin tags, trim
         let textoPlano = innerContent.replace(/<[^>]*>/g, '');
@@ -408,9 +417,6 @@ function procesarHTML(html, variables) {
         if (tagName === 'p') {
             const style = parsearEstilosInline(fullTag);
 
-            // Analizamos el contenido interno para mixed content (texto con variables, negritas parciales)
-            // Tiptap: "Texto <strong>negrita</strong> final"
-            // Split por tags
             const parts = innerContent.split(/(<\/?(?:strong|b|em|i|u)>)/gi);
             const paragraphChildren = [];
 
@@ -505,15 +511,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             }
         }
 
-        // 2. TÍTULO (ELIMINADO: Se asume que viene en el documentContent o se quiere evitar duplicidad)
-        // children.push(new Paragraph({
-        //     alignment: AlignmentType.CENTER,
-        //     children: [new TextRun({ text: plantilla.documentTitle, bold: true, size: 28 })],
-        //     heading: HeadingLevel.HEADING_1
-        // }));
-        // children.push(new Paragraph({ text: "" }));
-
-        // 3. CONTENIDO PRINCIPAL
+        // 2. CONTENIDO PRINCIPAL
         if (plantilla.documentContent) {
             // NUEVO: Usar parser HTML con alineación correcta
             const bloquesHTML = procesarHTML(plantilla.documentContent, variables);
@@ -535,7 +533,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             }
         }
 
-        // 4. FIRMAS (SOLO FIRMA 1, JUSTIFICADA)
+        // 3. FIRMAS (SOLO FIRMA 1, JUSTIFICADA)
         if (plantilla.signature1Text) {
             children.push(new Paragraph({ text: "", spacing: { before: 800 } })); // Espacio antes de firma
 
