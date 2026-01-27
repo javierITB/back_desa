@@ -552,7 +552,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             // Helper para procesar firma: dividir por líneas, filtrar texto no deseado y generar runs
             const procesarFirma = (textoFirma) => {
                 if (!textoFirma) return [];
-                const lineas = textoFirma.split('\n');
+                const lineas = textoFirma.split(/\r?\n/);
                 const runsFirma = [];
 
                 for (let i = 0; i < lineas.length; i++) {
@@ -598,7 +598,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                                 width: { size: 50, type: WidthType.PERCENTAGE },
                                 children: [
                                     new Paragraph({
-                                        alignment: AlignmentType.LEFT,
+                                        alignment: AlignmentType.CENTER,
                                         children: firma1Runs
                                     })
                                 ]
@@ -607,7 +607,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                                 width: { size: 50, type: WidthType.PERCENTAGE },
                                 children: [
                                     new Paragraph({
-                                        alignment: AlignmentType.LEFT,
+                                        alignment: AlignmentType.CENTER,
                                         children: firma2Runs
                                     })
                                 ]
