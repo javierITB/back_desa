@@ -631,10 +631,52 @@ async function generarDocumentoTxt(responses, responseId, db, formTitle) {
 }
 
 async function generarAnexoDesdeRespuesta(responses, responseId, db, section, userData, formId, formTitle) {
-    if (!formId) return await generarDocumentoTxt(responses, responseId, db, formTitle);
+    console.log(`[GENERADOR] Iniciando para formId: ${formId}, responseId: ${responseId}`);
+
+    if (!formId) {
+        console.log("[GENERADOR] No hay formId, generando TXT");
+        return await generarDocumentoTxt(responses, responseId, db, formTitle);
+    }
+
     const plantilla = await buscarPlantillaPorFormId(formId, db);
-    if (plantilla) return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
+
+    if (plantilla) {
+        console.log(`[GENERADOR] Plantilla encontrada: ${plantilla._id} (Título: ${plantilla.documentTitle})`);
+        try {
+            return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
+        } catch (error) {
+            console.error("[GENERADOR] Error crítico generando DOCX desde plantilla:", error);
+            // Fallback a TXT si falla la generación DOCX
+            return await generarDocumentoTxt(responses, responseId, db, formTitle);
+        }
+    } else {
+        console.log(`[GENERADOR] No se encontró plantilla para formId: ${formId}`);
+    }
+
     return await generarDocumentoTxt(responses, responseId, db, formTitle);
+}
+
+async function buscarPlantillaPorFormId(formId, db) {
+    try {
+        if (!db || typeof db.collection !== 'function') throw new Error("Base de datos no disponible");
+        let query = { status: "publicado" };
+        const possibleIds = [formId];
+        try {
+            if (typeof formId === 'string' && formId.length === 24) {
+                const { ObjectId } = require('mongodb');
+                possibleIds.push(new ObjectId(formId));
+            }
+        } catch (e) { }
+        query.formId = { $in: possibleIds };
+
+        console.log(`[GENERADOR] Buscando plantilla con query:`, JSON.stringify(query));
+        const resultado = await db.collection('plantillas').findOne(query);
+        console.log(`[GENERADOR] Resultado búsqueda:`, resultado ? 'ENCONTRADO' : 'NULL');
+        return resultado;
+    } catch (error) {
+        console.error('Error buscando plantilla:', error);
+        return null;
+    }
 }
 
 module.exports = {
