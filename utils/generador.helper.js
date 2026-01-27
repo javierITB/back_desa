@@ -554,6 +554,7 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase) {
             text: valor,
             bold: true,
             italics: estiloBase.italics,
+            underline: estiloBase.underline ? { type: "single" } : undefined
         }));
 
         lastIndex = idx + fullVar.length;
@@ -565,19 +566,11 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase) {
             text: texto.substring(lastIndex),
             bold: estiloBase.bold,
             italics: estiloBase.italics,
+            underline: estiloBase.underline ? { type: "single" } : undefined
         }));
     }
 
-    // Fix estilos finales (asignar underline correctamente)
-    return runs.map(r => {
-        if (estiloBase.underline && !r.options.underline) {
-            return new TextRun({
-                ...r.options,
-                underline: estiloBase.underline ? { type: "single" } : undefined
-            });
-        }
-        return r;
-    });
+    return runs;
 }
 
 function procesarTextoConVariables(texto, variables, estilo) {
