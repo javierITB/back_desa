@@ -2184,8 +2184,6 @@ router.post("/upload-corrected-files", async (req, res) => {
     // Nota: Como usamos uploadMultiple.array, multer procesa primero. 
     // Podríamos verificar el token dentro del callback, ya que req.body estará poblado ahí.
 
-
-
     uploadMultiple.array('files', 10)(req, res, async (err) => {
       if (err) {
         console.error("Error en uploadMultiple:", err);
@@ -2196,8 +2194,6 @@ router.post("/upload-corrected-files", async (req, res) => {
       // Pero verifyRequest mira headers también.
       const auth = await verifyRequest(req);
       if (!auth.ok) return res.status(401).json({ error: auth.error });
-
-
 
       const { responseId, index, total } = req.body;
       const files = req.files;
@@ -2227,6 +2223,13 @@ router.post("/upload-corrected-files", async (req, res) => {
         });
 
         if (response) {
+          // --- NUEVA LÓGICA: VALIDACIÓN DE ESTADO ARCHIVADO ---
+          if (response.status === "archivado") {
+            return res.status(403).json({ 
+              error: 'No se pueden subir archivos a una solicitud que ya está archivada.' 
+            });
+          }
+
           // OBTENER EMAIL Y NOMBRE DEL USUARIO DESDE LA RESPUESTA
           // El email está en texto plano en response.user.mail
           if (response.user && response.user.mail) {
@@ -2396,7 +2399,6 @@ router.post("/upload-corrected-files", async (req, res) => {
     });
   }
 });
-
 // OBTENER TODOS LOS ARCHIVOS CORREGIDOS DE UNA RESPUESTA
 router.get("/corrected-files/:responseId", async (req, res) => {
   try {
