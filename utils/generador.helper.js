@@ -573,7 +573,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         continue;
                     }
 
-                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, { size: 24, bold: true }, null);
+                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, { size: 24, bold: false }, null);
 
                     parrafosFirma.push(new Paragraph({
                         alignment: AlignmentType.CENTER,
@@ -597,7 +597,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         children: [new TextRun({ text: "__________________________", bold: true, size: 24 })],
                         spacing: { after: 120 } // Espacio entre línea y título
                     }),
-                    // 2. Título (Empleador/Empleado)
+                    // 2. Título (Empleador/Empleado) - MANTENEMOS NEGRITA SOLO EN TÍTULO
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: [new TextRun({ text: titulo, bold: true, size: 24 })],
@@ -614,12 +614,12 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             children.push(new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
                 borders: {
-                    top: { style: BorderStyle.NIL, size: 0, color: "auto" },
-                    bottom: { style: BorderStyle.NIL, size: 0, color: "auto" },
-                    left: { style: BorderStyle.NIL, size: 0, color: "auto" },
-                    right: { style: BorderStyle.NIL, size: 0, color: "auto" },
-                    insideHorizontal: { style: BorderStyle.NIL, size: 0, color: "auto" },
-                    insideVertical: { style: BorderStyle.NIL, size: 0, color: "auto" }
+                    top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }
                 },
                 rows: [
                     new TableRow({
