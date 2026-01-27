@@ -2,7 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const docx = require("docx");
-const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, ImageRun, BorderStyle, HeadingLevel, TableLayoutType } = docx;
+const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, TableWidthType, ImageRun, BorderStyle, HeadingLevel, TableLayoutType } = docx;
 const { createBlindIndex, decrypt } = require("./seguridad.helper");
 
 // ========== UTILS: NORMALIZACIÓN Y FECHAS ==========
@@ -468,7 +468,7 @@ function procesarHTML(html, variables) {
 
             children.push(new Table({
                 rows: rows,
-                width: { size: 100, type: WidthType.PERCENTAGE }
+                width: { size: 100, type: TableWidthType.PERCENTAGE }
             }));
         }
     }
@@ -597,7 +597,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             // Ancho útil aprox: 11906 (A4 width) - 1440*2 (margins) = ~9000 DXA
             // Usamos 4500 DXA por columna
             children.push(new Table({
-                width: { size: 9000, type: WidthType.DXA },
+                width: { size: 9000, type: TableWidthType.DXA },
                 alignment: AlignmentType.CENTER,
                 layout: TableLayoutType.FIXED,
                 borders: bordersNoneConfig,
@@ -606,12 +606,12 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         cantSplit: true,
                         children: [
                             new TableCell({
-                                width: { size: 4500, type: WidthType.DXA }, // 50% Columna Izq (4500 DXA)
+                                width: { size: 4500, type: TableWidthType.DXA }, // 50% Columna Izq (4500 DXA)
                                 borders: bordersNoneConfig,
                                 children: cell1Children
                             }),
                             new TableCell({
-                                width: { size: 4500, type: WidthType.DXA }, // 50% Columna Der (4500 DXA)
+                                width: { size: 4500, type: TableWidthType.DXA }, // 50% Columna Der (4500 DXA)
                                 borders: bordersNoneConfig,
                                 children: cell2Children
                             })
