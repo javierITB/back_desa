@@ -217,7 +217,8 @@ function evaluarCondicional(conditionalVar, variables) {
         varName = condicion;
     }
 
-    varName = varName.replace(/[{}]/g, '').trim();
+    // Limpieza de varName: quitar {{, }}, y posibles : al final (como en el ejemplo del usuario {{VAR:}})
+    varName = varName.replace(/[{}]/g, '').replace(/:$/, '').trim();
     if (valueToCheck) valueToCheck = valueToCheck.replace(/["']/g, '').trim();
 
     const valorVariable = variables[varName];
@@ -504,17 +505,17 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             }
         }
 
-        // 2. TÍTULO
-        children.push(new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [new TextRun({ text: plantilla.documentTitle, bold: true, size: 28 })],
-            heading: HeadingLevel.HEADING_1
-        }));
-        children.push(new Paragraph({ text: "" }));
+        // 2. TÍTULO (ELIMINADO: Se asume que viene en el documentContent o se quiere evitar duplicidad)
+        // children.push(new Paragraph({
+        //     alignment: AlignmentType.CENTER,
+        //     children: [new TextRun({ text: plantilla.documentTitle, bold: true, size: 28 })],
+        //     heading: HeadingLevel.HEADING_1
+        // }));
+        // children.push(new Paragraph({ text: "" }));
 
         // 3. CONTENIDO PRINCIPAL
         if (plantilla.documentContent) {
-            // NUEVO: Usar parser HTML
+            // NUEVO: Usar parser HTML con alineación correcta
             const bloquesHTML = procesarHTML(plantilla.documentContent, variables);
             children.push(...bloquesHTML);
         } else if (plantilla.paragraphs) {
@@ -534,43 +535,40 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             }
         }
 
-        // 4. FIRMAS
-        if (plantilla.signature1Text || plantilla.signature2Text) {
-            children.push(new Paragraph({ text: "" }));
-            children.push(new Paragraph({ text: "" }));
+        // 4. FIRMAS (SOLO FIRMA 1, JUSTIFICADA)
+        if (plantilla.signature1Text) {
+            children.push(new Paragraph({ text: "", spacing: { before: 800 } })); // Espacio antes de firma
 
-            const firma1Runs = reemplazarVariablesEnTexto(plantilla.signature1Text || '', variables, { size: 24 }, null);
-            const firma2Runs = reemplazarVariablesEnTexto(plantilla.signature2Text || '', variables, { size: 24 }, null);
+            // Procesar saltos de línea y variables
+            // La firma 1 se muestra sola y justificada
+            const lineasFirma = plantilla.signature1Text.split('\n');
+            const firmaRuns = [];
 
-            // Helper para convertir runs a string plano para firmas (limitación de tabla simple)
-            // O mejor, inyectar runs directamente en párrafos de celda
+            for (let i = 0; i < lineasFirma.length; i++) {
+                const linea = lineasFirma[i];
+                if (linea.trim() === '') {
+                    firmaRuns.push(new TextRun({ text: "", break: 1 }));
+                    continue;
+                }
 
-            children.push(new Table({
-                width: { size: 100, type: WidthType.PERCENTAGE },
-                borders: {
-                    top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }
-                },
-                rows: [
-                    new TableRow({
-                        children: [
-                            new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })] }),
-                            new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })] })
-                        ]
-                    }),
-                    new TableRow({
-                        children: [
-                            new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: firma1Runs, alignment: AlignmentType.CENTER })] }),
-                            new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: firma2Runs, alignment: AlignmentType.CENTER })] })
-                        ]
-                    })
-                ]
-            }));
+                // Reemplazar variables
+                const runsLinea = reemplazarVariablesEnTexto(linea, variables, { bold: true, size: 24 }, null);
+                firmaRuns.push(...runsLinea);
+
+                if (i < lineasFirma.length - 1) {
+                    firmaRuns.push(new TextRun({ text: "", break: 1 }));
+                }
+            }
+
+            children.push(
+                new Paragraph({
+                    children: firmaRuns,
+                    alignment: AlignmentType.JUSTIFIED, // Justificado
+                    spacing: { before: 200 }
+                })
+            );
         }
+        // Firma 2 ignorada según requerimiento
 
         const doc = new Document({
             sections: [{
@@ -580,14 +578,8 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         });
 
         const buffer = await Packer.toBuffer(doc);
+        const fileName = `${normalizarNombreVariable(formTitle)}.docx`;
 
-        const trabajador = variables['NOMBRE_DEL_TRABAJADOR'] || variables['NOMBRE_TRABAJADOR'] || 'DOCUMENTO';
-        function limpiarFileName(texto) {
-            if (!texto) return 'DOC';
-            return String(texto).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-        }
-
-        const fileName = `${limpiarFileName(formTitle)}_${limpiarFileName(trabajador)}`;
         const existing = await db.collection('docxs').findOne({ responseId });
         const idDoc = existing ? existing.IDdoc : generarIdDoc();
 
