@@ -380,9 +380,14 @@ function procesarHTML(html, variables) {
         // --- MANEJO DE CONDICIONALES ---
         // Buscamos si el contenido del bloque es puramente una instrucción lógica
         // Ejemplo: <p>[[IF:VAR]]</p>
-        const textoPlano = innerContent.replace(/<[^>]*>/g, '').trim();
-        const matchIf = textoPlano.match(/^\[\[IF:(.*?)\]\]$/i);
-        const matchEndIf = textoPlano.match(/^\[\[ENDIF\]\]$/i);
+
+        // Mejor limpieza para detectar lógica: decoded entities, sin tags, trim
+        let textoPlano = innerContent.replace(/<[^>]*>/g, '');
+        textoPlano = textoPlano.replace(/&nbsp;/g, ' ').trim();
+
+        // Regex má flexible: permite espacios, chars invisibles
+        const matchIf = textoPlano.match(/^\[\[\s*IF:(.*?)\s*\]\]$/i);
+        const matchEndIf = textoPlano.match(/^\[\[\s*ENDIF\s*\]\]$/i);
 
         if (matchIf) {
             const condicion = matchIf[1];
