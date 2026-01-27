@@ -2,10 +2,10 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const docx = require("docx");
-const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, ImageRun, BorderStyle } = docx;
+const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, ImageRun, BorderStyle, HeadingLevel } = docx;
 const { createBlindIndex, decrypt } = require("./seguridad.helper");
 
-// ========== FUNCIONES DE UTILIDAD (MANTENIDAS) ==========
+// ========== UTILS: NORMALIZACIÓN Y FECHAS ==========
 
 function esCampoDeFecha(nombreVariable) {
     const patronesFecha = [
@@ -13,14 +13,12 @@ function esCampoDeFecha(nombreVariable) {
         'INICIO', 'TERMINO', 'FIN', 'VIGENCIA', 'VIGENTE', 'CONTRATO',
         'MODIFICACION', 'ACTUALIZACION', 'RENOVACION', 'COMPROMISO'
     ];
-
     const nombreUpper = nombreVariable.toUpperCase();
     return patronesFecha.some(patron => nombreUpper.includes(patron));
 }
 
 function formatearFechaEspanol(fechaIso) {
     const meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
-
     let d;
     if (fechaIso.includes('T')) {
         d = new Date(fechaIso);
@@ -28,11 +26,7 @@ function formatearFechaEspanol(fechaIso) {
         const [year, month, day] = fechaIso.split('-');
         d = new Date(year, month - 1, day);
     }
-
-    if (isNaN(d.getTime())) {
-        return fechaIso;
-    }
-
+    if (isNaN(d.getTime())) return fechaIso;
     return `${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
@@ -44,7 +38,6 @@ function generarIdDoc() {
 
 function normalizarNombreVariable(title) {
     if (!title) return '';
-
     let tag = title.toUpperCase();
     tag = tag.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     tag = tag.replace(/[^A-Z0-9]+/g, '_');
@@ -53,44 +46,31 @@ function normalizarNombreVariable(title) {
 }
 
 const ORDINALES = [
-    "", "PRIMERO:", "SEGUNDO:", "TERCERO:", "CUARTO:", "QUINTO:",
-    "SEXTO:", "SÉPTIMO:", "OCTAVO:", "NOVENO:", "DÉCIMO:",
-    "UNDÉCIMO:", "DUODÉCIMO:", "DÉCIMO TERCERO:", "DÉCIMO CUARTO:",
-    "DÉCIMO QUINTO:", "DÉCIMO SEXTO:", "DÉCIMO SÉPTIMO:",
-    "DÉCIMO OCTAVO:", "DÉCIMO NOVENO:", "VIGÉSIMO:"
+    "", "PRIMERO", "SEGUNDO", "TERCERO", "CUARTO", "QUINTO",
+    "SEXTO", "SÉPTIMO", "OCTAVO", "NOVENO", "DÉCIMO",
+    "UNDÉCIMO", "DUODÉCIMO", "DÉCIMO TERCERO", "DÉCIMO CUARTO",
+    "DÉCIMO QUINTO", "DÉCIMO SEXTO", "DÉCIMO SÉPTIMO",
+    "DÉCIMO OCTAVO", "DÉCIMO NOVENO", "VIGÉSIMO"
 ];
+
+// ========== UTILS: SEGURIDAD / BD ==========
 
 async function obtenerEmpresaDesdeBD(nombreEmpresa, db) {
     try {
-        console.log("=== BUSCANDO EMPRESA EN BD ===");
-
-        if (!db || typeof db.collection !== 'function') {
-            throw new Error("Base de datos no disponible");
-        }
-
+        if (!db || typeof db.collection !== 'function') throw new Error("Base de datos no disponible");
         const nombreIndex = createBlindIndex(nombreEmpresa);
-
-        const empresa = await db.collection('empresas').findOne({
-            nombre_index: nombreIndex
-        });
-
+        const empresa = await db.collection('empresas').findOne({ nombre_index: nombreIndex });
         if (empresa) {
-            console.log("Empresa encontrada en BD por índice");
-
-            const empresaDescifrada = {
+            return {
                 nombre: decrypt(empresa.nombre),
                 rut: decrypt(empresa.rut),
                 encargado: decrypt(empresa.encargado),
                 direccion: decrypt(empresa.direccion),
                 rut_encargado: decrypt(empresa.rut_encargado),
-                logo: empresa.logo // Mantener el logo tal cual (puede estar cifrado)
+                logo: empresa.logo // Mantener logo tal cual
             };
-
-            return empresaDescifrada;
         }
-
         return null;
-
     } catch (error) {
         console.error('Error buscando empresa en BD:', error);
         return null;
@@ -98,121 +78,48 @@ async function obtenerEmpresaDesdeBD(nombreEmpresa, db) {
 }
 
 function crearLogoImagen(logoData) {
-    if (!logoData || !logoData.fileData) {
-        console.log('No hay logo data o fileData');
-        return null;
-    }
-
+    if (!logoData || !logoData.fileData) return null;
     try {
-        console.log('Procesando logo para DOCX...');
-
-
         let imageBuffer;
-
-        // CASO 1: FileData está cifrado (string con ':')
         if (typeof logoData.fileData === 'string' && logoData.fileData.includes(':')) {
-            console.log('Logo está cifrado, descifrando...');
-            // Descifrar para obtener el Base64 original
             const base64Descifrado = decrypt(logoData.fileData);
-
-            // Verificar que sea Base64 válido
-            if (!/^[A-Za-z0-9+/]+=*$/.test(base64Descifrado.substring(0, 100))) {
-                console.error('Base64 descifrado no es válido');
-                return null;
-            }
-
-            // Convertir Base64 a Buffer
             imageBuffer = Buffer.from(base64Descifrado, 'base64');
-        }
-        // CASO 2: Es un Binary de MongoDB (tiene buffer property)
-        else if (logoData.fileData && logoData.fileData.buffer) {
-            console.log('Logo es Binary con buffer property');
+        } else if (logoData.fileData && logoData.fileData.buffer) {
             imageBuffer = Buffer.from(logoData.fileData.buffer);
-        }
-        // CASO 3: Es un Buffer directo
-        else if (Buffer.isBuffer(logoData.fileData)) {
-            console.log('Logo es Buffer directo');
+        } else if (Buffer.isBuffer(logoData.fileData)) {
             imageBuffer = logoData.fileData;
-        }
-        // CASO 4: Es string Base64 sin cifrar
-        else if (typeof logoData.fileData === 'string') {
-            console.log('Logo es string Base64 sin cifrar');
-            // Verificar si es Base64 válido
-            if (/^[A-Za-z0-9+/]+=*$/.test(logoData.fileData.substring(0, 100))) {
-                imageBuffer = Buffer.from(logoData.fileData, 'base64');
-            } else {
-                console.error('String no es Base64 válido');
-                return null;
-            }
-        }
-        else {
-            console.error('Tipo de fileData no reconocido:', typeof logoData.fileData);
+        } else if (typeof logoData.fileData === 'string') {
+            imageBuffer = Buffer.from(logoData.fileData, 'base64');
+        } else {
             return null;
         }
 
-        if (!imageBuffer || imageBuffer.length === 0) {
-            console.error('Buffer de imagen vacío o inválido');
-            return null;
-        }
-
+        if (!imageBuffer || imageBuffer.length === 0) return null;
 
         return new ImageRun({
             data: imageBuffer,
-            transformation: {
-                width: 100,
-                height: 100,
-            },
-            floating: {
-                horizontalPosition: {
-                    offset: 201440,
-                },
-                verticalPosition: {
-                    offset: 201440,
-                },
-            }
+            transformation: { width: 100, height: 100 },
+            floating: { horizontalPosition: { offset: 201440 }, verticalPosition: { offset: 201440 } }
         });
-
     } catch (error) {
         console.error('Error creando imagen del logo:', error);
-        console.error('Stack:', error.stack);
         return null;
     }
 }
 
-// ========== NUEVO SISTEMA DE PLANTILLAS ==========
-
 async function buscarPlantillaPorFormId(formId, db) {
     try {
-        console.log("=== BUSCANDO PLANTILLA POR FORMID ===");
-        console.log("FormId buscado:", formId);
-
-        if (!db || typeof db.collection !== 'function') {
-            throw new Error("Base de datos no disponible");
-        }
-
+        if (!db || typeof db.collection !== 'function') throw new Error("Base de datos no disponible");
         let query = { status: "publicado" };
-
-        // Intentar buscar tanto como String como ObjectId para evitar errores de tipo
         const possibleIds = [formId];
         try {
             if (typeof formId === 'string' && formId.length === 24) {
-                const { ObjectId } = require('mongodb'); // Asegurar importación si no está disponible scope global
+                const { ObjectId } = require('mongodb');
                 possibleIds.push(new ObjectId(formId));
             }
-        } catch (e) {
-        }
-
+        } catch (e) { }
         query.formId = { $in: possibleIds };
-
-        const plantilla = await db.collection('plantillas').findOne(query);
-
-        if (plantilla) {
-            console.log(`Plantilla encontrada: ${plantilla._id} (Tipo formId: ${typeof plantilla.formId})`);
-            return plantilla;
-        } else {
-            console.log("No se encontró plantilla (ni como string ni como ObjectId)");
-            return null;
-        }
+        return await db.collection('plantillas').findOne(query);
     } catch (error) {
         console.error('Error buscando plantilla:', error);
         return null;
@@ -220,52 +127,28 @@ async function buscarPlantillaPorFormId(formId, db) {
 }
 
 async function extraerVariablesDeRespuestas(responses, userData, db) {
-    console.log("=== EXTRAYENDO VARIABLES DE RESPUESTAS ===");
-
     const variables = {};
-
     Object.keys(responses).forEach(key => {
         if (key === '_contexto') return;
-
         let valor = responses[key];
-
-        if (Array.isArray(valor)) {
-            valor = valor.join(', ');
-        }
-
-        if (valor && typeof valor === 'object' && !Array.isArray(valor)) {
-            valor = JSON.stringify(valor);
-        }
-
+        if (Array.isArray(valor)) valor = valor.join(', ');
+        if (valor && typeof valor === 'object' && !Array.isArray(valor)) valor = JSON.stringify(valor);
         const nombreVariable = normalizarNombreVariable(key);
         variables[nombreVariable] = valor || '';
-
     });
 
     if (userData && userData.empresa) {
         try {
-
-            let nombreEmpresaDescifrado = userData.empresa;
-
-            if (userData.empresa.includes(':')) {
-                nombreEmpresaDescifrado = decrypt(userData.empresa);
-            }
-
+            let nombreEmpresaDescifrado = userData.empresa.includes(':') ? decrypt(userData.empresa) : userData.empresa;
             const empresaInfo = await obtenerEmpresaDesdeBD(nombreEmpresaDescifrado, db);
             if (empresaInfo) {
-                if (!variables[normalizarNombreVariable('Empresa')]) {
-                    variables[normalizarNombreVariable('Empresa')] = empresaInfo.nombre;
-                }
-                if (!variables[normalizarNombreVariable('Nombre empresa')]) {
-                    variables[normalizarNombreVariable('Nombre empresa')] = empresaInfo.nombre;
-                }
+                if (!variables[normalizarNombreVariable('Empresa')]) variables[normalizarNombreVariable('Empresa')] = empresaInfo.nombre;
+                if (!variables[normalizarNombreVariable('Nombre empresa')]) variables[normalizarNombreVariable('Nombre empresa')] = empresaInfo.nombre;
                 variables[normalizarNombreVariable('Rut empresa')] = empresaInfo.rut || '';
                 variables[normalizarNombreVariable('Encargado empresa')] = empresaInfo.encargado || '';
                 variables[normalizarNombreVariable('Rut encargado empresa')] = empresaInfo.rut_encargado || '';
                 variables[normalizarNombreVariable('Direccion empresa')] = empresaInfo.direccion || '';
-
             } else {
-                console.log("No se pudo obtener información de la empresa, usando nombre descifrado");
                 variables[normalizarNombreVariable('Empresa')] = nombreEmpresaDescifrado;
                 variables[normalizarNombreVariable('Nombre empresa')] = nombreEmpresaDescifrado;
             }
@@ -277,251 +160,82 @@ async function extraerVariablesDeRespuestas(responses, userData, db) {
     const hoy = new Date();
     variables['FECHA_ACTUAL'] = formatearFechaEspanol(hoy.toISOString().split("T")[0]);
     variables['HORA_ACTUAL'] = hoy.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
-
     const unAnio = new Date(hoy); unAnio.setFullYear(hoy.getFullYear() + 1);
     variables['FECHA_ACTUAL_1_ANIO'] = formatearFechaEspanol(unAnio.toISOString().split("T")[0]);
-
     const seisMeses = new Date(hoy); seisMeses.setMonth(hoy.getMonth() + 6);
     variables['FECHA_ACTUAL_6_MESES'] = formatearFechaEspanol(seisMeses.toISOString().split("T")[0]);
-
     const unMes = new Date(hoy); unMes.setMonth(hoy.getMonth() + 1);
     variables['FECHA_ACTUAL_1_MES'] = formatearFechaEspanol(unMes.toISOString().split("T")[0]);
 
+    // Variables numéricas por defecto vacías si no existen
+    // Agrear lógica extra si es necesario
     return variables;
 }
 
+// ========== LOGICA CONDICIONAL Y VARIABLES ==========
+
 function evaluarCondicional(conditionalVar, variables) {
-    console.log("=== EVALUANDO CONDICIONAL ===");
+    if (!conditionalVar || conditionalVar.trim() === '') return true;
 
+    // Quitar [[IF: y ]] si vienen (aunque el split debería manejarlo antes)
+    let condicion = conditionalVar.replace(/^(\[\[IF:|{{)(.*?)(]])?$/i, '$2').trim();
 
-    if (!conditionalVar || conditionalVar.trim() === '') {
-        console.log("Condición vacía - SIEMPRE INCLUIR");
+    // 1. OR ||
+    if (condicion.includes('||')) {
+        const parts = condicion.split('||').map(p => p.trim());
+        for (const part of parts) {
+            if (evaluarCondicional(part, variables)) return true;
+        }
+        return false;
+    }
+
+    // 2. AND && (Opcional, pero buena práctica)
+    if (condicion.includes('&&')) {
+        const parts = condicion.split('&&').map(p => p.trim());
+        for (const part of parts) {
+            if (!evaluarCondicional(part, variables)) return false;
+        }
         return true;
     }
 
-    if (conditionalVar.includes('||')) {
-        const variablesOR = conditionalVar.split('||').map(v => v.trim());
+    let varName, valueToCheck, operator;
 
-
-        for (const varOR of variablesOR) {
-            const varName = varOR.replace(/[{}]/g, '').trim();
-            const valor = variables[varName];
-
-
-            if (valor && valor.toString().trim() !== '') {
-                return true;
-            }
-        }
-
-        console.log("OR: Ninguna variable tiene valor - NO INCLUIR");
-        return false;
+    if (condicion.includes(' < ')) {
+        [varName, valueToCheck] = condicion.split(' < ');
+        operator = '<';
+    } else if (condicion.includes(' > ')) {
+        [varName, valueToCheck] = condicion.split(' > ');
+        operator = '>';
+    } else if (condicion.includes(' = ') || condicion.includes('==')) {
+        [varName, valueToCheck] = condicion.split(/==| = /);
+        operator = '=';
+    } else if (condicion.includes('!=')) {
+        [varName, valueToCheck] = condicion.split('!=');
+        operator = '!=';
+    } else {
+        // Chequeo de existencia simple
+        varName = condicion;
     }
 
-    if (conditionalVar.includes('<')) {
-        const [varPart, textPart] = conditionalVar.split('<').map(part => part.trim());
-        const varName = varPart.replace(/[{}]/g, '').trim();
-        const textoBuscado = textPart.replace(/"/g, '').trim();
+    varName = varName.replace(/[{}]/g, '').trim();
+    if (valueToCheck) valueToCheck = valueToCheck.replace(/["']/g, '').trim();
 
-        const valor = variables[varName];
+    const valorVariable = variables[varName];
+    const valorStr = valorVariable ? String(valorVariable).trim() : '';
 
-        if (valor && valor.toString().toLowerCase().includes(textoBuscado.toLowerCase())) {
-            return true;
-        }
-
-        return false;
+    if (!operator) {
+        return valorStr !== '' && valorStr !== 'false' && valorStr !== '0';
     }
 
-    if (conditionalVar.includes('=')) {
-        const [varPart, valuePart] = conditionalVar.split('=').map(part => part.trim());
-        const varName = varPart.replace(/[{}]/g, '').trim();
-        const valorEsperado = valuePart.replace(/"/g, '').trim();
-
-        const valorActual = variables[varName];
-
-        if (valorActual && valorActual.toString().trim() === valorEsperado) {
-            return true;
-        }
-
-        return false;
-    }
-
-    const varName = conditionalVar.replace(/[{}]/g, '').trim();
-    const valor = variables[varName];
-
-    if (valor && valor.toString().trim() !== '') {
-        return true;
-    }
+    if (operator === '<') return valorStr.toLowerCase() < valueToCheck.toLowerCase();
+    if (operator === '>') return valorStr.toLowerCase() > valueToCheck.toLowerCase();
+    if (operator === '=') return valorStr.toLowerCase() === valueToCheck.toLowerCase();
+    if (operator === '!=') return valorStr.toLowerCase() !== valueToCheck.toLowerCase();
 
     return false;
 }
 
-function reemplazarVariablesEnContenido(contenido, variables) {
-    console.log("=== REEMPLAZANDO VARIABLES EN CONTENIDO ===");
-
-    let contenidoProcesado = contenido;
-    const regex = /{{([^}]+)}}/g;
-    let match;
-
-    const textRuns = [];
-    let lastIndex = 0;
-
-    while ((match = regex.exec(contenido)) !== null) {
-        const variableCompleta = match[0];
-        const nombreVariable = match[1].trim();
-        const matchIndex = match.index;
-
-        if (matchIndex > lastIndex) {
-            const textoNormal = contenido.substring(lastIndex, matchIndex);
-            textRuns.push(new TextRun(textoNormal));
-        }
-
-        let valor = variables[nombreVariable] || `[${nombreVariable} NO ENCONTRADA]`;
-
-        if (esCampoDeFecha(nombreVariable) && valor && !valor.includes('NO ENCONTRADA')) {
-            try {
-                const fechaFormateada = formatearFechaEspanol(valor);
-                valor = fechaFormateada;
-            } catch (error) {
-                console.error(`Error formateando fecha ${nombreVariable}:`, error);
-            }
-        }
-
-        textRuns.push(new TextRun({ text: valor, bold: true }));
-
-        lastIndex = matchIndex + variableCompleta.length;
-    }
-
-    if (lastIndex < contenido.length) {
-        const textoFinal = contenido.substring(lastIndex);
-        textRuns.push(new TextRun(textoFinal));
-    }
-
-    return textRuns;
-}
-
-function procesarTextoFirma(textoFirma, variables) {
-    if (!textoFirma) return '';
-
-    let textoProcesado = textoFirma;
-    const regex = /{{([^}]+)}}/g;
-    let match;
-
-    while ((match = regex.exec(textoFirma)) !== null) {
-        const variableCompleta = match[0];
-        const nombreVariable = match[1].trim();
-
-        const valor = variables[nombreVariable] || `[${nombreVariable}]`;
-        textoProcesado = textoProcesado.replace(variableCompleta, valor);
-    }
-
-    return textoProcesado;
-}
-
-// ========== PARSER HTML SIMPLE PARA DOCX ==========
-
-function procesarHTML(html, variables) {
-    if (!html) return [];
-
-    // 1. Limpieza básica
-    let cleanHtml = html
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/<br\s*\/?>/gi, '\n');
-
-    // 2. Separar por párrafos
-    const bloques = [];
-    const regexP = /<p[^>]*>(.*?)<\/p>/gi;
-    let match;
-
-    if (!cleanHtml.match(/<p/i)) {
-        bloques.push({ tipo: 'p', contenido: cleanHtml, alineacion: AlignmentType.JUSTIFIED });
-    } else {
-        while ((match = regexP.exec(cleanHtml)) !== null) {
-            const contenido = match[1];
-            const fullTag = match[0];
-
-            // Detectar alineación
-            let alineacion = AlignmentType.JUSTIFIED;
-            if (fullTag.includes('text-align: center')) alineacion = AlignmentType.CENTER;
-            else if (fullTag.includes('text-align: right')) alineacion = AlignmentType.RIGHT;
-            else if (fullTag.includes('text-align: left')) alineacion = AlignmentType.LEFT;
-
-            bloques.push({ tipo: 'p', contenido, alineacion });
-        }
-    }
-
-    // 3. Procesar lógica condicional y generar TextRuns
-    const children = [];
-    let mostrarBloque = true;
-    const pilaCondicionales = [];
-
-    for (const bloque of bloques) {
-        let texto = bloque.contenido;
-
-        // --- DETECCIÓN DE ETIQUETAS LÓGICAS (Mejorada) ---
-        // Limpiamos etiquetas HTML básicas para detectar el comnado logicamente
-        const textoPlano = texto.replace(/<[^>]*>/g, '').trim();
-
-        // [[IF:VAR]] - Permitir espacios y ser case-insensitive
-        const matchIf = textoPlano.match(/^\[\[\s*IF:(.*?)\s*\]\]$/i);
-        if (matchIf) {
-            const condicion = matchIf[1].trim();
-            const debeMostrar = evaluarCondicional(condicion, variables);
-            pilaCondicionales.push(mostrarBloque);
-            mostrarBloque = mostrarBloque && debeMostrar;
-            continue; // No renderizamos la línea del IF
-        }
-
-        // [[ENDIF]]
-        if (textoPlano.match(/^\[\[\s*ENDIF\s*\]\]$/i)) {
-            if (pilaCondicionales.length > 0) {
-                mostrarBloque = pilaCondicionales.pop();
-            } else {
-                mostrarBloque = true;
-            }
-            continue;
-        }
-
-        if (!mostrarBloque) continue;
-
-        // --- PARSEO DE ESTILOS INLINE (Mantenido)
-        const regexTokens = /(<\/?(?:strong|b|em|i|u)>)/gi;
-        const partes = texto.split(regexTokens);
-
-        const currentStyle = { bold: false, italics: false, underline: false };
-        const paragraphChildren = [];
-
-        for (const parte of partes) {
-            if (!parte) continue;
-
-            const lower = parte.toLowerCase();
-
-            // Actualizar estado de estilos
-            if (lower === '<strong>' || lower === '<b>') { currentStyle.bold = true; continue; }
-            if (lower === '</strong>' || lower === '</b>') { currentStyle.bold = false; continue; }
-            if (lower === '<em>' || lower === '<i>') { currentStyle.italics = true; continue; }
-            if (lower === '</em>' || lower === '</i>') { currentStyle.italics = false; continue; }
-            if (lower === '<u>') { currentStyle.underline = true; continue; }
-            if (lower === '</u>') { currentStyle.underline = false; continue; }
-
-            // Es texto normal -> Reemplazar variables y crear TextRun
-            const runsConVariables = reemplazarVariablesEnTexto(parte, variables, currentStyle);
-            paragraphChildren.push(...runsConVariables);
-        }
-
-        children.push(new Paragraph({
-            alignment: bloque.alineacion,
-            children: paragraphChildren,
-            spacing: { after: 120 }
-        }));
-    }
-
-    return children;
-}
-
-function reemplazarVariablesEnTexto(texto, variables, estiloBase) {
+function reemplazarVariablesEnTexto(texto, variables, estiloBase, contadorNumeral) {
     const runs = [];
     const regexVar = /{{([^}]+)}}/g;
     let match;
@@ -529,33 +243,61 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase) {
 
     while ((match = regexVar.exec(texto)) !== null) {
         const fullVar = match[0];
-        const varName = match[1].trim();
+        const rawVarName = match[1].trim();
         const idx = match.index;
 
-        // Texto antes de la variable
+        // Texto previo
         if (idx > lastIndex) {
             runs.push(new TextRun({
                 text: texto.substring(lastIndex, idx),
                 bold: estiloBase.bold,
                 italics: estiloBase.italics,
-                underline: { type: estiloBase.underline ? BorderStyle.SINGLE : undefined }
+                underline: estiloBase.underline ? { type: BorderStyle.SINGLE } : undefined,
+                font: estiloBase.font,
+                size: estiloBase.size
             }));
         }
 
-        // Valor de la variable
-        let valor = variables[varName] || `[${varName}]`;
-
-        // Formateo de fechas si aplica
-        if (esCampoDeFecha(varName) && valor && !valor.includes('[')) {
-            try { valor = formatearFechaEspanol(valor); } catch (e) { }
+        // Procesar variable especial NUMERAL
+        if (rawVarName === 'NUMERAL') {
+            if (contadorNumeral) {
+                const numeralTexto = ORDINALES[contadorNumeral.valor] || `${contadorNumeral.valor}°`;
+                contadorNumeral.valor++;
+                runs.push(new TextRun({
+                    text: numeralTexto,
+                    bold: true, // Numerales usualmente en negrita
+                    italics: estiloBase.italics,
+                    underline: estiloBase.underline ? { type: BorderStyle.SINGLE } : undefined,
+                    font: estiloBase.font,
+                    size: estiloBase.size
+                }));
+            } else {
+                runs.push(new TextRun({ text: "[NUMERAL]", bold: true }));
+            }
         }
+        else {
+            // Variable normal
+            const varName = normalizarNombreVariable(rawVarName);
+            // Intentar buscar también con el nombre raw si falla la normalización estricta
+            let valor = variables[varName] !== undefined ? variables[varName] : variables[rawVarName];
 
-        runs.push(new TextRun({
-            text: valor,
-            bold: true,
-            italics: estiloBase.italics,
-            underline: estiloBase.underline ? { type: "single" } : undefined
-        }));
+            // Si no existe, mostrar raw. Si existe pero vacío, mostrar vacío.
+            if (valor === undefined) valor = `[${rawVarName}]`;
+
+            // Formato Fecha
+            if (esCampoDeFecha(rawVarName) && valor && !valor.includes('[')) {
+                try { valor = formatearFechaEspanol(valor); } catch (e) { }
+            }
+
+            runs.push(new TextRun({
+                text: String(valor),
+                bold: true, // Variables típicamente se destacan en negrita, pero podría ser configurable
+                italics: estiloBase.italics,
+                underline: estiloBase.underline ? { type: BorderStyle.SINGLE } : undefined,
+                font: estiloBase.font,
+                size: estiloBase.size
+            }));
+        }
 
         lastIndex = idx + fullVar.length;
     }
@@ -566,59 +308,182 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase) {
             text: texto.substring(lastIndex),
             bold: estiloBase.bold,
             italics: estiloBase.italics,
-            underline: estiloBase.underline ? { type: "single" } : undefined
+            underline: estiloBase.underline ? { type: BorderStyle.SINGLE } : undefined,
+            font: estiloBase.font,
+            size: estiloBase.size
         }));
     }
 
     return runs;
 }
 
-function procesarTextoConVariables(texto, variables, estilo) {
-    const runs = [];
-    const regex = /{{([^}]+)}}/g;
-    let match;
-    let lastIndex = 0;
+// ========== PARSER HTML (TIPTAP) MEJORADO ==========
 
-    const baseOpts = {
-        bold: estilo.bold,
-        italics: estilo.italics,
-        underline: estilo.underline ? { type: "single" } : undefined
+function parsearEstilosInline(elementStr) {
+    const style = {
+        bold: elementStr.includes('<strong>') || elementStr.includes('<b>'),
+        italics: elementStr.includes('<em>') || elementStr.includes('<i>'),
+        underline: elementStr.includes('<u>'),
+        textAlign: AlignmentType.JUSTIFIED, // Default
+        font: 'Arial',
+        size: 24 // 12pt approx
     };
 
-    while ((match = regex.exec(texto)) !== null) {
-        const preText = texto.substring(lastIndex, match.index);
-        if (preText) runs.push(new TextRun({ text: preText, ...baseOpts }));
+    if (elementStr.includes('text-align: center')) style.textAlign = AlignmentType.CENTER;
+    if (elementStr.includes('text-align: right')) style.textAlign = AlignmentType.RIGHT;
+    if (elementStr.includes('text-align: left')) style.textAlign = AlignmentType.LEFT;
 
-        const varName = match[1].trim();
-        let val = variables[varName] || `[FALE:${varName}]`;
-        if (variables[varName] === undefined) val = ``;
+    // Fuentes y tamaños podrían venir en style="..."
+    // Simplificación: Tiptap suele usar extensiones que ponen style="font-size: 20px;"
+    // TODO: Parser más avanzado de atributos style si es necesario
 
-        // Logica fechas
-        if (esCampoDeFecha(varName) && variables[varName]) {
-            val = formatearFechaEspanol(variables[varName]);
-        }
-
-        // Variable renderizada 
-        runs.push(new TextRun({
-            text: val,
-            ...baseOpts,
-            bold: true
-        }));
-
-        lastIndex = match.index + match[0].length;
-    }
-
-    const postText = texto.substring(lastIndex);
-    if (postText) runs.push(new TextRun({ text: postText, ...baseOpts }));
-
-    return runs;
+    return style;
 }
 
+function procesarHTML(html, variables) {
+    if (!html) return [];
+
+    // Limpiar entes HTML básicos
+    let cleanHtml = html
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/<br\s*\/?>/gi, '\n');
+
+    // Estado global de procesamiento
+    const contadorNumeral = { valor: 1 };
+    const children = [];
+
+    // Regex para dividir por bloques grandes: Párrafos y Tablas
+    // Nota: Es un parser simple. Tablas anidadas o estructuras complejas pueden fallar.
+    const regexBloques = /<(p|table)[^>]*>([\s\S]*?)<\/\1>/gi;
+    let match;
+
+    // Stack de condicionales
+    const condicionalStack = []; // true = mostrar, false = ocultar
+
+    // Helper para verificar si debemos mostrar contenido actual
+    const debeMostrar = () => condicionalStack.every(v => v === true);
+
+    // Si no hay etiquetas P ni Table, envolvemos todo en un P
+    if (!cleanHtml.match(/<(p|table)/i)) {
+        cleanHtml = `<p>${cleanHtml}</p>`;
+    }
+
+    // Iteramos sobre los bloques encontrados
+    while ((match = regexBloques.exec(cleanHtml)) !== null) {
+        const fullTag = match[0];
+        const tagName = match[1].toLowerCase();
+        const innerContent = match[2];
+
+        // --- MANEJO DE CONDICIONALES ---
+        // Buscamos si el contenido del bloque es puramente una instrucción lógica
+        // Ejemplo: <p>[[IF:VAR]]</p>
+        const textoPlano = innerContent.replace(/<[^>]*>/g, '').trim();
+        const matchIf = textoPlano.match(/^\[\[IF:(.*?)\]\]$/i);
+        const matchEndIf = textoPlano.match(/^\[\[ENDIF\]\]$/i);
+
+        if (matchIf) {
+            const condicion = matchIf[1];
+            const resultado = evaluarCondicional(condicion, variables);
+            condicionalStack.push(resultado);
+            continue; // No renderizar la línea del IF
+        }
+
+        if (matchEndIf) {
+            condicionalStack.pop();
+            continue; // No renderizar la línea del ENDIF
+        }
+
+        if (!debeMostrar()) continue;
+
+        // --- PROCESAMIENTO DE BLOQUE VISIBLE ---
+        if (tagName === 'p') {
+            const style = parsearEstilosInline(fullTag);
+
+            // Analizamos el contenido interno para mixed content (texto con variables, negritas parciales)
+            // Tiptap: "Texto <strong>negrita</strong> final"
+            // Split por tags
+            const parts = innerContent.split(/(<\/?(?:strong|b|em|i|u)>)/gi);
+            const paragraphChildren = [];
+
+            let currentSpanStyle = { ...style }; // Copia base
+
+            for (const part of parts) {
+                if (!part) continue;
+                const lower = part.toLowerCase();
+
+                // Toggle estilos
+                if (lower === '<strong>' || lower === '<b>') { currentSpanStyle.bold = true; continue; }
+                if (lower === '</strong>' || lower === '</b>') { currentSpanStyle.bold = false; continue; }
+                if (lower === '<em>' || lower === '<i>') { currentSpanStyle.italics = true; continue; }
+                if (lower === '</em>' || lower === '</i>') { currentSpanStyle.italics = false; continue; }
+                if (lower === '<u>') { currentSpanStyle.underline = true; continue; }
+                if (lower === '</u>') { currentSpanStyle.underline = false; continue; }
+
+                // Texto
+                const runs = reemplazarVariablesEnTexto(part, variables, currentSpanStyle, contadorNumeral);
+                paragraphChildren.push(...runs);
+            }
+
+            children.push(new Paragraph({
+                alignment: style.textAlign,
+                children: paragraphChildren,
+                spacing: { after: 120 }
+            }));
+        }
+        else if (tagName === 'table') {
+            // Parsear Tabla Simple
+            // Asumimos estructura <table><tbody><tr><td>...
+            const rows = [];
+            const regexTr = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+            let matchTr;
+
+            while ((matchTr = regexTr.exec(innerContent)) !== null) {
+                const trContent = matchTr[1];
+                const cells = [];
+                const regexTd = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+                let matchTd;
+
+                while ((matchTd = regexTd.exec(trContent)) !== null) {
+                    const tdContent = matchTd[1];
+                    // Recursivamente procesar contenido dentro de TD como si fuera HTML plano (aunque docx espera Paragraphs dentro de celdas)
+                    // Simplificación: Extraemos texto y creamos un párrafo por ahora
+                    // Idealmente llamaríamos a procesarHTML recursivo pero evitar ciclos infinitos
+
+                    const tdText = tdContent.replace(/<[^>]*>/g, ''); // Simplificado
+                    const tdRuns = reemplazarVariablesEnTexto(tdText, variables, { size: 24 }, contadorNumeral);
+
+                    cells.push(new TableCell({
+                        children: [new Paragraph({ children: tdRuns })],
+                        width: { size: 100, type: WidthType.PERCENTAGE } // Distribución auto
+                    }));
+                }
+                rows.push(new TableRow({ children: cells }));
+            }
+
+            children.push(new Table({
+                rows: rows,
+                width: { size: 100, type: WidthType.PERCENTAGE }
+            }));
+        }
+    }
+
+    return children;
+}
+
+// ========== GENERADOR MAIN Y LEGACY SUPPORT ==========
+
+function reemplazarVariablesEnContenido(contenido, variables) {
+    // FUNCIÓN LEGACY - Mantenida para compatibilidad con lógica antigua si es llamada externamente
+    // Simplificada para usar la nueva lógica interna de Texto
+    return reemplazarVariablesEnTexto(contenido, variables, { size: 24 }, null);
+}
 
 async function generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle) {
     try {
-        console.log("=== GENERANDO DOCUMENTO (V2 HTML) ===");
-
+        console.log("=== GENERANDO DOCUMENTO (TIPTAP SYSTEM) ===");
         const variables = await extraerVariablesDeRespuestas(responses, userData, db);
         const empresaInfo = await obtenerEmpresaDesdeBD(userData?.empresa || '', db);
         const logo = empresaInfo ? empresaInfo.logo : null;
@@ -637,35 +502,27 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         // 2. TÍTULO
         children.push(new Paragraph({
             alignment: AlignmentType.CENTER,
-            children: [
-                new TextRun({
-                    text: plantilla.documentTitle,
-                    bold: true,
-                    size: 28
-                })
-            ]
+            children: [new TextRun({ text: plantilla.documentTitle, bold: true, size: 28 })],
+            heading: HeadingLevel.HEADING_1
         }));
         children.push(new Paragraph({ text: "" }));
 
-
-        // 3. CONTENIDO (HTML o Legacy Paragraphs)
+        // 3. CONTENIDO PRINCIPAL
         if (plantilla.documentContent) {
-            // NUEVO SISTEMA HTML
-            // Modificamos procesarHTML para usar procesarTextoConVariables interno
-            const parrafosHTML = procesarHTML(plantilla.documentContent, variables);
-            children.push(...parrafosHTML);
-        }
-        else if (plantilla.paragraphs) {
-            // LEGACY SYSTEM (Mantener por compatibilidad)
+            // NUEVO: Usar parser HTML
+            const bloquesHTML = procesarHTML(plantilla.documentContent, variables);
+            children.push(...bloquesHTML);
+        } else if (plantilla.paragraphs) {
+            // LEGACY: Usar array paragraphs antiguo
+            console.log("Usando sistema Legacy (paragraphs array)");
+            const contadorNumeralLegacy = { valor: 1 };
+
             for (const parrafo of plantilla.paragraphs) {
                 if (evaluarCondicional(parrafo.conditionalVar, variables)) {
-                    // Reusamos lógica legacy o adaptamos... 
-                    // Mejor mantener la lógica simple de legacy aquí si es necesaria
-                    // Copiar lógica anterior de loop paragraphs
-                    const contenidoProcesado = reemplazarVariablesEnContenido(parrafo.content, variables);
+                    const runs = reemplazarVariablesEnTexto(parrafo.content, variables, { size: 24 }, contadorNumeralLegacy);
                     children.push(new Paragraph({
                         alignment: AlignmentType.JUSTIFIED,
-                        children: Array.isArray(contenidoProcesado) ? contenidoProcesado : [new TextRun(contenidoProcesado)],
+                        children: runs,
                         spacing: { after: 120 }
                     }));
                 }
@@ -676,10 +533,12 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         if (plantilla.signature1Text || plantilla.signature2Text) {
             children.push(new Paragraph({ text: "" }));
             children.push(new Paragraph({ text: "" }));
-            // ... Espacio firmas
 
-            const firma1 = procesarTextoFirma(plantilla.signature1Text || '', variables);
-            const firma2 = procesarTextoFirma(plantilla.signature2Text || '', variables);
+            const firma1Runs = reemplazarVariablesEnTexto(plantilla.signature1Text || '', variables, { size: 24 }, null);
+            const firma2Runs = reemplazarVariablesEnTexto(plantilla.signature2Text || '', variables, { size: 24 }, null);
+
+            // Helper para convertir runs a string plano para firmas (limitación de tabla simple)
+            // O mejor, inyectar runs directamente en párrafos de celda
 
             children.push(new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
@@ -694,33 +553,20 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 rows: [
                     new TableRow({
                         children: [
-                            new TableCell({
-                                width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })]
-                            }),
-                            new TableCell({
-                                width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })]
-                            })
+                            new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, children: [new Paragraph({ text: "_____________________________", alignment: AlignmentType.CENTER })] })
                         ]
                     }),
                     new TableRow({
                         children: [
-                            new TableCell({
-                                width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: [new Paragraph({ text: firma1, alignment: AlignmentType.CENTER })]
-                            }),
-                            new TableCell({
-                                width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: [new Paragraph({ text: firma2, alignment: AlignmentType.CENTER })]
-                            })
+                            new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: firma1Runs, alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ width: { size: 50, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: firma2Runs, alignment: AlignmentType.CENTER })] })
                         ]
                     })
                 ]
             }));
         }
 
-        // 5. GENERAR DOCUMENTO
         const doc = new Document({
             sections: [{
                 properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
@@ -730,11 +576,13 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
         const buffer = await Packer.toBuffer(doc);
 
-        // Guardado en BD (Lógica existente)
-        const trabajador = variables['NOMBRE_DEL_TRABAJADOR'] || 'DOCUMENTO';
-        const fileName = `${limpiarFileName(formTitle || 'DOC')}_${limpiarFileName(trabajador)}`;
+        const trabajador = variables['NOMBRE_DEL_TRABAJADOR'] || variables['NOMBRE_TRABAJADOR'] || 'DOCUMENTO';
+        function limpiarFileName(texto) {
+            if (!texto) return 'DOC';
+            return String(texto).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+        }
 
-        // Upsert simple logic...
+        const fileName = `${limpiarFileName(formTitle)}_${limpiarFileName(trabajador)}`;
         const existing = await db.collection('docxs').findOne({ responseId });
         const idDoc = existing ? existing.IDdoc : generarIdDoc();
 
@@ -744,213 +592,45 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             { upsert: true }
         );
 
-        return { IDdoc: idDoc, buffer, tipo: 'docx' };
-
+        return { IDdoc, buffer, tipo: 'docx' };
     } catch (error) {
-        console.error('Error generando DOCX:', error);
+        console.error('Error generando DOCX (Tiptap):', error);
         throw error;
     }
 }
 
-
-function limpiarFileName(texto) {
-    if (typeof texto !== 'string') {
-        texto = String(texto || 'documento');
-    }
-
-    return texto
-        .replace(/ñ/g, 'n')
-        .replace(/Ñ/g, 'N')
-        .replace(/á/g, 'a')
-        .replace(/é/g, 'e')
-        .replace(/í/g, 'i')
-        .replace(/ó/g, 'o')
-        .replace(/ú/g, 'u')
-        .replace(/Á/g, 'A')
-        .replace(/É/g, 'E')
-        .replace(/Í/g, 'I')
-        .replace(/Ó/g, 'O')
-        .replace(/Ú/g, 'U')
-        .replace(/ü/g, 'u')
-        .replace(/Ü/g, 'U')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-zA-Z0-9\s._-]/g, '')
-        .replace(/\s+/g, '_')
-        .substring(0, 100)
-        .replace(/^_+|_+$/g, '')
-        .toUpperCase();
-}
-
-function reemplazarVariablesEnContenidoTxt(contenido, variables) {
-    console.log("=== REEMPLAZANDO VARIABLES EN CONTENIDO TXT ===");
-
-    const regex = /{{([^}]+)}}/g;
-    let match;
-
-    const textRuns = [];
-    let lastIndex = 0;
-
-    while ((match = regex.exec(contenido)) !== null) {
-        const variableCompleta = match[0];
-        const nombreVariable = match[1].trim();
-        const matchIndex = match.index;
-
-        if (matchIndex > lastIndex) {
-            const textoNormal = contenido.substring(lastIndex, matchIndex);
-            textRuns.push(new TextRun(textoNormal));
-        }
-
-        let valor = variables[nombreVariable] || `[${nombreVariable} NO ENCONTRADA]`;
-
-        if (esCampoDeFecha(nombreVariable) && valor && !valor.includes('NO ENCONTRADA')) {
-            try {
-                const fechaFormateada = formatearFechaEspanol(valor);
-                valor = fechaFormateada;
-            } catch (error) {
-                console.error(`Error formateando fecha ${nombreVariable}:`, error);
-            }
-        }
-
-        textRuns.push(new TextRun({ text: valor, bold: true }));
-
-        lastIndex = matchIndex + variableCompleta.length;
-    }
-
-    if (lastIndex < contenido.length) {
-        const textoFinal = contenido.substring(lastIndex);
-        textRuns.push(new TextRun(textoFinal));
-    }
-
-    return textRuns;
-}
+// ========== TXT FALLBACK ==========
 
 async function generarDocumentoTxt(responses, responseId, db, formTitle) {
     try {
-        console.log("=== GENERANDO DOCUMENTO TXT MEJORADO ===");
-
-        let contenidoTxt = "FORMULARIO - RESPUESTAS\n";
-        contenidoTxt += "========================\n\n";
-
-        let index = 1;
-        Object.keys(responses).forEach((pregunta) => {
-            if (pregunta === '_contexto') return;
-
-            const respuesta = responses[pregunta];
-
-            contenidoTxt += `${index}. ${pregunta}\n`;
-
-            if (Array.isArray(respuesta)) {
-                contenidoTxt += `   - ${respuesta.join('\n   - ')}\n\n`;
-            } else if (respuesta && typeof respuesta === 'object') {
-                contenidoTxt += `   ${JSON.stringify(respuesta, null, 2)}\n\n`;
-            } else {
-                contenidoTxt += `   ${respuesta || 'Sin respuesta'}\n\n`;
-            }
-            index++;
+        console.log("Generando TXT fallback...");
+        let content = `FORMULARIO: ${formTitle || 'SIN TITULO'}\n\n`;
+        Object.entries(responses).forEach(([k, v]) => {
+            if (k !== '_contexto') content += `${k}: ${v}\n`;
         });
+        const buffer = Buffer.from(content, 'utf8');
+        const fileName = "RESPUESTA_TXT";
 
-        if (responses._contexto) {
-            contenidoTxt += "\n--- INFORMACIÓN DE TURNOS DETALLADA ---\n\n";
+        const existing = await db.collection('docxs').findOne({ responseId });
+        const idDoc = existing ? existing.IDdoc : generarIdDoc();
 
-            Object.keys(responses._contexto).forEach(contexto => {
-                contenidoTxt += `TURNO: ${contexto}\n`;
-
-                Object.keys(responses._contexto[contexto]).forEach(pregunta => {
-                    const respuesta = responses._contexto[contexto][pregunta];
-                    contenidoTxt += `   ${pregunta}: ${respuesta}\n`;
-                });
-                contenidoTxt += "\n";
-            });
-        }
-
-        contenidoTxt += `\nGenerado el: ${new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' })}`;
-
-        const buffer = Buffer.from(contenidoTxt, 'utf8');
-
-        const trabajador = responses['NOMBRE_DEL_TRABAJADOR'] || responses['Nombre del trabajador'] || ['NOMBRE DEL TRABAJADOR'] || 'TRABAJADOR';
-        const nombreFormulario = formTitle || 'FORMULARIO';
-        const fileName = `${limpiarFileName(nombreFormulario)}_${limpiarFileName(trabajador)}`;
-
-        const existingDoc = await db.collection('docxs').findOne({
-            responseId: responseId
-        });
-
-        let result;
-        let IDdoc;
-
-        if (existingDoc) {
-            IDdoc = existingDoc.IDdoc;
-
-            result = await db.collection('docxs').updateOne(
-                { responseId: responseId },
-                {
-                    $set: {
-                        docxFile: buffer,
-                        fileName: fileName,
-                        updatedAt: new Date(),
-                        tipo: 'txt'
-                    }
-                }
-            );
-        } else {
-            IDdoc = generarIdDoc();
-            result = await db.collection('docxs').insertOne({
-                IDdoc: IDdoc,
-                docxFile: buffer,
-                responseId: responseId,
-                tipo: 'txt',
-                fileName: fileName,
-                createdAt: new Date(),
-                updatedAt: new Date()
-            });
-        }
-
-        console.log("TXT guardado en BD exitosamente");
-
-        return {
-            IDdoc: IDdoc,
-            buffer: buffer,
-            tipo: 'txt'
-        };
-
-    } catch (error) {
-        console.error('Error generando TXT mejorado:', error);
-        throw error;
+        await db.collection('docxs').updateOne(
+            { responseId },
+            { $set: { docxFile: buffer, fileName, tipo: 'txt', IDdoc: idDoc, updatedAt: new Date() } },
+            { upsert: true }
+        );
+        return { IDdoc, buffer, tipo: 'txt' };
+    } catch (e) {
+        console.error("Error TXT:", e); throw e;
     }
 }
-
-// ========== FUNCIÓN PRINCIPAL ACTUALIZADA ==========
 
 async function generarAnexoDesdeRespuesta(responses, responseId, db, section, userData, formId, formTitle) {
-    try {
-        console.log("=== INICIANDO GENERACIÓN DE DOCUMENTO ===");
-
-
-        if (!formId) {
-            console.log("No se recibió formId - Generando TXT");
-            return await generarDocumentoTxt(responses, responseId, db, formTitle);
-        }
-
-        console.log(`Buscando plantilla para formId: ${formId}`);
-        const plantilla = await buscarPlantillaPorFormId(formId, db);
-
-        if (plantilla) {
-            console.log(`Plantilla encontrada: ${plantilla._id}`);
-            return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
-        } else {
-            console.log("No se encontró plantilla publicada - Fallback a TXT");
-            return await generarDocumentoTxt(responses, responseId, db, formTitle);
-        }
-
-    } catch (error) {
-        console.error('Error en generarAnexoDesdeRespuesta:', error);
-
-        console.log("Fallback a TXT por error");
-        return await generarDocumentoTxt(responses, responseId, db);
-    }
+    if (!formId) return await generarDocumentoTxt(responses, responseId, db, formTitle);
+    const plantilla = await buscarPlantillaPorFormId(formId, db);
+    if (plantilla) return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
+    return await generarDocumentoTxt(responses, responseId, db, formTitle);
 }
-
-// ========== EXPORTACIONES ==========
 
 module.exports = {
     generarAnexoDesdeRespuesta,
