@@ -452,10 +452,21 @@ function procesarHTML(html, variables) {
                 paragraphChildren.push(...runs);
             }
 
+            // Detección heurística de títulos o numerales para evitar que queden huérfanos
+            // Si el texto es corto, en mayúsculas, o contiene palabras clave de numeral, aplicamos keepNext
+            const textContent = innerContent.replace(/<[^>]*>/g, '').trim();
+            const isObercase = textContent === textContent.toUpperCase() && textContent.length > 0;
+            const isShort = textContent.length < 100; // Arbitrario para títulos
+            const isNumeral = /^(PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|SÉPTIMO|OCTAVO|NOVENO|DÉCIMO|UNDÉCIMO|DUODÉCIMO|DECIMOTERCERO)/i.test(textContent);
+
+            const shouldKeepNext = (isObercase && isShort) || isNumeral;
+
             children.push(new Paragraph({
                 alignment: style.textAlign,
                 children: paragraphChildren,
-                spacing: { after: 120 }
+                spacing: { after: 120 },
+                keepNext: shouldKeepNext, // Mantiene pegado al siguiente párrafo
+                keepLines: shouldKeepNext // Evita que se parta el propio título
             }));
         }
         else if (tagName === 'table') {
@@ -627,18 +638,18 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             };
 
             children.push(new Table({
-                width: { size: 100, type: WidthType.PERCENTAGE },
+                width: { size: 9000, type: WidthType.DXA }, // Ancho fijo (~15.8cm)
                 borders: bordersNoneConfig, // Bordes de la tabla NULOS
                 rows: [
                     new TableRow({
                         children: [
                             new TableCell({
-                                width: { size: 50, type: WidthType.PERCENTAGE },
+                                width: { size: 4500, type: WidthType.DXA }, // 50% exacto en twips
                                 borders: bordersNoneConfig, // Bordes de celda NULOS explícitamente
                                 children: cell1Children
                             }),
                             new TableCell({
-                                width: { size: 50, type: WidthType.PERCENTAGE },
+                                width: { size: 4500, type: WidthType.DXA }, // 50% exacto en twips
                                 borders: bordersNoneConfig, // Bordes de celda NULOS explícitamente
                                 children: cell2Children
                             })
