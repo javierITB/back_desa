@@ -592,7 +592,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             { upsert: true }
         );
 
-        return { IDdoc, buffer, tipo: 'docx' };
+        return { IDdoc: idDoc, buffer, tipo: 'docx' };
     } catch (error) {
         console.error('Error generando DOCX (Tiptap):', error);
         throw error;
@@ -619,7 +619,7 @@ async function generarDocumentoTxt(responses, responseId, db, formTitle) {
             { $set: { docxFile: buffer, fileName, tipo: 'txt', IDdoc: idDoc, updatedAt: new Date() } },
             { upsert: true }
         );
-        return { IDdoc, buffer, tipo: 'txt' };
+        return { IDdoc: idDoc, buffer, tipo: 'txt' };
     } catch (e) {
         console.error("Error TXT:", e); throw e;
     }
