@@ -533,40 +533,55 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             }
         }
 
-        // 3. FIRMAS (SOLO FIRMA 1, JUSTIFICADA)
-        if (plantilla.signature1Text) {
+        // 3. FIRMAS (TABLA 2 COLUMNAS)
+        if (plantilla.signature1Text || plantilla.signature2Text) {
             children.push(new Paragraph({ text: "", spacing: { before: 800 } })); // Espacio antes de firma
 
-            // Procesar saltos de línea y variables
-            // La firma 1 se muestra sola y justificada
-            const lineasFirma = plantilla.signature1Text.split('\n');
-            const firmaRuns = [];
+            const firma1Runs = plantilla.signature1Text
+                ? reemplazarVariablesEnTexto(plantilla.signature1Text, variables, { size: 24, bold: true }, null)
+                : [];
 
-            for (let i = 0; i < lineasFirma.length; i++) {
-                const linea = lineasFirma[i];
-                if (linea.trim() === '') {
-                    firmaRuns.push(new TextRun({ text: "", break: 1 }));
-                    continue;
-                }
+            // Si hay firma 2, la procesamos. Si no, usamos texto vacío.
+            const firma2Runs = plantilla.signature2Text
+                ? reemplazarVariablesEnTexto(plantilla.signature2Text, variables, { size: 24, bold: true }, null)
+                : [];
 
-                // Reemplazar variables
-                const runsLinea = reemplazarVariablesEnTexto(linea, variables, { bold: true, size: 24 }, null);
-                firmaRuns.push(...runsLinea);
-
-                if (i < lineasFirma.length - 1) {
-                    firmaRuns.push(new TextRun({ text: "", break: 1 }));
-                }
-            }
-
-            children.push(
-                new Paragraph({
-                    children: firmaRuns,
-                    alignment: AlignmentType.JUSTIFIED, // Justificado
-                    spacing: { before: 200 }
-                })
-            );
+            children.push(new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                borders: {
+                    top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                    insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }
+                },
+                rows: [
+                    new TableRow({
+                        children: [
+                            new TableCell({
+                                width: { size: 50, type: WidthType.PERCENTAGE },
+                                children: [
+                                    new Paragraph({
+                                        alignment: AlignmentType.CENTER,
+                                        children: firma1Runs
+                                    })
+                                ]
+                            }),
+                            new TableCell({
+                                width: { size: 50, type: WidthType.PERCENTAGE },
+                                children: [
+                                    new Paragraph({
+                                        alignment: AlignmentType.CENTER,
+                                        children: firma2Runs
+                                    })
+                                ]
+                            })
+                        ]
+                    })
+                ]
+            }));
         }
-        // Firma 2 ignorada según requerimiento
 
         const doc = new Document({
             sections: [{
