@@ -611,25 +611,35 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             const cell1Children = generarBloqueFirma("Empleador / Representante Legal", dynamicContent1);
             const cell2Children = generarBloqueFirma("Empleado", dynamicContent2);
 
+            const borderNone = {
+                style: BorderStyle.NIL,
+                size: 0,
+                color: "auto"
+            };
+
+            const bordersNoneConfig = {
+                top: borderNone,
+                bottom: borderNone,
+                left: borderNone,
+                right: borderNone,
+                insideHorizontal: borderNone,
+                insideVertical: borderNone
+            };
+
             children.push(new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
-                borders: {
-                    top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                    insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }
-                },
+                borders: bordersNoneConfig, // Bordes de la tabla NULOS
                 rows: [
                     new TableRow({
                         children: [
                             new TableCell({
                                 width: { size: 50, type: WidthType.PERCENTAGE },
+                                borders: bordersNoneConfig, // Bordes de celda NULOS explícitamente
                                 children: cell1Children
                             }),
                             new TableCell({
                                 width: { size: 50, type: WidthType.PERCENTAGE },
+                                borders: bordersNoneConfig, // Bordes de celda NULOS explícitamente
                                 children: cell2Children
                             })
                         ]
