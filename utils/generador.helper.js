@@ -560,32 +560,56 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 for (let i = 0; i < lineas.length; i++) {
                     const linea = lineas[i];
 
-                    // FILTRO DE TEXTO NO DESEADO
+                    // FILTRO DE TEXTO NO DESEADO (Para evitar duplicados si el usuario lo escribió)
                     if (linea.toLowerCase().includes('firma del empleador') ||
-                        linea.toLowerCase().includes('firma del empleado')) {
+                        linea.toLowerCase().includes('firma del empleado') ||
+                        linea.toLowerCase().includes('representante legal') ||
+                        linea.toLowerCase().includes('______')) {
                         continue;
                     }
 
                     if (linea.trim() === '') {
-                        // Línea vacía con espacio vertical explícito (10pt aprox)
                         parrafosFirma.push(new Paragraph({ text: "", spacing: { after: 200 } }));
                         continue;
                     }
 
                     const runsLinea = reemplazarVariablesEnTexto(linea, variables, { size: 24, bold: true }, null);
 
-                    // Cada línea es un Párrafo centrado independiente
                     parrafosFirma.push(new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: runsLinea,
-                        spacing: { after: 0 } // Control fino del espaciado
+                        spacing: { after: 0 }
                     }));
                 }
                 return parrafosFirma;
             };
 
-            const firma1Parrafos = procesarFirma(plantilla.signature1Text);
-            const firma2Parrafos = procesarFirma(plantilla.signature2Text);
+            // Generar contenido dinámico
+            const dynamicContent1 = procesarFirma(plantilla.signature1Text);
+            const dynamicContent2 = procesarFirma(plantilla.signature2Text);
+
+            // Construir Bloques Completos (Línea + Título + Dinámico)
+            const generarBloqueFirma = (titulo, contenidoDinamico) => {
+                return [
+                    // 1. Línea de firma (Guiones bajos)
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: [new TextRun({ text: "__________________________", bold: true, size: 24 })],
+                        spacing: { after: 120 } // Espacio entre línea y título
+                    }),
+                    // 2. Título (Empleador/Empleado)
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: [new TextRun({ text: titulo, bold: true, size: 24 })],
+                        spacing: { after: 0 }
+                    }),
+                    // 3. Contenido Dinámico (Variables)
+                    ...contenidoDinamico
+                ];
+            };
+
+            const cell1Children = generarBloqueFirma("Empleador / Representante Legal", dynamicContent1);
+            const cell2Children = generarBloqueFirma("Empleado", dynamicContent2);
 
             children.push(new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
@@ -602,11 +626,11 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         children: [
                             new TableCell({
                                 width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: firma1Parrafos.length > 0 ? firma1Parrafos : [new Paragraph({})]
+                                children: cell1Children
                             }),
                             new TableCell({
                                 width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: firma2Parrafos.length > 0 ? firma2Parrafos : [new Paragraph({})]
+                                children: cell2Children
                             })
                         ]
                     })
