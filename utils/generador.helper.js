@@ -539,7 +539,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                     }
 
                     if (linea.trim() === '') {
-                        parrafosFirma.push(new Paragraph({ text: "", spacing: { after: 200 } }));
+                        parrafosFirma.push(new Paragraph({ text: "", spacing: { after: 200 }, keepWithNext: true }));
                         continue;
                     }
 
@@ -548,7 +548,8 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                     parrafosFirma.push(new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: runsLinea,
-                        spacing: { after: 0 }
+                        spacing: { after: 0 },
+                        keepWithNext: true
                     }));
                 }
                 return parrafosFirma;
@@ -571,7 +572,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         spacing: { after: 0 },
                         keepWithNext: true
                     }),
-                    ...contenidoDinamico.map(p => new Paragraph({ ...p.options, keepWithNext: true }))
+                    ...contenidoDinamico
                 ];
             };
 
