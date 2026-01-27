@@ -639,9 +639,11 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
             children.push(new Table({
                 width: { size: 9000, type: WidthType.DXA }, // Ancho fijo (~15.8cm)
+                alignment: AlignmentType.CENTER, // Centrar tabla en la hoja
                 borders: bordersNoneConfig, // Bordes de la tabla NULOS
                 rows: [
                     new TableRow({
+                        cantSplit: true, // Evita que la fila se rompa entre páginas
                         children: [
                             new TableCell({
                                 width: { size: 4500, type: WidthType.DXA }, // 50% exacto en twips
