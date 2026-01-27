@@ -17,7 +17,7 @@ const verifyRequest = async (req) => {
    return validation;
 };
 
-router.get("/registros/todos", async (req, res) => {
+router.get("/todos", async (req, res) => {
    try {
       await verifyRequest(req);
       const tkn = await req.db.collection("cambios").find().toArray();

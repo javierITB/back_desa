@@ -1,7 +1,7 @@
 
 
 export async function registerEvent(req, event) {
-   try {
+
       const payload = {
          ...event,
          createdAt: new Date(),
@@ -10,12 +10,9 @@ export async function registerEvent(req, event) {
       const collection = req.db.collection("cambios");
       const result = await collection.insertOne(payload);
 
-      // console.log(result)
-
-   } catch (error) {
-      console.error("Error registrando evento:", error);
-      return;
-   }
+      if (!result.insertedId) {
+         throw new Error("Error al registrar evento");
+      }
 
 }
 
@@ -37,7 +34,7 @@ export const ACTOR_ROLES = {
 // results
 export const RESULTS = {
    SUCCESS: "success",
-   FAILURE: "error",
+   ERROR: "error",
 };
 
 // metadata

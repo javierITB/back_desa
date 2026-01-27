@@ -3341,20 +3341,8 @@ router.put("/:id/status", async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-      message: `Estado cambiado a '${status}'`,
-      updatedRequest: updatedResponse
-    });
-
-  } catch (err) {
-    console.error("Error cambiando estado:", err);
-    res.status(500).json({ error: "Error cambiando estado: " + err.message });
-  }
-
-  // Registrar evento
-  try {
-     await registerEvent(req, {
+      // Registrar evento
+      registerEvent(req, {
         code: CODES.SOLICITUD_CAMBIO_ESTADO,
         target: {
            type: TARGET_TYPES.SOLICITUD,
@@ -3373,10 +3361,48 @@ router.put("/:id/status", async (req, res) => {
           nombre_de_solicitud: updatedResponse.formTitle,
           nuevo_estado: updatedResponse.status,
         },
+        result: RESULTS.SUCCESS,
      });
-  } catch (error) {
-     console.error("Error registrando evento:", error);
+  
+
+    res.json({
+      success: true,
+      message: `Estado cambiado a '${status}'`,
+      updatedRequest: updatedResponse
+    });
+
+  } catch (err) {
+    console.error("Error cambiando estado:", err);
+
+    // Registrar evento
+
+    registerEvent(req, {
+      code: CODES.SOLICITUD_CAMBIO_ESTADO,
+      target: {
+         type: TARGET_TYPES.SOLICITUD,
+         _id: updatedResponse._id,
+      },
+      actor: {
+         uid: updatedResponse.user.uid,
+         name: updatedResponse.user.nombre,
+         role: ACTOR_ROLES.ADMIN,
+         email: updatedResponse.user.mail,
+         empresa: updatedResponse.user.empresa,
+      },
+      description: `Cambio de estado de solicitud "${updatedResponse.formTitle}" a ${updatedResponse.status}`,
+      metadata: {
+        nombre_de_solicitud: updatedResponse.formTitle,
+        nuevo_estado: updatedResponse.status,
+      },
+      result: RESULTS.ERROR
+    });
+
+
+    res.status(500).json({ error: "Error cambiando estado: " + err.message });
+    
   }
+
+
 });
 
 // MANTENIMIENTO: Migrar respuestas existentes para cifrado PQC
