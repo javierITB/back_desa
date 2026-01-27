@@ -597,21 +597,11 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         children: [
                             new TableCell({
                                 width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: [
-                                    new Paragraph({
-                                        alignment: AlignmentType.CENTER,
-                                        children: firma1Runs
-                                    })
-                                ]
+                                children: firma1Runs.length > 0 ? firma1Runs : [new Paragraph({})]
                             }),
                             new TableCell({
                                 width: { size: 50, type: WidthType.PERCENTAGE },
-                                children: [
-                                    new Paragraph({
-                                        alignment: AlignmentType.CENTER,
-                                        children: firma2Runs
-                                    })
-                                ]
+                                children: firma2Runs.length > 0 ? firma2Runs : [new Paragraph({})]
                             })
                         ]
                     })
