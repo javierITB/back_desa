@@ -2,7 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const docx = require("docx");
-const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, TableWidthType, ImageRun, BorderStyle, HeadingLevel, TableLayoutType } = docx;
+const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, ImageRun, BorderStyle, HeadingLevel, TableLayoutType } = docx;
 const { createBlindIndex, decrypt } = require("./seguridad.helper");
 
 // ========== UTILS: NORMALIZACIÓN Y FECHAS ==========
@@ -468,7 +468,7 @@ function procesarHTML(html, variables) {
 
             children.push(new Table({
                 rows: rows,
-                width: { size: 100, type: TableWidthType.PERCENTAGE }
+                width: { size: 100, type: WidthType.PERCENTAGE }
             }));
         }
     }
@@ -564,14 +564,16 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: [new TextRun({ text: "__________________________", bold: true, size: 24 })],
-                        spacing: { after: 120 }
+                        spacing: { after: 120 },
+                        keepWithNext: true
                     }),
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: [new TextRun({ text: titulo, bold: true, size: 24 })],
-                        spacing: { after: 0 }
+                        spacing: { after: 0 },
+                        keepWithNext: true
                     }),
-                    ...contenidoDinamico
+                    ...contenidoDinamico.map(p => new Paragraph({ ...p.options, keepWithNext: true }))
                 ];
             };
 
@@ -579,9 +581,9 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             const cell2Children = generarBloqueFirma("Empleado", dynamicContent2);
 
             const borderNone = {
-                style: BorderStyle.NIL,
+                style: BorderStyle.NONE,
                 size: 0,
-                color: "auto"
+                color: "FFFFFF"
             };
 
             const bordersNoneConfig = {
@@ -593,27 +595,22 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 insideVertical: borderNone
             };
 
-            // CORRECCIÓN 2: Tabla de firmas con anchos fijos (DXA) para evitar colapso
-            // Ancho útil aprox: 11906 (A4 width) - 1440*2 (margins) = ~9000 DXA
-            // Usamos 4500 DXA por columna
+            // CORRECCIÓN 3: Ajuste basado en snippet legacy (Ancho 100% + columnWidths explícitos)
             children.push(new Table({
-                width: { size: 9000, type: TableWidthType.DXA },
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                columnWidths: [4600, 4600], // Aproximadamente mitad de pagina cada una
                 alignment: AlignmentType.CENTER,
-                layout: TableLayoutType.FIXED,
                 borders: bordersNoneConfig,
                 rows: [
                     new TableRow({
-                        cantSplit: true,
                         children: [
                             new TableCell({
-                                width: { size: 4500, type: TableWidthType.DXA }, // 50% Columna Izq (4500 DXA)
+                                children: cell1Children,
                                 borders: bordersNoneConfig,
-                                children: cell1Children
                             }),
                             new TableCell({
-                                width: { size: 4500, type: TableWidthType.DXA }, // 50% Columna Der (4500 DXA)
+                                children: cell2Children,
                                 borders: bordersNoneConfig,
-                                children: cell2Children
                             })
                         ]
                     })
