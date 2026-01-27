@@ -347,7 +347,7 @@ function procesarHTML(html, variables) {
     const regexBloques = /<(p|table)[^>]*>([\s\S]*?)<\/\1>/gi;
     let match;
 
-    const condicionalStack = []; 
+    const condicionalStack = [];
     const debeMostrar = () => condicionalStack.every(v => v === true);
 
     if (!cleanHtml.match(/<(p|table)/i)) {
@@ -394,12 +394,12 @@ function procesarHTML(html, variables) {
             const condicion = matchIf[1];
             const resultado = evaluarCondicional(condicion, variables);
             condicionalStack.push(resultado);
-            continue; 
+            continue;
         }
 
         if (matchEndIf) {
             condicionalStack.pop();
-            continue; 
+            continue;
         }
 
         if (!debeMostrar()) continue;
@@ -522,7 +522,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
         // 3. FIRMAS (TABLA 2 COLUMNAS)
         if (plantilla.signature1Text || plantilla.signature2Text) {
-            children.push(new Paragraph({ text: "", spacing: { before: 800 } })); 
+            children.push(new Paragraph({ text: "", spacing: { before: 800 } }));
 
             const procesarFirma = (textoFirma) => {
                 const parrafosFirma = [];
@@ -593,23 +593,25 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 insideVertical: borderNone
             };
 
-            // CORRECCIÓN 2: Tabla de firmas con anchos porcentuales
+            // CORRECCIÓN 2: Tabla de firmas con anchos fijos (DXA) para evitar colapso
+            // Ancho útil aprox: 11906 (A4 width) - 1440*2 (margins) = ~9000 DXA
+            // Usamos 4500 DXA por columna
             children.push(new Table({
-                width: { size: 100, type: WidthType.PERCENTAGE }, // 100% de ancho de página
-                alignment: AlignmentType.CENTER, 
-                layout: TableLayoutType.FIXED, 
+                width: { size: 9000, type: WidthType.DXA },
+                alignment: AlignmentType.CENTER,
+                layout: TableLayoutType.FIXED,
                 borders: bordersNoneConfig,
                 rows: [
                     new TableRow({
                         cantSplit: true,
                         children: [
                             new TableCell({
-                                width: { size: 50, type: WidthType.PERCENTAGE }, // 50% Columna Izq
+                                width: { size: 4500, type: WidthType.DXA }, // 50% Columna Izq (4500 DXA)
                                 borders: bordersNoneConfig,
                                 children: cell1Children
                             }),
                             new TableCell({
-                                width: { size: 50, type: WidthType.PERCENTAGE }, // 50% Columna Der
+                                width: { size: 4500, type: WidthType.DXA }, // 50% Columna Der (4500 DXA)
                                 borders: bordersNoneConfig,
                                 children: cell2Children
                             })
