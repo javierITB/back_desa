@@ -167,8 +167,6 @@ async function extraerVariablesDeRespuestas(responses, userData, db) {
     const unMes = new Date(hoy); unMes.setMonth(hoy.getMonth() + 1);
     variables['FECHA_ACTUAL_1_MES'] = formatearFechaEspanol(unMes.toISOString().split("T")[0]);
 
-    // Variables numéricas por defecto vacías si no existen
-    // Agrear lógica extra si es necesario
     return variables;
 }
 
@@ -177,7 +175,7 @@ async function extraerVariablesDeRespuestas(responses, userData, db) {
 function evaluarCondicional(conditionalVar, variables) {
     if (!conditionalVar || conditionalVar.trim() === '') return true;
 
-    // Quitar [[IF: y ]] si vienen (aunque el split debería manejarlo antes)
+    // Quitar [[IF: y ]] si vienen
     let condicion = conditionalVar.replace(/^(\[\[IF:|{{)(.*?)(]])?$/i, '$2').trim();
 
     // 1. OR ||
@@ -189,7 +187,7 @@ function evaluarCondicional(conditionalVar, variables) {
         return false;
     }
 
-    // 2. AND && (Opcional, pero buena práctica)
+    // 2. AND &&
     if (condicion.includes('&&')) {
         const parts = condicion.split('&&').map(p => p.trim());
         for (const part of parts) {
@@ -217,7 +215,6 @@ function evaluarCondicional(conditionalVar, variables) {
         varName = condicion;
     }
 
-    // Limpieza de varName: quitar {{, }}, y posibles : al final (como en el ejemplo del usuario {{VAR:}})
     varName = varName.replace(/[{}]/g, '').replace(/:$/, '').trim();
     if (valueToCheck) valueToCheck = valueToCheck.replace(/["']/g, '').trim();
 
@@ -244,7 +241,6 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase, contadorNumera
 
     while ((match = regexVar.exec(texto)) !== null) {
         const fullVar = match[0];
-        // Quitar posibles dos puntos al final (ej: {{VAR:}})
         const rawVarName = match[1].trim().replace(/:$/, '');
         const idx = match.index;
 
@@ -267,7 +263,7 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase, contadorNumera
                 contadorNumeral.valor++;
                 runs.push(new TextRun({
                     text: numeralTexto,
-                    bold: true, // Numerales usualmente en negrita
+                    bold: true,
                     italics: estiloBase.italics,
                     underline: estiloBase.underline ? { type: BorderStyle.SINGLE } : undefined,
                     font: estiloBase.font,
@@ -280,20 +276,17 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase, contadorNumera
         else {
             // Variable normal
             const varName = normalizarNombreVariable(rawVarName);
-            // Intentar buscar también con el nombre raw si falla la normalización estricta
             let valor = variables[varName] !== undefined ? variables[varName] : variables[rawVarName];
 
-            // Si no existe, mostrar raw. Si existe pero vacío, mostrar vacío.
             if (valor === undefined) valor = `[${rawVarName}]`;
 
-            // Formato Fecha
             if (esCampoDeFecha(rawVarName) && valor && !valor.includes('[')) {
                 try { valor = formatearFechaEspanol(valor); } catch (e) { }
             }
 
             runs.push(new TextRun({
                 text: String(valor),
-                bold: true, // Variables típicamente se destacan en negrita, pero podría ser configurable
+                bold: true,
                 italics: estiloBase.italics,
                 underline: estiloBase.underline ? { type: BorderStyle.SINGLE } : undefined,
                 font: estiloBase.font,
@@ -341,7 +334,6 @@ function parsearEstilosInline(elementStr) {
 function procesarHTML(html, variables) {
     if (!html) return [];
 
-    // Limpiar entes HTML básicos
     let cleanHtml = html
         .replace(/&nbsp;/g, ' ')
         .replace(/&amp;/g, '&')
@@ -349,35 +341,25 @@ function procesarHTML(html, variables) {
         .replace(/&gt;/g, '>')
         .replace(/<br\s*\/?>/gi, '\n');
 
-    // Estado global de procesamiento
     const contadorNumeral = { valor: 1 };
     const children = [];
 
     const regexBloques = /<(p|table)[^>]*>([\s\S]*?)<\/\1>/gi;
     let match;
 
-    // Stack de condicionales
-    const condicionalStack = []; // true = mostrar, false = ocultar
-
-    // Helper para verificar si debemos mostrar contenido actual
+    const condicionalStack = []; 
     const debeMostrar = () => condicionalStack.every(v => v === true);
 
-    // Si no hay etiquetas P ni Table, envolvemos todo en un P
     if (!cleanHtml.match(/<(p|table)/i)) {
         cleanHtml = `<p>${cleanHtml}</p>`;
     }
 
-    // Helper para parsear estilos inline de etiquetas HTML
     function parsearEstilosInline(htmlTag) {
-        // Normalizamos comillas y espacios para facilitar regex
         const tagNormalized = htmlTag.replace(/'/g, '"').replace(/\s+/g, ' ');
-
         const styleMatch = tagNormalized.match(/style="([^"]*)"/i);
         const classMatch = tagNormalized.match(/class="([^"]*)"/i);
+        const styles = { textAlign: AlignmentType.JUSTIFIED };
 
-        const styles = { textAlign: AlignmentType.JUSTIFIED }; // Default
-
-        // Check Inline Styles
         if (styleMatch && styleMatch[1]) {
             const styleStr = styleMatch[1].toLowerCase();
             if (styleStr.includes('text-align:center') || styleStr.includes('text-align: center')) styles.textAlign = AlignmentType.CENTER;
@@ -386,7 +368,6 @@ function procesarHTML(html, variables) {
             else if (styleStr.includes('text-align:justify') || styleStr.includes('text-align: justify')) styles.textAlign = AlignmentType.JUSTIFIED;
         }
 
-        // Check Classes
         if (classMatch && classMatch[1]) {
             const classStr = classMatch[1].toLowerCase();
             if (classStr.includes('center')) styles.textAlign = AlignmentType.CENTER;
@@ -398,17 +379,14 @@ function procesarHTML(html, variables) {
         return styles;
     }
 
-    // Iteramos sobre los bloques encontrados
     while ((match = regexBloques.exec(cleanHtml)) !== null) {
         const fullTag = match[0];
         const tagName = match[1].toLowerCase();
         const innerContent = match[2];
 
-        // Mejor limpieza para detectar lógica: decoded entities, sin tags, trim
         let textoPlano = innerContent.replace(/<[^>]*>/g, '');
         textoPlano = textoPlano.replace(/&nbsp;/g, ' ').trim();
 
-        // Regex má flexible: permite espacios, chars invisibles
         const matchIf = textoPlano.match(/^\[\[\s*IF:(.*?)\s*\]\]$/i);
         const matchEndIf = textoPlano.match(/^\[\[\s*ENDIF\s*\]\]$/i);
 
@@ -416,30 +394,28 @@ function procesarHTML(html, variables) {
             const condicion = matchIf[1];
             const resultado = evaluarCondicional(condicion, variables);
             condicionalStack.push(resultado);
-            continue; // No renderizar la línea del IF
+            continue; 
         }
 
         if (matchEndIf) {
             condicionalStack.pop();
-            continue; // No renderizar la línea del ENDIF
+            continue; 
         }
 
         if (!debeMostrar()) continue;
 
-        // --- PROCESAMIENTO DE BLOQUE VISIBLE ---
         if (tagName === 'p') {
             const style = parsearEstilosInline(fullTag);
 
             const parts = innerContent.split(/(<\/?(?:strong|b|em|i|u)>)/gi);
             const paragraphChildren = [];
 
-            let currentSpanStyle = { ...style }; // Copia base
+            let currentSpanStyle = { ...style };
 
             for (const part of parts) {
                 if (!part) continue;
                 const lower = part.toLowerCase();
 
-                // Toggle estilos
                 if (lower === '<strong>' || lower === '<b>') { currentSpanStyle.bold = true; continue; }
                 if (lower === '</strong>' || lower === '</b>') { currentSpanStyle.bold = false; continue; }
                 if (lower === '<em>' || lower === '<i>') { currentSpanStyle.italics = true; continue; }
@@ -447,16 +423,13 @@ function procesarHTML(html, variables) {
                 if (lower === '<u>') { currentSpanStyle.underline = true; continue; }
                 if (lower === '</u>') { currentSpanStyle.underline = false; continue; }
 
-                // Texto
                 const runs = reemplazarVariablesEnTexto(part, variables, currentSpanStyle, contadorNumeral);
                 paragraphChildren.push(...runs);
             }
 
-            // Detección heurística de títulos o numerales para evitar que queden huérfanos
-            // Si el texto es corto, en mayúsculas, o contiene palabras clave de numeral, aplicamos keepNext
             const textContent = innerContent.replace(/<[^>]*>/g, '').trim();
             const isObercase = textContent === textContent.toUpperCase() && textContent.length > 0;
-            const isShort = textContent.length < 100; // Arbitrario para títulos
+            const isShort = textContent.length < 100;
             const isNumeral = /^(PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|SÉPTIMO|OCTAVO|NOVENO|DÉCIMO|UNDÉCIMO|DUODÉCIMO|DECIMOTERCERO)/i.test(textContent);
 
             const shouldKeepNext = (isObercase && isShort) || isNumeral;
@@ -465,13 +438,11 @@ function procesarHTML(html, variables) {
                 alignment: style.textAlign,
                 children: paragraphChildren,
                 spacing: { after: 120 },
-                keepNext: shouldKeepNext, // Mantiene pegado al siguiente párrafo
-                keepLines: shouldKeepNext // Evita que se parta el propio título
+                keepNext: shouldKeepNext,
+                keepLines: shouldKeepNext
             }));
         }
         else if (tagName === 'table') {
-            // Parsear Tabla Simple
-            // Asumimos estructura <table><tbody><tr><td>...
             const rows = [];
             const regexTr = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
             let matchTr;
@@ -484,16 +455,12 @@ function procesarHTML(html, variables) {
 
                 while ((matchTd = regexTd.exec(trContent)) !== null) {
                     const tdContent = matchTd[1];
-                    // Recursivamente procesar contenido dentro de TD como si fuera HTML plano (aunque docx espera Paragraphs dentro de celdas)
-                    // Simplificación: Extraemos texto y creamos un párrafo por ahora
-                    // Idealmente llamaríamos a procesarHTML recursivo pero evitar ciclos infinitos
-
-                    const tdText = tdContent.replace(/<[^>]*>/g, ''); // Simplificado
+                    const tdText = tdContent.replace(/<[^>]*>/g, '');
                     const tdRuns = reemplazarVariablesEnTexto(tdText, variables, { size: 24 }, contadorNumeral);
 
                     cells.push(new TableCell({
                         children: [new Paragraph({ children: tdRuns })],
-                        width: { size: 100, type: WidthType.PERCENTAGE } // Distribución auto
+                        // CORRECCIÓN 1: Eliminado width fijo de 100% en celdas para evitar colapsos
                     }));
                 }
                 rows.push(new TableRow({ children: cells }));
@@ -512,8 +479,6 @@ function procesarHTML(html, variables) {
 // ========== GENERADOR MAIN Y LEGACY SUPPORT ==========
 
 function reemplazarVariablesEnContenido(contenido, variables) {
-    // FUNCIÓN LEGACY - Mantenida para compatibilidad con lógica antigua si es llamada externamente
-    // Simplificada para usar la nueva lógica interna de Texto
     return reemplazarVariablesEnTexto(contenido, variables, { size: 24 }, null);
 }
 
@@ -537,11 +502,9 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
         // 2. CONTENIDO PRINCIPAL
         if (plantilla.documentContent) {
-            // NUEVO: Usar parser HTML con alineación correcta
             const bloquesHTML = procesarHTML(plantilla.documentContent, variables);
             children.push(...bloquesHTML);
         } else if (plantilla.paragraphs) {
-            // LEGACY: Usar array paragraphs antiguo
             console.log("Usando sistema Legacy (paragraphs array)");
             const contadorNumeralLegacy = { valor: 1 };
 
@@ -559,9 +522,8 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
         // 3. FIRMAS (TABLA 2 COLUMNAS)
         if (plantilla.signature1Text || plantilla.signature2Text) {
-            children.push(new Paragraph({ text: "", spacing: { before: 800 } })); // Espacio antes de firma
+            children.push(new Paragraph({ text: "", spacing: { before: 800 } })); 
 
-            // Helper para procesar firma: retorna array de Paragraphs para mejor control
             const procesarFirma = (textoFirma) => {
                 const parrafosFirma = [];
                 if (!textoFirma) return parrafosFirma;
@@ -571,7 +533,6 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 for (let i = 0; i < lineas.length; i++) {
                     const linea = lineas[i];
 
-                    // FILTRO DE TEXTO NO DESEADO (Para evitar duplicados si el usuario lo escribió)
                     if (linea.toLowerCase().includes('firma del empleador') ||
                         linea.toLowerCase().includes('firma del empleado') ||
                         linea.toLowerCase().includes('representante legal') ||
@@ -595,26 +556,21 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 return parrafosFirma;
             };
 
-            // Generar contenido dinámico
             const dynamicContent1 = procesarFirma(plantilla.signature1Text);
             const dynamicContent2 = procesarFirma(plantilla.signature2Text);
 
-            // Construir Bloques Completos (Línea + Título + Dinámico)
             const generarBloqueFirma = (titulo, contenidoDinamico) => {
                 return [
-                    // 1. Línea de firma (Guiones bajos)
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: [new TextRun({ text: "__________________________", bold: true, size: 24 })],
-                        spacing: { after: 120 } // Espacio entre línea y título
+                        spacing: { after: 120 }
                     }),
-                    // 2. Título (Empleador/Empleado) - MANTENEMOS NEGRITA SOLO EN TÍTULO
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: [new TextRun({ text: titulo, bold: true, size: 24 })],
                         spacing: { after: 0 }
                     }),
-                    // 3. Contenido Dinámico (Variables)
                     ...contenidoDinamico
                 ];
             };
@@ -637,22 +593,23 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 insideVertical: borderNone
             };
 
+            // CORRECCIÓN 2: Tabla de firmas con anchos porcentuales
             children.push(new Table({
-                width: { size: 8500, type: WidthType.DXA }, // Ancho más seguro (aprox 15cm) para Carta con márgenes
-                alignment: AlignmentType.CENTER, // Centrar tabla
-                layout: TableLayoutType.FIXED, // IMPORTANTE: Fija el ancho de columnas estrictamente
+                width: { size: 100, type: WidthType.PERCENTAGE }, // 100% de ancho de página
+                alignment: AlignmentType.CENTER, 
+                layout: TableLayoutType.FIXED, 
                 borders: bordersNoneConfig,
                 rows: [
                     new TableRow({
                         cantSplit: true,
                         children: [
                             new TableCell({
-                                width: { size: 4250, type: WidthType.DXA }, // 50% exacto (4250 DXA)
+                                width: { size: 50, type: WidthType.PERCENTAGE }, // 50% Columna Izq
                                 borders: bordersNoneConfig,
                                 children: cell1Children
                             }),
                             new TableCell({
-                                width: { size: 4250, type: WidthType.DXA }, // 50% exacto (4250 DXA)
+                                width: { size: 50, type: WidthType.PERCENTAGE }, // 50% Columna Der
                                 borders: bordersNoneConfig,
                                 children: cell2Children
                             })
@@ -730,7 +687,6 @@ async function generarAnexoDesdeRespuesta(responses, responseId, db, section, us
             return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
         } catch (error) {
             console.error("[GENERADOR] Error crítico generando DOCX desde plantilla:", error);
-            // Fallback a TXT si falla la generación DOCX
             return await generarDocumentoTxt(responses, responseId, db, formTitle);
         }
     } else {
@@ -738,29 +694,6 @@ async function generarAnexoDesdeRespuesta(responses, responseId, db, section, us
     }
 
     return await generarDocumentoTxt(responses, responseId, db, formTitle);
-}
-
-async function buscarPlantillaPorFormId(formId, db) {
-    try {
-        if (!db || typeof db.collection !== 'function') throw new Error("Base de datos no disponible");
-        let query = { status: "publicado" };
-        const possibleIds = [formId];
-        try {
-            if (typeof formId === 'string' && formId.length === 24) {
-                const { ObjectId } = require('mongodb');
-                possibleIds.push(new ObjectId(formId));
-            }
-        } catch (e) { }
-        query.formId = { $in: possibleIds };
-
-        console.log(`[GENERADOR] Buscando plantilla con query:`, JSON.stringify(query));
-        const resultado = await db.collection('plantillas').findOne(query);
-        console.log(`[GENERADOR] Resultado búsqueda:`, resultado ? 'ENCONTRADO' : 'NULL');
-        return resultado;
-    } catch (error) {
-        console.error('Error buscando plantilla:', error);
-        return null;
-    }
 }
 
 module.exports = {
