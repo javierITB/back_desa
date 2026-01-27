@@ -841,16 +841,7 @@ router.get("/logins/todos", async (req, res) => {
    }
 });
 
-router.get("/registros/todos", async (req, res) => {
-   try {
-      await verifyRequest(req);
-      const tkn = await req.db.collection("cambios").find().toArray();
-      res.json(tkn);
-   } catch (err) {
-      if (err.status) return res.status(err.status).json({ message: err.message });
-      res.status(500).json({ error: "Error al obtener registros" });
-   }
-});
+
 
 router.post("/validate", async (req, res) => {
    const { token, email, cargo } = req.body;
