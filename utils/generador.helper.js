@@ -286,7 +286,7 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase, contadorNumera
 
             runs.push(new TextRun({
                 text: String(valor),
-                bold: true,
+                bold: estiloBase.preventVariableBold ? estiloBase.bold : true,
                 italics: estiloBase.italics,
                 underline: estiloBase.underline ? { type: BorderStyle.SINGLE } : undefined,
                 font: estiloBase.font,
@@ -521,7 +521,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         }
 
         // 3. FIRMAS (TABLA 2 COLUMNAS)
-        if (plantilla.signature1Text || plantilla.signature2Text) {
+        if (plantilla.includeSignature !== false && (plantilla.signature1Text || plantilla.signature2Text)) {
             children.push(new Paragraph({ text: "", spacing: { before: 800 } }));
 
             const procesarFirma = (textoFirma) => {
@@ -543,7 +543,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         continue;
                     }
 
-                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, { size: 24, bold: false }, null);
+                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, { size: 24, bold: false, preventVariableBold: true }, null);
 
                     parrafosFirma.push(new Paragraph({
                         alignment: AlignmentType.CENTER,
@@ -602,6 +602,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 borders: bordersNoneConfig,
                 rows: [
                     new TableRow({
+                        cantSplit: true,
                         children: [
                             new TableCell({
                                 children: cell1Children,
