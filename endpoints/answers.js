@@ -8,7 +8,7 @@ const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper");
 const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
-const {registerStatusChangeEvent, registerRegenerateDocumentEvent, RESULTS} = require("../utils/registerEvent");
+// const { registerCreationEvent} = require("../utils/registerEvent");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -3228,8 +3228,6 @@ router.post("/:id/regenerate-document", async (req, res) => {
         respuesta.formTitle
       );
       
-      // Registrar evento
-     registerRegenerateDocumentEvent(req, { respuesta, auth, result: RESULTS.SUCCESS });
 
       res.json({
         success: true,
@@ -3244,8 +3242,6 @@ router.post("/:id/regenerate-document", async (req, res) => {
         error: "Error regenerando documento: " + generationError.message
       });
 
-      // Registrar evento de error
-      registerRegenerateDocumentEvent(req, { respuesta, auth, result: RESULTS.ERROR, error: generationError });
 
     }
 
@@ -3383,8 +3379,6 @@ router.put("/:id/status", async (req, res) => {
     }
 
 
-      // Registrar evento
-      registerStatusChangeEvent(req, {auth, updatedResponse, result: RESULTS.SUCCESS});
   
 
     res.json({
@@ -3395,12 +3389,6 @@ router.put("/:id/status", async (req, res) => {
 
   } catch (err) {
     console.error("Error cambiando estado:", err);
-
-
-    // Registrar evento
-    registerStatusChangeEvent(req, {auth, updatedResponse, result: RESULTS.ERROR, error: err});
-    
-
 
     res.status(500).json({ error: "Error cambiando estado: " + err.message });
 

@@ -28,58 +28,52 @@ async function registerEvent(req, auth, event) {
    }
 }
 
-export async function registerStatusChangeEvent(req, { updatedResponse, auth, result, error = null }) {
+// async function registerStatusChangeEvent(req, { updatedResponse, auth, result, error = null }) {
+//    let description = "Cambio de estado de solicitud";
 
-   let description = "Cambio de estado de solicitud";
+//    registerEvent(req, auth, {
+//       code: CODES.SOLICITUD_CAMBIO_ESTADO,
+//       target: {
+//          type: TARGET_TYPES.SOLICITUD,
+//          _id: updatedResponse?._id?.toString() || null,
+//       },
 
-   registerEvent(req, auth, {
-      code: CODES.SOLICITUD_CAMBIO_ESTADO,
-      target: {
-         type: TARGET_TYPES.SOLICITUD,
-         _id: updatedResponse?._id?.toString() || null,
-      },
+//       description: updatedResponse
+//          ? `${description} "${updatedResponse?.formTitle}" a ${updatedResponse?.status}`
+//          : description + " desconocida",
+//       metadata: {
+//          nombre_de_solicitud: updatedResponse?.formTitle || "desconocido",
+//          nuevo_estado: updatedResponse?.status || "desconocido",
+//       },
 
-      description: updatedResponse
-         ? `${description} "${updatedResponse?.formTitle}" a ${updatedResponse?.status}`
-         : description + " desconocida",
-      metadata: {
-         nombre_de_solicitud: updatedResponse?.formTitle || "desconocido",
-         nuevo_estado: updatedResponse?.status || "desconocido",
-      },
+//       result,
+//       ...(error && { error_message: error.message }),
+//    });
+// }
 
-      result,
-      ...(error && { error_message: error.message }),
-   });
-}
+// export async function registerRegenerateDocumentEvent(req, { respuesta, auth, result, error = null }) {
 
-export async function registerRegenerateDocumentEvent(req, { respuesta, auth, result, error = null }) {
+//    let description = "Regeneración de documento de solicitud";
 
-   let description = "Regeneración de documento de solicitud";
+//    registerEvent(req, auth, {
+//       code: CODES.SOLICITUD_REGENERACION_DOCUMENTO,
+//       target: {
+//          type: TARGET_TYPES.SOLICITUD,
+//          _id: respuesta?._id.toString() || null,
+//       },
 
-   registerEvent(req, auth, {
-      code: CODES.SOLICITUD_REGENERACION_DOCUMENTO,
-      target: {
-         type: TARGET_TYPES.SOLICITUD,
-         _id: respuesta?._id.toString() || null,
-      },
-
-      description: respuesta ? `${description} "${respuesta?.formTitle}"` : description + " desconocida",
-      metadata: {
-         nombre_de_solicitud: respuesta?.formTitle,
-      },
-      result,
-      ...(error && { error_message: error.message }),
-   });
-}
-
-// results
-export const RESULTS = {
-   SUCCESS: "success",
-   ERROR: "error",
-};
+//       description: respuesta ? `${description} "${respuesta?.formTitle}"` : description + " desconocida",
+//       metadata: {
+//          nombre_de_solicitud: respuesta?.formTitle,
+//       },
+//       result,
+//       ...(error && { error_message: error.message }),
+//    });
+// }
 
 // codes
 const CODES = {
+   SOLICITUD_CREACION: "SOLICITUD_CREACION",
    SOLICITUD_CAMBIO_ESTADO: "SOLICITUD_CAMBIO_ESTADO",
    SOLICITUD_REGENERACION_DOCUMENTO: "SOLICITUD_REGENERACION_DOCUMENTO",
 };
@@ -87,20 +81,4 @@ const CODES = {
 // target types
 const TARGET_TYPES = {
    SOLICITUD: "solicitud",
-};
-
-// actor roles
-const ACTOR_ROLES = {
-   ADMIN: "admin",
-};
-
-// metadata
-
-const STATUS = {
-   PENDIENTE: "pendiente",
-   EN_REVISION: "en_revisión",
-   APROBADA: "aprobada",
-   FIRMADA: "firmada",
-   FINALIZADA: "finalizada",
-   ARCHIVADA: "archivada",
 };
