@@ -1136,6 +1136,7 @@ router.get("/filtros", async (req, res) => {
       const searchTerm = search.toLowerCase();
       answersProcessed = answersProcessed.filter(item => {
         return (
+          (item.formId && item.formId.toString().toLowerCase().includes(searchTerm)) ||
           item.trabajador.toLowerCase().includes(searchTerm) ||
           item.formTitle.toLowerCase().includes(searchTerm) ||
           item.submittedBy.toLowerCase().includes(searchTerm) ||
