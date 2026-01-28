@@ -8,7 +8,7 @@ const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper");
 const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
-const { registerEvent, CODES, TARGET_TYPES, ACTOR_ROLES, RESULTS, STATUS } = require("../utils/registerEvent");
+const { registerEvent, registerStatusChangeEvent, CODES, TARGET_TYPES, ACTOR_ROLES, RESULTS, STATUS,  } = require("../utils/registerEvent");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -2515,6 +2515,17 @@ router.delete("/delete-corrected-file/:responseId", async (req, res) => {
       return res.status(400).json({ error: "fileName es requerido" });
     }
 
+    // --- NUEVA LÓGICA: VALIDACIÓN DE ESTADO ARCHIVADO ---
+    const respuestaActual = await req.db.collection("respuestas").findOne({
+      _id: new ObjectId(responseId)
+    });
+
+    if (respuestaActual && respuestaActual.status === "archivado") {
+      return res.status(403).json({ 
+        error: "No se pueden eliminar archivos de una solicitud que ya está archivada." 
+      });
+    }
+
     const approvedDoc = await req.db.collection("aprobados").findOne({
       responseId: responseId
     });
@@ -2529,10 +2540,6 @@ router.delete("/delete-corrected-file/:responseId", async (req, res) => {
     }
 
     // Guardar información del estado actual antes de eliminar
-    const respuestaActual = await req.db.collection("respuestas").findOne({
-      _id: new ObjectId(responseId)
-    });
-
     const estadoActual = respuestaActual?.status;
     const tieneFirma = await req.db.collection("firmados").findOne({
       responseId: responseId
@@ -3206,16 +3213,15 @@ router.post("/:id/regenerate-document", async (req, res) => {
            _id: respuesta._id.toString(),
         },
         actor: {
-           uid: respuesta.user.uid.toString(),
-           name: respuesta.user.nombre,
+           uid: uidUsuario.toString(),
+           name: nombreUsuario,
            role: ACTOR_ROLES.ADMIN,
-           email: respuesta.user.mail,
-           empresa: respuesta.user.empresa,
+           email: mailUsuario,
+           empresa: empresaUsuario,
         },
         description: `Regeneración de documento de solicitud "${respuesta.formTitle}"`,
         metadata: {
           nombre_de_solicitud: respuesta.formTitle,
-          nuevo_estado: respuesta.status,
         },
         result: RESULTS.SUCCESS,
      });
@@ -3229,9 +3235,31 @@ router.post("/:id/regenerate-document", async (req, res) => {
 
     } catch (generationError) {
       console.error("Error en generación de documento:", generationError);
-      return res.status(500).json({
+       res.status(500).json({
         error: "Error regenerando documento: " + generationError.message
       });
+
+      registerEvent(req, {
+        code: CODES.SOLICITUD_REGENERACION_DOCUMENTO,
+        target: {
+           type: TARGET_TYPES.SOLICITUD,
+           _id: respuesta._id.toString(),
+        },
+        actor: {
+           uid: uidUsuario.toString(),
+           name: nombreUsuario,
+           role: ACTOR_ROLES.ADMIN,
+           email: mailUsuario,
+           empresa: empresaUsuario,
+        },
+        description: `Regeneración de documento de solicitud "${respuesta.formTitle}"`,
+        metadata: {
+          nombre_de_solicitud: respuesta.formTitle,
+        },
+        result: RESULTS.ERROR,
+        error_message: generationError.message,
+     });
+
     }
 
   } catch (error) {
@@ -3242,6 +3270,9 @@ router.post("/:id/regenerate-document", async (req, res) => {
 
 // Cambiar estado de respuesta (avanzar o retroceder)
 router.put("/:id/status", async (req, res) => {
+  let auth = null;
+  let updatedResponse = null;
+
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -3300,7 +3331,7 @@ router.put("/:id/status", async (req, res) => {
       return res.status(404).json({ error: "No se pudo actualizar la respuesta" });
     }
 
-    const updatedResponse = await req.db.collection("respuestas").findOne({
+     updatedResponse = await req.db.collection("respuestas").findOne({
       _id: new ObjectId(id)
     });
 
@@ -3364,28 +3395,9 @@ router.put("/:id/status", async (req, res) => {
       });
     }
 
-      // Registrar evento
-      registerEvent(req, {
-        code: CODES.SOLICITUD_CAMBIO_ESTADO,
-        target: {
-           type: TARGET_TYPES.SOLICITUD,
-           _id: updatedResponse._id.toString(),
-        },
-        actor: {
-           uid: updatedResponse.user.uid.toString(),
-           name: updatedResponse.user.nombre,
-           role: ACTOR_ROLES.ADMIN,
-           email: updatedResponse.user.mail,
-           empresa: updatedResponse.user.empresa,
-        },
-        description: `Cambio de estado de solicitud "${updatedResponse.formTitle}" a ${updatedResponse.status}`,
 
-        metadata: {
-          nombre_de_solicitud: updatedResponse.formTitle,
-          nuevo_estado: updatedResponse.status,
-        },
-        result: RESULTS.SUCCESS,
-     });
+      // Registrar evento
+      registerStatusChangeEvent(req, {auth, updatedResponse, result: RESULTS.SUCCESS});
   
 
     res.json({
@@ -3397,28 +3409,11 @@ router.put("/:id/status", async (req, res) => {
   } catch (err) {
     console.error("Error cambiando estado:", err);
 
-    // Registrar evento
+    const actor = auth.data
 
-    registerEvent(req, {
-      code: CODES.SOLICITUD_CAMBIO_ESTADO,
-      target: {
-         type: TARGET_TYPES.SOLICITUD,
-         _id: updatedResponse._id.toString(),
-      },
-      actor: {
-         uid: updatedResponse.user.uid.toString(),
-         name: updatedResponse.user.nombre,
-         role: ACTOR_ROLES.ADMIN,
-         email: updatedResponse.user.mail,
-         empresa: updatedResponse.user.empresa,
-      },
-      description: `Cambio de estado de solicitud "${updatedResponse.formTitle}" a ${updatedResponse.status}`,
-      metadata: {
-        nombre_de_solicitud: updatedResponse.formTitle,
-        nuevo_estado: updatedResponse.status,
-      },
-      result: RESULTS.ERROR
-    });
+    // Registrar evento
+    registerStatusChangeEvent(req, {auth, updatedResponse, result: RESULTS.ERROR, error: err});
+    
 
 
     res.status(500).json({ error: "Error cambiando estado: " + err.message });
