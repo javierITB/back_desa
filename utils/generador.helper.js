@@ -426,21 +426,49 @@ function procesarHTML(html, variables) {
         if (tagName === 'p') {
             const style = parsearEstilosInline(fullTag);
 
-            const parts = innerContent.split(/(<\/?(?:strong|b|em|i|u)>)/gi);
+            const parts = innerContent.split(/(<\/?(?:strong|b|em|i|u|span(?:\s+[^>]*)?)>)/gi);
             const paragraphChildren = [];
 
             let currentSpanStyle = { ...style };
+            const baseSize = currentSpanStyle.size; // Guardar tamaño base del párrafo si existe
 
             for (const part of parts) {
                 if (!part) continue;
                 const lower = part.toLowerCase();
 
-                if (lower === '<strong>' || lower === '<b>') { currentSpanStyle.bold = true; continue; }
-                if (lower === '</strong>' || lower === '</b>') { currentSpanStyle.bold = false; continue; }
-                if (lower === '<em>' || lower === '<i>') { currentSpanStyle.italics = true; continue; }
-                if (lower === '</em>' || lower === '</i>') { currentSpanStyle.italics = false; continue; }
-                if (lower === '<u>') { currentSpanStyle.underline = true; continue; }
-                if (lower === '</u>') { currentSpanStyle.underline = false; continue; }
+                // Detección de Tags
+                if (lower.startsWith('<strong>') || lower.startsWith('<b>')) { currentSpanStyle.bold = true; continue; }
+                if (lower.startsWith('</strong>') || lower.startsWith('</b>')) { currentSpanStyle.bold = false; continue; }
+                if (lower.startsWith('<em>') || lower.startsWith('<i>')) { currentSpanStyle.italics = true; continue; }
+                if (lower.startsWith('</em>') || lower.startsWith('</i>')) { currentSpanStyle.italics = false; continue; }
+                if (lower.startsWith('<u>')) { currentSpanStyle.underline = true; continue; }
+                if (lower.startsWith('</u>')) { currentSpanStyle.underline = false; continue; }
+
+                // Soporte para SPAN con font-size
+                if (lower.startsWith('<span')) {
+                    const styleMatch = lower.match(/style="([^"]*)"/i);
+                    if (styleMatch && styleMatch[1]) {
+                        const stylesStr = styleMatch[1];
+                        const sizeMatch = stylesStr.match(/font-size:\s*([\d\.]+)(pt|px)/i);
+                        if (sizeMatch) {
+                            let val = parseFloat(sizeMatch[1]);
+                            const unit = sizeMatch[2];
+                            if (unit === 'pt') {
+                                currentSpanStyle.size = Math.round(val * 2);
+                            } else if (unit === 'px') {
+                                currentSpanStyle.size = Math.round(val * 1.5);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                if (lower.startsWith('</span>')) {
+                    // Restaurar tamaño base al cerrar span
+                    if (baseSize) currentSpanStyle.size = baseSize;
+                    else delete currentSpanStyle.size;
+                    continue;
+                }
 
                 const runs = reemplazarVariablesEnTexto(part, variables, currentSpanStyle, contadorNumeral);
                 paragraphChildren.push(...runs);
