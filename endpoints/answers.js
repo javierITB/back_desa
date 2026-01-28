@@ -3064,6 +3064,18 @@ router.delete("/:responseId/client-signature", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
+    // --- AGREGADO: VALIDACIÓN DE ESTADO ARCHIVADO ---
+    const respuestaActual = await req.db.collection("respuestas").findOne({
+      _id: new ObjectId(responseId)
+    });
+
+    if (respuestaActual && respuestaActual.status === "archivado") {
+      return res.status(403).json({ 
+        error: "No se puede eliminar la firma de una solicitud que ya está archivada." 
+      });
+    }
+    // -----------------------------------------------
+
     const deleteResult = await req.db.collection("firmados").deleteOne({
       responseId: responseId
     });
