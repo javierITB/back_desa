@@ -1133,19 +1133,23 @@ router.get("/filtros", async (req, res) => {
 
     // 5. Filtrado en Memoria (Búsqueda por texto claro)
     if (search && search.trim() !== "") {
-      const searchTerm = search.toLowerCase();
+      // Función interna para quitar tildes, convertir a minúsculas y asegurar que sea string
+      const normalizeText = (str) => 
+        str ? str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
+
+      const searchTerm = normalizeText(search);
+
       answersProcessed = answersProcessed.filter(item => {
         return (
-          (item.formId && item.formId.toString().toLowerCase().includes(searchTerm)) ||
-          item.trabajador.toLowerCase().includes(searchTerm) ||
-          item.formTitle.toLowerCase().includes(searchTerm) ||
-          item.submittedBy.toLowerCase().includes(searchTerm) ||
-          item.company.toLowerCase().includes(searchTerm) ||
-          item.rutTrabajador.toLowerCase().includes(searchTerm)
+          normalizeText(item._id).includes(searchTerm) || 
+          normalizeText(item.trabajador).includes(searchTerm) ||
+          normalizeText(item.formTitle).includes(searchTerm) ||
+          normalizeText(item.submittedBy).includes(searchTerm) ||
+          normalizeText(item.company).includes(searchTerm) ||
+          normalizeText(item.rutTrabajador).includes(searchTerm)
         );
       });
     }
-
     // 6. Filtro por empresa (Si el campo empresa también está encriptado en DB)
     if (company && company.trim() !== "") {
       const compTerm = company.toLowerCase();
