@@ -8,7 +8,7 @@ router.get("/todos", async (req, res) => {
       await verifyRequest(req);
       const events = await req.db
          .collection("cambios")
-         .find({}, { projection: { error_message: 0, "actor.uid": 0 } })
+         .find({}, { projection: { error_message: 0, "actor.uid": 0, result: 0 } })
          .sort({ createdAt: -1 })
          .toArray();
 

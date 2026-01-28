@@ -28,6 +28,21 @@ async function registerEvent(req, auth, event) {
    }
 }
 
+export async function registerSolicitudCreationEvent(req, formTitle, user, auth ) {
+
+   registerEvent(req, auth, {
+      code: CODES.SOLICITUD_CREACION,
+      target: {
+         type: TARGET_TYPES.SOLICITUD,
+      },
+      description: `${user.nombre} de la empresa ${user.empresa} ha respondido el formulario ${formTitle}`,
+      metadata: {
+         nombre_de_solicitud: formTitle,
+      },
+   });
+
+
+}
 // async function registerStatusChangeEvent(req, { updatedResponse, auth, result, error = null }) {
 //    let description = "Cambio de estado de solicitud";
 

@@ -8,7 +8,7 @@ const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper");
 const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
-// const { registerCreationEvent} = require("../utils/registerEvent");
+const { registerSolicitudCreationEvent} = require("../utils/registerEvent");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -240,6 +240,8 @@ router.post("/", async (req, res) => {
     } catch (error) {
       console.error("Error generando documento:", error.message);
     }
+
+    registerSolicitudCreationEvent(req, formTitle, user, tokenValido);
 
     // Respuesta al frontend con datos DESCIFRADOS (como espera el frontend)
     res.json({
