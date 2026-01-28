@@ -29,7 +29,7 @@ function decryptActor(actor) {
    if (!actor || typeof actor !== 'object') return actor;
    
    const actorDeciphered = { ...actor };
-   const campos = ['name', 'last_name', 'email', 'empresa'];
+   const campos = ['name', 'last_name', 'email', 'empresa', 'cargo'];
    
    for (const campo of campos) {
       if (actorDeciphered[campo] && actorDeciphered[campo].includes(':')) {
