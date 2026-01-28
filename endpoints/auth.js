@@ -1392,6 +1392,11 @@ router.get("/empresas/todas", async (req, res) => {
          return empresaDescifrada;
       });
 
+      // --- CAMBIO SOLICITADO: Ordenar alfabéticamente por nombre ---
+      empresasDescifradas.sort((a, b) => {
+         return (a.nombre || "").localeCompare((b.nombre || ""), 'es', { sensitivity: 'base' });
+      });
+
       res.json(empresasDescifradas);
    } catch (err) {
       console.error("Error al obtener empresas:", err);
