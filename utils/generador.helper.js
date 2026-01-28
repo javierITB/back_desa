@@ -589,11 +589,12 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         if (plantilla.includeSignature !== false && signatures.length > 0) {
             children.push(new Paragraph({ text: "", spacing: { before: 800 } }));
 
-            const procesarFirma = (textoFirma) => {
+            const procesarFirma = (textoFirma, styleOpts) => {
                 const parrafosFirma = [];
                 if (!textoFirma) return parrafosFirma;
 
                 const lineas = textoFirma.split(/\r?\n/);
+                const baseStyles = styleOpts || { size: 24, bold: false };
 
                 for (let i = 0; i < lineas.length; i++) {
                     const linea = lineas[i];
@@ -608,7 +609,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         continue;
                     }
 
-                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, { size: 24, bold: false, preventVariableBold: true }, null);
+                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, { ...baseStyles, preventVariableBold: true }, null);
 
                     parrafosFirma.push(new Paragraph({
                         alignment: AlignmentType.CENTER,
@@ -622,7 +623,16 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
             const generarBloqueFirma = (sig) => {
                 const titleText = sig.title || "Firma";
-                const dynamicContent = procesarFirma(sig.text);
+
+                // Configurar estilos del texto (contenido)
+                const textStyles = {
+                    size: 24,
+                    bold: !!sig.textBold,
+                    italics: !!sig.textItalic,
+                    underline: sig.textUnderline ? { type: "single" } : undefined
+                };
+
+                const dynamicContent = procesarFirma(sig.text, textStyles);
 
                 return [
                     new Paragraph({
@@ -633,7 +643,13 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                     }),
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
-                        children: [new TextRun({ text: titleText, bold: true, size: 24 })],
+                        children: [new TextRun({
+                            text: titleText,
+                            bold: !!sig.titleBold,
+                            italics: !!sig.titleItalic,
+                            underline: sig.titleUnderline ? { type: "single" } : undefined,
+                            size: 24
+                        })],
                         spacing: { after: 0 },
                         keepWithNext: true
                     }),
