@@ -294,7 +294,6 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase, contadorNumera
             } else if (isLower) {
                 fianlText = fianlText.toLowerCase();
             }
-            // Si es mixto o "default", se deja tal cual viene del formulario
 
             runs.push(new TextRun({
                 text: fianlText,
@@ -531,8 +530,27 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             }
         }
 
-        // 3. FIRMAS (TABLA 2 COLUMNAS)
-        if (plantilla.includeSignature !== false && (plantilla.signature1Text || plantilla.signature2Text)) {
+        // 3. FIRMAS (TABLA 2 COLUMNAS - DINÁMICA)
+        let signatures = plantilla.signatures;
+
+        // Fallback para plantillas antiguas que usan signature1Text/signature2Text
+        if (!signatures || !Array.isArray(signatures) || signatures.length === 0) {
+            signatures = [];
+            if (plantilla.signature1Text) {
+                signatures.push({
+                    title: plantilla.signature1Title || "Empleador / Representante Legal",
+                    text: plantilla.signature1Text
+                });
+            }
+            if (plantilla.signature2Text) {
+                signatures.push({
+                    title: plantilla.signature2Title || "Empleado",
+                    text: plantilla.signature2Text
+                });
+            }
+        }
+
+        if (plantilla.includeSignature !== false && signatures.length > 0) {
             children.push(new Paragraph({ text: "", spacing: { before: 800 } }));
 
             const procesarFirma = (textoFirma) => {
@@ -566,10 +584,10 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 return parrafosFirma;
             };
 
-            const dynamicContent1 = procesarFirma(plantilla.signature1Text);
-            const dynamicContent2 = procesarFirma(plantilla.signature2Text);
+            const generarBloqueFirma = (sig) => {
+                const titleText = sig.title || "Firma";
+                const dynamicContent = procesarFirma(sig.text);
 
-            const generarBloqueFirma = (titulo, contenidoDinamico) => {
                 return [
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
@@ -579,16 +597,13 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                     }),
                     new Paragraph({
                         alignment: AlignmentType.CENTER,
-                        children: [new TextRun({ text: titulo, bold: true, size: 24 })],
+                        children: [new TextRun({ text: titleText, bold: true, size: 24 })],
                         spacing: { after: 0 },
                         keepWithNext: true
                     }),
-                    ...contenidoDinamico
+                    ...dynamicContent
                 ];
             };
-
-            const cell1Children = generarBloqueFirma("Empleador / Representante Legal", dynamicContent1);
-            const cell2Children = generarBloqueFirma("Empleado", dynamicContent2);
 
             const borderNone = {
                 style: BorderStyle.NONE,
@@ -605,27 +620,36 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                 insideVertical: borderNone
             };
 
-            // CORRECCIÓN 3: Ajuste basado en snippet legacy (Ancho 100% + columnWidths explícitos)
+            // Generar Filas (Iterar de 2 en 2)
+            const tableRows = [];
+            for (let i = 0; i < signatures.length; i += 2) {
+                const sig1 = signatures[i];
+                const sig2 = signatures[i + 1]; // Puede ser undefined
+
+                const cell1Children = generarBloqueFirma(sig1);
+                const cell2Children = sig2 ? generarBloqueFirma(sig2) : [new Paragraph("")];
+
+                tableRows.push(new TableRow({
+                    cantSplit: true,
+                    children: [
+                        new TableCell({
+                            children: cell1Children,
+                            borders: bordersNoneConfig,
+                        }),
+                        new TableCell({
+                            children: cell2Children,
+                            borders: bordersNoneConfig,
+                        })
+                    ]
+                }));
+            }
+
             children.push(new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
-                columnWidths: [4600, 4600], // Aproximadamente mitad de pagina cada una
+                columnWidths: [4600, 4600],
                 alignment: AlignmentType.CENTER,
                 borders: bordersNoneConfig,
-                rows: [
-                    new TableRow({
-                        cantSplit: true,
-                        children: [
-                            new TableCell({
-                                children: cell1Children,
-                                borders: bordersNoneConfig,
-                            }),
-                            new TableCell({
-                                children: cell2Children,
-                                borders: bordersNoneConfig,
-                            })
-                        ]
-                    })
-                ]
+                rows: tableRows
             }));
         }
 
