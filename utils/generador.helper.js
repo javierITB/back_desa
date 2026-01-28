@@ -660,24 +660,38 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             const tableRows = [];
             for (let i = 0; i < signatures.length; i += 2) {
                 const sig1 = signatures[i];
-                const sig2 = signatures[i + 1]; // Puede ser undefined
+                const sig2 = signatures[i + 1];
 
-                const cell1Children = generarBloqueFirma(sig1);
-                const cell2Children = sig2 ? generarBloqueFirma(sig2) : [new Paragraph("")];
+                if (!sig2) {
+                    // Si es impar y es el último, centrar usando columnSpan 2
+                    tableRows.push(new TableRow({
+                        cantSplit: true,
+                        children: [
+                            new TableCell({
+                                columnSpan: 2,
+                                children: generarBloqueFirma(sig1),
+                                borders: bordersNoneConfig,
+                            })
+                        ]
+                    }));
+                } else {
+                    const cell1Children = generarBloqueFirma(sig1);
+                    const cell2Children = generarBloqueFirma(sig2);
 
-                tableRows.push(new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({
-                            children: cell1Children,
-                            borders: bordersNoneConfig,
-                        }),
-                        new TableCell({
-                            children: cell2Children,
-                            borders: bordersNoneConfig,
-                        })
-                    ]
-                }));
+                    tableRows.push(new TableRow({
+                        cantSplit: true,
+                        children: [
+                            new TableCell({
+                                children: cell1Children,
+                                borders: bordersNoneConfig,
+                            }),
+                            new TableCell({
+                                children: cell2Children,
+                                borders: bordersNoneConfig,
+                            })
+                        ]
+                    }));
+                }
             }
 
             children.push(new Table({
