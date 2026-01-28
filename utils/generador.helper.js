@@ -284,9 +284,21 @@ function reemplazarVariablesEnTexto(texto, variables, estiloBase, contadorNumera
                 try { valor = formatearFechaEspanol(valor); } catch (e) { }
             }
 
+            // Lógica de Mayúsculas/Minúsculas según cómo se escribió la variable en el editor
+            let fianlText = String(valor);
+            const isUpper = rawVarName === rawVarName.toUpperCase() && /[a-zA-Z]/.test(rawVarName);
+            const isLower = rawVarName === rawVarName.toLowerCase() && /[a-zA-Z]/.test(rawVarName);
+
+            if (isUpper) {
+                fianlText = fianlText.toUpperCase();
+            } else if (isLower) {
+                fianlText = fianlText.toLowerCase();
+            }
+            // Si es mixto o "default", se deja tal cual viene del formulario
+
             runs.push(new TextRun({
-                text: String(valor),
-                bold: estiloBase.preventVariableBold ? estiloBase.bold : true,
+                text: fianlText,
+                bold: estiloBase.bold, // Respetar negrita del editor, no forzar
                 italics: estiloBase.italics,
                 underline: estiloBase.underline ? { type: BorderStyle.SINGLE } : undefined,
                 font: estiloBase.font,
@@ -460,7 +472,6 @@ function procesarHTML(html, variables) {
 
                     cells.push(new TableCell({
                         children: [new Paragraph({ children: tdRuns })],
-                        // CORRECCIÓN 1: Eliminado width fijo de 100% en celdas para evitar colapsos
                     }));
                 }
                 rows.push(new TableRow({ children: cells }));
