@@ -160,11 +160,19 @@ async function extraerVariablesDeRespuestas(responses, userData, db) {
     const hoy = new Date();
     variables['FECHA_ACTUAL'] = formatearFechaEspanol(hoy.toISOString().split("T")[0]);
     variables['HORA_ACTUAL'] = hoy.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago' });
-    const unAnio = new Date(hoy); unAnio.setFullYear(hoy.getFullYear() + 1);
+    const unAnio = new Date(hoy);
+    unAnio.setFullYear(hoy.getFullYear() + 1);
+    unAnio.setDate(unAnio.getDate() - 1);
     variables['FECHA_ACTUAL_1_ANIO'] = formatearFechaEspanol(unAnio.toISOString().split("T")[0]);
-    const seisMeses = new Date(hoy); seisMeses.setMonth(hoy.getMonth() + 6);
+
+    const seisMeses = new Date(hoy);
+    seisMeses.setMonth(hoy.getMonth() + 6);
+    seisMeses.setDate(seisMeses.getDate() - 1);
     variables['FECHA_ACTUAL_6_MESES'] = formatearFechaEspanol(seisMeses.toISOString().split("T")[0]);
-    const unMes = new Date(hoy); unMes.setMonth(hoy.getMonth() + 1);
+
+    const unMes = new Date(hoy);
+    unMes.setMonth(hoy.getMonth() + 1);
+    unMes.setDate(unMes.getDate() - 1);
     variables['FECHA_ACTUAL_1_MES'] = formatearFechaEspanol(unMes.toISOString().split("T")[0]);
 
     return variables;
