@@ -2928,6 +2928,7 @@ router.delete("/:id/remove-correction", async (req, res) => {
 });
 
 // Subir PDF firmado por cliente a colección firmados y cambiar estado de respuesta a 'firmado'
+
 router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), async (req, res) => {
   try {
     const { responseId } = req.params;
@@ -2954,7 +2955,6 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
       const resultado = {};
       for (const key in obj) {
         const valor = obj[key];
-        // Si el valor es un string y tiene el prefijo de cifrado (contiene ':'), descifrar
         if (typeof valor === 'string' && valor.includes(':')) {
           resultado[key] = decrypt(valor);
         } else {
@@ -2964,9 +2964,8 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
       return resultado;
     };
 
-    // Desciframos las respuestas para poder leer el nombre real
     const responsesDescifradas = descifrarObjeto(respuesta.responses || {});
-    const nombreTrabajador = responsesDescifradas['Nombre del trabajador'] || "Trabajador";
+    const nombreTrabajador = responsesDescifradas['NOMBRE DEL TRABAJADOR'] || "Trabajador";
     // -------------------------------------
 
     const existingSignature = await req.db.collection("firmados").findOne({
@@ -2985,7 +2984,7 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
       fileSize: req.file.size,
       mimeType: req.file.mimetype,
       uploadedAt: new Date(),
-      signedBy: nombreTrabajador, // USANDO NOMBRE DESCIFRADO
+      signedBy: nombreTrabajador,
       clientName: respuesta.submittedBy || respuesta.user?.nombre,
       clientEmail: respuesta.userEmail || respuesta.user?.mail
     };
@@ -3015,7 +3014,6 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
     await addNotification(req.db, {
       filtro: { cargo: "RRHH" },
       titulo: `Documento ${respuesta.formTitle} Firmado`,
-      // USANDO NOMBRE DESCIFRADO EN LA DESCRIPCIÓN
       descripcion: `se ha recibido el Documento Firmado asociado al Formulario ${respuesta.formTitle} de ${nombreTrabajador}`,
       prioridad: 2,
       icono: 'Pen',

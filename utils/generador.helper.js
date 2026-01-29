@@ -746,25 +746,37 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                     try { return decrypt(e.nombre) === userData.empresa; } catch { return false; }
                 });
 
+                // Helper simple para mapear mime a tipo docx
+                const mapMimeToDocxType = (mime) => {
+                    const m = mime ? mime.toLowerCase() : '';
+                    if (m.includes('jpeg') || m.includes('jpg')) return 'jpeg';
+                    if (m.includes('png')) return 'png';
+                    if (m.includes('gif')) return 'gif';
+                    return 'png';
+                };
+
                 let logoImage = null;
+                let logoAuthType = 'png';
+
                 if (empresaFound && empresaFound.logo && empresaFound.logo.fileData) {
                     const logoDecrypted = decrypt(empresaFound.logo.fileData);
                     logoImage = Buffer.from(logoDecrypted, 'base64');
+                    logoAuthType = mapMimeToDocxType(empresaFound.logo.mimeType);
                 }
 
                 // 2. Construir Tabla del Header
-                if (logoImage) {
+                if (logoImage || logoConfig.rightLogoData) {
                     const headerRows = [];
                     const cellChildrenLeft = [];
                     const cellChildrenRight = [];
 
                     // Celda Izquierda
-                    if (logoConfig.left) {
+                    if (logoConfig.left && logoImage) {
                         cellChildrenLeft.push(new Paragraph({
                             children: [new ImageRun({
                                 data: logoImage,
                                 transformation: { width: 100, height: 50 },
-                                type: "png"
+                                type: logoAuthType
                             })]
                         }));
                     } else {
@@ -774,16 +786,24 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                     // Celda Derecha
                     if (logoConfig.right) {
                         let rightImage = logoImage;
+                        let rightImgType = logoAuthType;
 
                         if (logoConfig.rightLogoData) {
                             try {
                                 const parts = logoConfig.rightLogoData.split(',');
-                                const base64Data = parts.length > 1 ? parts[1] : parts[0];
-                                if (base64Data) {
-                                    rightImage = Buffer.from(base64Data, 'base64');
+                                if (parts.length > 1) {
+                                    // data:image/jpeg;base64
+                                    const mimeMatch = parts[0].match(/:(.*?);/);
+                                    if (mimeMatch) {
+                                        rightImgType = mapMimeToDocxType(mimeMatch[1]);
+                                    }
+                                    rightImage = Buffer.from(parts[1], 'base64');
+                                } else {
+                                    rightImage = Buffer.from(parts[0], 'base64');
                                 }
                             } catch (e) {
                                 console.error("Error procesando custom right logo:", e);
+                                if (!logoImage) rightImage = null;
                             }
                         }
 
@@ -793,7 +813,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                                 children: [new ImageRun({
                                     data: rightImage,
                                     transformation: { width: 100, height: 50 },
-                                    type: "png"
+                                    type: rightImgType
                                 })]
                             }));
                         } else {
