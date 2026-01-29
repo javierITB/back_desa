@@ -88,14 +88,38 @@ const mapMimeToDocxType = (mime) => {
     return 'png';
 };
 
+// Validar Magic Bytes
+function validarImagen(buffer, type) {
+    if (!buffer || buffer.length < 4) return false;
+    const header = buffer.toString('hex', 0, 4).toUpperCase();
+
+    // PNG: 89 50 4E 47
+    if (type === 'png' && header === '89504E47') return true;
+
+    // JPEG: FF D8 ...
+    if (type === 'jpeg' || type === 'jpg') {
+        if (header.startsWith('FFD8')) return true;
+    }
+
+    // GIF: 47 49 46 38
+    if (type === 'gif' && header === '47494638') return true;
+
+    console.warn(`[IMAGE WARNING] Mismatch type ${type} vs header ${header}`);
+    return false;
+}
+
 function procesarLogoEmpresa(empresaInfo) {
     if (!empresaInfo || !empresaInfo.logo || !empresaInfo.logo.fileData) return null;
     try {
         const logoDecrypted = decrypt(empresaInfo.logo.fileData);
-        return {
-            buffer: Buffer.from(logoDecrypted, 'base64'),
-            type: mapMimeToDocxType(empresaInfo.logo.mimeType)
-        };
+        const buffer = Buffer.from(logoDecrypted, 'base64');
+        const type = mapMimeToDocxType(empresaInfo.logo.mimeType);
+
+        if (!validarImagen(buffer, type)) {
+            console.error("Logo Empresa: Firma de archivo inválida.");
+            return null; // Empresa logo might be old/bad, safer to skip than crash
+        }
+        return { buffer, type };
     } catch (e) {
         console.error("Error procesando logo empresa:", e);
         return null;
@@ -106,19 +130,26 @@ function procesarLogoCustom(dataUrl) {
     if (!dataUrl) return null;
     try {
         const parts = dataUrl.split(',');
+        let buffer, type;
+
         if (parts.length > 1) {
-            // data:image/jpeg;base64,...
             const mimeMatch = parts[0].match(/:(.*?);/);
-            const type = mimeMatch ? mapMimeToDocxType(mimeMatch[1]) : 'png';
-            const buffer = Buffer.from(parts[1], 'base64');
-            return { buffer, type };
+            type = mimeMatch ? mapMimeToDocxType(mimeMatch[1]) : 'png';
+            buffer = Buffer.from(parts[1], 'base64');
         } else {
-            // Raw base64 fallback
-            return { buffer: Buffer.from(parts[0], 'base64'), type: 'png' };
+            type = 'png';
+            buffer = Buffer.from(parts[0], 'base64');
         }
+
+        if (!validarImagen(buffer, type)) {
+            // THROW to trigger TXT fallback as requested by user for failing custom logos
+            throw new Error(`Logo Custom: Firma de archivo inválida (${type} detectado, pero cabecera incorrecta).`);
+        }
+
+        return { buffer, type };
     } catch (e) {
         console.error("Error procesando logo custom:", e);
-        return null;
+        throw e; // Relanzar
     }
 }
 
