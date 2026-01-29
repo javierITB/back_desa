@@ -604,13 +604,27 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         continue;
                     }
 
-                    if (linea.trim() === '') {
-                        parrafosFirma.push(new Paragraph({ text: "", spacing: { after: 200 }, keepWithNext: true }));
+                    if (linea.trim() === '__________________________') {
+                        // Línea de firma
+                        parrafosFirma.push(new Paragraph({
+                            children: [new TextRun({ text: linea, bold: true, size: 24 })],
+                            alignment: AlignmentType.CENTER
+                        }));
                         continue;
                     }
 
-                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, { ...baseStyles, preventVariableBold: true }, null);
+                    // Ignorar líneas vacías extra (opcional)
+                    // if (!linea.trim()) continue;
 
+                    // Procesar contenido con estilos
+                    // Detectar si la línea contiene variables para NO aplicar negrita forzada a la línea completa si es la firma
+                    // Pero aquí queremos aplicar los estilos definidos en la configuración de la firma (titleBold, etc)
+
+                    const runOpts = { ...baseStyles };
+                    // IMPORTANTE: Aquí la negrita ya viene definida por baseStyles (que viene de sig.titleBold o sig.textBold)
+                    // No forzamos nada extra.
+
+                    const runs = reemplazarVariablesEnTexto(linea, variables, runOpts, null);
                     parrafosFirma.push(new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: runsLinea,
