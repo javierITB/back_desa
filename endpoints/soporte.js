@@ -427,7 +427,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
     // Descifrar nombre para notificaciones si está cifrado
     let nombreUsuarioDescifrado = usuario?.nombre || 'Usuario';  // ← SOLO CAMBIA ESTA LÍNEA
 
-    const message = `El cliente ${nombreUsuarioDescifrado} de la empresa ${empresaDescifrada} ha levantado un ticket de soporte.`;
+    const message = `${nombreUsuarioDescifrado} de la empresa ${empresaDescifrada} ha levantado un ticket de soporte.`;
     const notifData = {
       titulo: message,
       descripcion: adjuntosFiles.length > 0 ? `Incluye ${adjuntosFiles.length} archivo(s)` : "Revisar en panel.",
@@ -458,7 +458,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
     } catch (error) {
       console.error("Error generando documento:", error.message);
     }
-    
+
     const metadata = {
        categoria: category || "desconocida",
     };
