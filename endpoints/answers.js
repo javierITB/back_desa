@@ -241,7 +241,12 @@ router.post("/", async (req, res) => {
       console.error("Error generando documento:", error.message);
     }
 
-    registerSolicitudCreationEvent(req, formTitle, user, tokenValido);
+
+    const description = `${usuario} de la empresa ${empresa} ha respondido el formulario ${formTitle}`;
+    const metadata = { nombre_de_solicitud: formTitle };
+
+    registerSolicitudCreationEvent(req, tokenValido, description, metadata);
+
 
     // Respuesta al frontend con datos DESCIFRADOS (como espera el frontend)
     res.json({
@@ -390,6 +395,15 @@ router.post("/admin", async (req, res) => {
       console.error("Error generando documento:", error.message);
     }
 
+
+    const description = `El administrador ${adminUser?.nombre} creó "${formTitle}" para el cliente ${destinatarioUserObject.nombre}`;
+    const metadata = { nombre_solicitud: formTitle, cliente: {
+      nombre: destinatarioUserObject.nombre,
+      email: destinatarioUserObject.mail,
+      empresa: destinatarioUserObject.empresa,
+    } };
+
+    registerSolicitudCreacionEvent(req, tokenValido, description, metadata);
     // Responder con datos DESCIFRADOS al frontend
     res.json({
       _id: result.insertedId,

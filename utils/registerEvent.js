@@ -28,63 +28,19 @@ async function registerEvent(req, auth, event) {
    }
 }
 
-export async function registerSolicitudCreationEvent(req, formTitle, user, auth ) {
-
-   registerEvent(req, auth, {
+export async function registerSolicitudCreationEvent(req, auth, description = "", metadata = {}) {
+   const payload = {
       code: CODES.SOLICITUD_CREACION,
       target: {
          type: TARGET_TYPES.SOLICITUD,
       },
-      description: `${user.nombre} de la empresa ${user.empresa} ha respondido el formulario ${formTitle}`,
-      metadata: {
-         nombre_de_solicitud: formTitle,
-      },
-   });
-
-
+      description,
+      metadata
+   };
+   
+   registerEvent(req, auth, payload);
 }
-// async function registerStatusChangeEvent(req, { updatedResponse, auth, result, error = null }) {
-//    let description = "Cambio de estado de solicitud";
 
-//    registerEvent(req, auth, {
-//       code: CODES.SOLICITUD_CAMBIO_ESTADO,
-//       target: {
-//          type: TARGET_TYPES.SOLICITUD,
-//          _id: updatedResponse?._id?.toString() || null,
-//       },
-
-//       description: updatedResponse
-//          ? `${description} "${updatedResponse?.formTitle}" a ${updatedResponse?.status}`
-//          : description + " desconocida",
-//       metadata: {
-//          nombre_de_solicitud: updatedResponse?.formTitle || "desconocido",
-//          nuevo_estado: updatedResponse?.status || "desconocido",
-//       },
-
-//       result,
-//       ...(error && { error_message: error.message }),
-//    });
-// }
-
-// export async function registerRegenerateDocumentEvent(req, { respuesta, auth, result, error = null }) {
-
-//    let description = "Regeneración de documento de solicitud";
-
-//    registerEvent(req, auth, {
-//       code: CODES.SOLICITUD_REGENERACION_DOCUMENTO,
-//       target: {
-//          type: TARGET_TYPES.SOLICITUD,
-//          _id: respuesta?._id.toString() || null,
-//       },
-
-//       description: respuesta ? `${description} "${respuesta?.formTitle}"` : description + " desconocida",
-//       metadata: {
-//          nombre_de_solicitud: respuesta?.formTitle,
-//       },
-//       result,
-//       ...(error && { error_message: error.message }),
-//    });
-// }
 
 // codes
 const CODES = {
