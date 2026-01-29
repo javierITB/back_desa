@@ -260,9 +260,20 @@ async function buscarPlantillaPorFormId(formId, db) {
 
 async function extraerVariablesDeRespuestas(responses, userData, db) {
     const variables = {};
+    const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+
     Object.keys(responses).forEach(key => {
         if (key === '_contexto') return;
         let valor = responses[key];
+
+        // Intentar desencriptar si parece un string cifrado
+        if (typeof valor === 'string' && encryptedRegex.test(valor)) {
+            try {
+                valor = decrypt(valor);
+            } catch (e) {
+            }
+        }
+
         if (Array.isArray(valor)) valor = valor.join(', ');
         if (valor && typeof valor === 'object' && !Array.isArray(valor)) valor = JSON.stringify(valor);
         const nombreVariable = normalizarNombreVariable(key);
