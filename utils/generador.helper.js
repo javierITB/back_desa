@@ -733,9 +733,110 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             }));
         }
 
+        // Logica de logos
+        let header = null;
+        const logoConfig = plantilla.logoConfig || { left: false, right: false };
+
+        if (logoConfig.left || logoConfig.right) {
+            try {
+                // 1. Obtener Logo de la empresa
+                const { decrypt } = require('./seguridad.helper');
+                const empresas = await db.collection("empresas").find().toArray();
+                const empresaFound = empresas.find(e => {
+                    try { return decrypt(e.nombre) === userData.empresa; } catch { return false; }
+                });
+
+                let logoImage = null;
+                if (empresaFound && empresaFound.logo && empresaFound.logo.fileData) {
+                    const logoDecrypted = decrypt(empresaFound.logo.fileData);
+                    logoImage = Buffer.from(logoDecrypted, 'base64');
+                }
+
+                // 2. Construir Tabla del Header
+                if (logoImage) {
+                    const headerRows = [];
+                    const cellChildrenLeft = [];
+                    const cellChildrenRight = [];
+
+                    // Celda Izquierda
+                    if (logoConfig.left) {
+                        cellChildrenLeft.push(new Paragraph({
+                            children: [new ImageRun({
+                                data: logoImage,
+                                transformation: { width: 100, height: 50 },
+                                type: "png"
+                            })]
+                        }));
+                    } else {
+                        cellChildrenLeft.push(new Paragraph(""));
+                    }
+
+                    // Celda Derecha
+                    if (logoConfig.right) {
+                        let rightImage = logoImage;
+
+                        if (logoConfig.rightLogoData) {
+                            try {
+                                const parts = logoConfig.rightLogoData.split(',');
+                                const base64Data = parts.length > 1 ? parts[1] : parts[0];
+                                if (base64Data) {
+                                    rightImage = Buffer.from(base64Data, 'base64');
+                                }
+                            } catch (e) {
+                                console.error("Error procesando custom right logo:", e);
+                            }
+                        }
+
+                        if (rightImage) {
+                            cellChildrenRight.push(new Paragraph({
+                                alignment: AlignmentType.RIGHT,
+                                children: [new ImageRun({
+                                    data: rightImage,
+                                    transformation: { width: 100, height: 50 },
+                                    type: "png"
+                                })]
+                            }));
+                        } else {
+                            cellChildrenRight.push(new Paragraph(""));
+                        }
+                    } else {
+                        cellChildrenRight.push(new Paragraph(""));
+                    }
+
+                    const tableHeader = new Table({
+                        width: { size: 100, type: WidthType.PERCENTAGE },
+                        borders: {
+                            top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                            bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                            left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                            right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                            insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
+                        },
+                        rows: [
+                            new TableRow({
+                                children: [
+                                    new TableCell({ children: cellChildrenLeft }),
+                                    new TableCell({ children: cellChildrenRight })
+                                ]
+                            })
+                        ]
+                    });
+
+                    header = {
+                        default: new Header({
+                            children: [tableHeader, new Paragraph({ text: "", spacing: { after: 200 } })]
+                        })
+                    };
+                }
+            } catch (error) {
+                console.error("Error generando header logos:", error);
+            }
+        }
+
         const doc = new Document({
             sections: [{
                 properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
+                headers: header || undefined,
                 children: children
             }]
         });
@@ -759,7 +860,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
     }
 }
 
-// ========== TXT FALLBACK ==========
+// TXT Fallback
 
 async function generarDocumentoTxt(responses, responseId, db, formTitle) {
     try {
