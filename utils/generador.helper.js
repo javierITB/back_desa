@@ -763,7 +763,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
                 // Configurar estilos del texto (contenido)
                 const textStyles = {
-                    size: sig.textFontSize ? parseInt(sig.textFontSize) * 2 : 24, // DOCX usa half-points
+                    size: (sig.textFontSize && !isNaN(parseInt(sig.textFontSize))) ? parseInt(sig.textFontSize) * 2 : 24, // DOCX usa half-points
                     font: sig.textFontFamily || undefined,
                     bold: !!sig.textBold,
                     italics: !!sig.textItalic,
@@ -786,7 +786,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                             bold: !!sig.titleBold,
                             italics: !!sig.titleItalic,
                             underline: sig.titleUnderline ? { type: "single" } : undefined,
-                            size: sig.titleFontSize ? parseInt(sig.titleFontSize) * 2 : 24,
+                            size: (sig.titleFontSize && !isNaN(parseInt(sig.titleFontSize))) ? parseInt(sig.titleFontSize) * 2 : 24,
                             font: sig.titleFontFamily || undefined
                         })],
                         spacing: { after: 0 },
