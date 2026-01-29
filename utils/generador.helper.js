@@ -919,11 +919,9 @@ async function generarAnexoDesdeRespuesta(responses, responseId, db, section, us
             return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
         } catch (error) {
             console.error("[GENERADOR] Error crítico generando DOCX desde plantilla:", error);
-            // DEBUG: Write error
             try {
                 const fs = require('fs');
                 const path = require('path');
-                // fs.writeFileSync(path.join(process.cwd(), 'debug_error.txt'), error.stack || error.toString());
             } catch (e) { }
             return await generarDocumentoTxt(responses, responseId, db, formTitle);
         }

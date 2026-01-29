@@ -75,33 +75,41 @@ export async function getUserByTokenId(db, tokenId) {
    }
 }
 
-export function encryptObject(obj) {
+export function encryptObject(obj, seen = new WeakSet()) {
    if (!obj || typeof obj !== "object") return obj;
    if (seen.has(obj)) return obj;
 
-      seen.add(obj);
+   seen.add(obj);
    const resultado = {};
+
    for (const key in obj) {
       const valor = obj[key];
 
       if (typeof valor === "string" && valor.trim() !== "" && !valor.includes(":")) {
          resultado[key] = encrypt(valor);
+
       } else if (typeof valor === "object" && valor !== null) {
          if (Array.isArray(valor)) {
             resultado[key] = valor.map((item) => {
-               if (typeof item === "string" && item.trim() !== "" && !item.includes(":")) {
+               if (
+                  typeof item === "string" &&
+                  item.trim() !== "" &&
+                  !item.includes(":")
+               ) {
                   return encrypt(item);
                } else if (typeof item === "object" && item !== null) {
-                  return encryptObject(item);
+                  return encryptObject(item, seen);
                }
                return item;
             });
          } else {
-            resultado[key] = encryptObject(valor);
+            resultado[key] = encryptObject(valor, seen);
          }
       } else {
          resultado[key] = valor;
       }
    }
+
    return resultado;
 }
+
