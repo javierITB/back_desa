@@ -157,7 +157,7 @@ function crearImageRunHeader(imgData, floatingOptions) {
 
     const config = {
         data: imgData.buffer,
-        transformation: { width: 100, height: 50 },
+        transformation: { width: 100, height: 100 },
         type: imgData.type
     };
 
