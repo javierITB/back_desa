@@ -2,7 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const docx = require("docx");
-const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, ImageRun, BorderStyle, HeadingLevel, TableLayoutType, Header } = docx;
+const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, ImageRun, BorderStyle, HeadingLevel, TableLayoutType, Header, HorizontalPositionRelativeFrom, VerticalPositionRelativeFrom } = docx;
 const { createBlindIndex, decrypt } = require("./seguridad.helper");
 
 // ========== UTILS: NORMALIZACIÓN Y FECHAS ==========
@@ -151,14 +151,21 @@ function procesarLogoCustom(dataUrl) {
     }
 }
 
-// Crea el ImageRun para el Header
-function crearImageRunHeader(imgData) {
+// Crea el ImageRun para el Header (Soporta Floating)
+function crearImageRunHeader(imgData, floatingOptions) {
     if (!imgData || !imgData.buffer) return null;
-    return new ImageRun({
+
+    const config = {
         data: imgData.buffer,
-        transformation: { width: 120, height: 60 }, // Tamaño optimizado
+        transformation: { width: 100, height: 50 },
         type: imgData.type
-    });
+    };
+
+    if (floatingOptions) {
+        config.floating = floatingOptions;
+    }
+
+    return new ImageRun(config);
 }
 
 // Construye el objeto Header completo
@@ -168,51 +175,66 @@ function construirHeaderLogos(logoConfig, empresaInfo) {
     try {
         const logoEmpresa = procesarLogoEmpresa(empresaInfo);
         const logoCustom = procesarLogoCustom(logoConfig.rightLogoData);
+        const children = [];
 
-        const leftImgRun = (logoConfig.left && logoEmpresa) ? crearImageRunHeader(logoEmpresa) : null;
+        // Configuración Floating Izquierda
+        const leftFloating = {
+            horizontalPosition: {
+                relative: HorizontalPositionRelativeFrom.PAGE,
+                offset: 201440
+            },
+            verticalPosition: {
+                relative: VerticalPositionRelativeFrom.PAGE,
+                offset: 201440
+            }
+        };
 
+        // Configuración Floating Derecha
+        const rightFloating = {
+            horizontalPosition: {
+                relative: HorizontalPositionRelativeFrom.PAGE,
+                align: AlignmentType.RIGHT
+            },
+            verticalPosition: {
+                relative: VerticalPositionRelativeFrom.PAGE,
+                offset: 201440
+            }
+        };
+
+        // 1. Logo Izquierdo
+        if (logoConfig.left && logoEmpresa) {
+            const img = crearImageRunHeader(logoEmpresa, leftFloating);
+            if (img) children.push(img);
+        }
+
+        // 2. Logo Derecho
         let rightImgData = null;
         if (logoConfig.right) {
             if (logoCustom) rightImgData = logoCustom;
             else if (logoEmpresa) rightImgData = logoEmpresa;
         }
-        const rightImgRun = rightImgData ? crearImageRunHeader(rightImgData) : null;
 
-        // Celdas con anchos 50% explícitos para Google Docs
-        const cellLeft = new TableCell({
-            children: [new Paragraph({
-                alignment: AlignmentType.LEFT,
-                children: leftImgRun ? [leftImgRun] : []
-            })],
-            width: { size: 50, type: WidthType.PERCENTAGE },
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
-        });
+        if (rightImgData) {
+            const img = crearImageRunHeader(rightImgData, rightFloating);
+            if (img) children.push(img);
+        }
 
-        const cellRight = new TableCell({
-            children: [new Paragraph({
-                alignment: AlignmentType.RIGHT,
-                children: rightImgRun ? [rightImgRun] : []
-            })],
-            width: { size: 50, type: WidthType.PERCENTAGE },
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
-        });
-
-        const table = new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            columnWidths: [4800, 4800], // ~8.5cm cada columna
-            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE } },
-            rows: [new TableRow({ children: [cellLeft, cellRight] })]
-        });
-
+        // Retornar Header con párrafo simple (imágenes flotantes no requieren tabla)
         return {
             default: new Header({
-                children: [table, new Paragraph({ text: "", spacing: { after: 200 } })]
+                children: [
+                    new Paragraph({
+                        children: children,
+                        text: ""
+                    }),
+                    new Paragraph({ text: "", spacing: { after: 200 } })
+                ]
             })
         };
 
     } catch (e) {
         console.error("Error construyendo header logos:", e);
-        throw e; // Relanzar
+        throw e;
     }
 }
 

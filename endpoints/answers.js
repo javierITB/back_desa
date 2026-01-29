@@ -396,7 +396,7 @@ router.post("/admin", async (req, res) => {
     }
 
 
-    const description = `El administrador ${adminUser?.nombre} creó "${formTitle}" para el cliente ${destinatarioUserObject.nombre}`;
+    const description = `El administrador ${adminUser?.nombre} creó "${formTitle}"`;
     const metadata = { nombre_solicitud: formTitle, cliente: {
       nombre: destinatarioUserObject.nombre,
       email: destinatarioUserObject.mail,
