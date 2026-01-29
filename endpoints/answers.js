@@ -403,7 +403,7 @@ router.post("/admin", async (req, res) => {
       empresa: destinatarioUserObject.empresa,
     } };
 
-    registerSolicitudCreacionEvent(req, tokenValido, description, metadata);
+    registerSolicitudCreationEvent(req, tokenValido, description, metadata);
     // Responder con datos DESCIFRADOS al frontend
     res.json({
       _id: result.insertedId,
