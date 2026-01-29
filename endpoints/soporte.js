@@ -8,6 +8,7 @@ const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper.js");
 const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper.js");
 const { sendEmail } = require("../utils/mail.helper.js");
+const { registerTicketCreationEvent } = require("../utils/registerEvent.js");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -426,8 +427,9 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
     // Descifrar nombre para notificaciones si está cifrado
     let nombreUsuarioDescifrado = usuario?.nombre || 'Usuario';  // ← SOLO CAMBIA ESTA LÍNEA
 
+    const message = `El cliente ${nombreUsuarioDescifrado} de la empresa ${empresaDescifrada} ha levantado un ticket de soporte.`;
     const notifData = {
-      titulo: `${nombreUsuarioDescifrado} de la empresa ${empresaDescifrada} ha levantado un ticket de soporte`,
+      titulo: message,
       descripcion: adjuntosFiles.length > 0 ? `Incluye ${adjuntosFiles.length} archivo(s)` : "Revisar en panel.",
       prioridad: 2,
       color: "#bb8900ff",
@@ -456,6 +458,11 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
     } catch (error) {
       console.error("Error generando documento:", error.message);
     }
+    
+    const metadata = {
+       categoria: category || "desconocida",
+    };
+    registerTicketCreationEvent(req, tokenValido, message, metadata);
 
     res.json({ _id: result.insertedId, formId, user, responses, formTitle, mail: correoRespaldo });
 

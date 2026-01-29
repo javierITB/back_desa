@@ -578,9 +578,10 @@ function procesarHTML(html, variables) {
 
                 // Soporte para SPAN con font-size
                 if (lower.startsWith('<span')) {
-                    const styleMatch = lower.match(/style="([^"]*)"/i);
                     if (styleMatch && styleMatch[1]) {
                         const stylesStr = styleMatch[1];
+
+                        // Font Size
                         const sizeMatch = stylesStr.match(/font-size:\s*([\d\.]+)(pt|px)/i);
                         if (sizeMatch) {
                             let val = parseFloat(sizeMatch[1]);
@@ -590,6 +591,12 @@ function procesarHTML(html, variables) {
                             } else if (unit === 'px') {
                                 currentSpanStyle.size = Math.round(val * 1.5);
                             }
+                        }
+
+                        // Font Family
+                        const fontMatch = stylesStr.match(/font-family:\s*['"]?([^'";]+)['"]?/i);
+                        if (fontMatch && fontMatch[1]) {
+                            currentSpanStyle.font = fontMatch[1].trim();
                         }
                     }
                     continue;
@@ -756,7 +763,8 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
 
                 // Configurar estilos del texto (contenido)
                 const textStyles = {
-                    size: 24,
+                    size: sig.textFontSize ? parseInt(sig.textFontSize) * 2 : 24, // DOCX usa half-points
+                    font: sig.textFontFamily || undefined,
                     bold: !!sig.textBold,
                     italics: !!sig.textItalic,
                     underline: sig.textUnderline ? { type: "single" } : undefined
@@ -778,7 +786,8 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                             bold: !!sig.titleBold,
                             italics: !!sig.titleItalic,
                             underline: sig.titleUnderline ? { type: "single" } : undefined,
-                            size: 24
+                            size: sig.titleFontSize ? parseInt(sig.titleFontSize) * 2 : 24,
+                            font: sig.titleFontFamily || undefined
                         })],
                         spacing: { after: 0 },
                         keepWithNext: true
