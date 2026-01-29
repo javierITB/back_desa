@@ -15,6 +15,7 @@ router.get("/todos", async (req, res) => {
       const eventsProcessed = events.map(event => ({
          ...event,
          actor: decryptActor(event.actor),
+         description: decrypt(event.description),
          metadata: decryptMetadata(event.metadata),
       }));
 

@@ -1,4 +1,5 @@
 const { getUserByTokenId, encryptObject } = require("./registerEvent.helper.js");
+const { encrypt } = require("../utils/seguridad.helper");
 
 async function registerEvent(req, auth, event, metadata = {}) {
    const tokenId = auth?.data?._id?.toString() || null;
@@ -16,6 +17,11 @@ async function registerEvent(req, auth, event, metadata = {}) {
          cargo: userData?.cargo || "desconocido",
          estado: userData?.estado || "desconocido",
       },
+      description:
+         typeof event.description === "string" && !event.description.includes(":")
+            ? encrypt(event.description)
+            : event.description,
+            
       metadata: encryptObject(metadata),
       createdAt: new Date(),
    };
@@ -34,12 +40,11 @@ export async function registerSolicitudCreationEvent(req, auth, description = ""
       target: {
          type: TARGET_TYPES.SOLICITUD,
       },
-      description
+      description,
    };
 
-   registerEvent(req, auth, payload, metadata);
+   await registerEvent(req, auth, payload, metadata);
 }
-
 
 // codes
 const CODES = {
