@@ -2947,7 +2947,6 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
   try {
     const { responseId } = req.params;
 
-    // Verificar token
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
@@ -2963,24 +2962,16 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
       return res.status(404).json({ error: "Formulario no encontrado" });
     }
 
-    // --- LÓGICA DE DESCIFRADO AGREGADA ---
-    const descifrarObjeto = (obj) => {
-      if (!obj || typeof obj !== 'object') return obj;
-      const resultado = {};
-      for (const key in obj) {
-        const valor = obj[key];
-        if (typeof valor === 'string' && valor.includes(':')) {
-          resultado[key] = decrypt(valor);
-        } else {
-          resultado[key] = valor;
-        }
-      }
-      return resultado;
-    };
-
-    const responsesDescifradas = descifrarObjeto(respuesta.responses || {});
-    const nombreTrabajador = responsesDescifradas['NOMBRE DEL TRABAJADOR'] || "Trabajador";
-    // -------------------------------------
+    // --- LÓGICA DE EXTRACCIÓN Y DESCIFRADO ---
+    const resps = respuesta.responses || {};
+    // Busca el valor en cualquiera de las dos variantes de la llave
+    const valorOriginal = resps['NOMBRE DEL TRABAJADOR'] || resps['Nombre del trabajador'];
+    
+    // Si el valor existe y contiene ':', se descifra; si no, se usa tal cual
+    const nombreTrabajador = (typeof valorOriginal === 'string' && valorOriginal.includes(':'))
+      ? decrypt(valorOriginal)
+      : (valorOriginal || "Trabajador");
+    // -----------------------------------------
 
     const existingSignature = await req.db.collection("firmados").findOne({
       responseId: responseId
@@ -3015,14 +3006,9 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
       company: respuesta.company
     });
 
-    const updateResult = await req.db.collection("respuestas").updateOne(
+    await req.db.collection("respuestas").updateOne(
       { _id: new ObjectId(responseId) },
-      {
-        $set: {
-          status: "firmado",
-          signedAt: new Date()
-        }
-      }
+      { $set: { status: "firmado", signedAt: new Date() } }
     );
 
     await addNotification(req.db, {
