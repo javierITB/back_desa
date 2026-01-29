@@ -89,23 +89,20 @@ const mapMimeToDocxType = (mime) => {
 };
 
 // Validar Magic Bytes
-function validarImagen(buffer, type) {
-    if (!buffer || buffer.length < 4) return false;
+function detectarTipoImagen(buffer) {
+    if (!buffer || buffer.length < 4) return null;
     const header = buffer.toString('hex', 0, 4).toUpperCase();
 
     // PNG: 89 50 4E 47
-    if (type === 'png' && header === '89504E47') return true;
+    if (header === '89504E47') return 'png';
 
     // JPEG: FF D8 ...
-    if (type === 'jpeg' || type === 'jpg') {
-        if (header.startsWith('FFD8')) return true;
-    }
+    if (header.startsWith('FFD8')) return 'jpeg';
 
     // GIF: 47 49 46 38
-    if (type === 'gif' && header === '47494638') return true;
+    if (header === '47494638') return 'gif';
 
-    console.warn(`[IMAGE WARNING] Mismatch type ${type} vs header ${header}`);
-    return false;
+    return null;
 }
 
 function procesarLogoEmpresa(empresaInfo) {
@@ -113,12 +110,15 @@ function procesarLogoEmpresa(empresaInfo) {
     try {
         const logoDecrypted = decrypt(empresaInfo.logo.fileData);
         const buffer = Buffer.from(logoDecrypted, 'base64');
-        const type = mapMimeToDocxType(empresaInfo.logo.mimeType);
 
-        if (!validarImagen(buffer, type)) {
-            console.error("Logo Empresa: Firma de archivo inválida.");
-            return null; // Empresa logo might be old/bad, safer to skip than crash
+        // Intentar detectar tipo real
+        let type = detectarTipoImagen(buffer);
+        if (!type) {
+            // Fallback a MIME si la detección falla (ej. BMP o variantes raras)
+            console.warn("Logo Empresa: Tipo no detectado por firma, usando MIME DB.");
+            type = mapMimeToDocxType(empresaInfo.logo.mimeType);
         }
+
         return { buffer, type };
     } catch (e) {
         console.error("Error procesando logo empresa:", e);
@@ -130,26 +130,24 @@ function procesarLogoCustom(dataUrl) {
     if (!dataUrl) return null;
     try {
         const parts = dataUrl.split(',');
-        let buffer, type;
+        let buffer;
 
         if (parts.length > 1) {
-            const mimeMatch = parts[0].match(/:(.*?);/);
-            type = mimeMatch ? mapMimeToDocxType(mimeMatch[1]) : 'png';
             buffer = Buffer.from(parts[1], 'base64');
         } else {
-            type = 'png';
             buffer = Buffer.from(parts[0], 'base64');
         }
 
-        if (!validarImagen(buffer, type)) {
-            // THROW to trigger TXT fallback as requested by user for failing custom logos
-            throw new Error(`Logo Custom: Firma de archivo inválida (${type} detectado, pero cabecera incorrecta).`);
+        const type = detectarTipoImagen(buffer);
+        if (!type) {
+            // Si es custom y no tiene firma válida, rechazamos (seguridad/estabilidad)
+            throw new Error("Logo Custom: Formato de archivo no reconocido (Firma desconocida). Use PNG o JPG.");
         }
 
         return { buffer, type };
     } catch (e) {
         console.error("Error procesando logo custom:", e);
-        throw e; // Relanzar
+        throw e; // Relanzar para fallback TXT
     }
 }
 
@@ -158,7 +156,7 @@ function crearImageRunHeader(imgData) {
     if (!imgData || !imgData.buffer) return null;
     return new ImageRun({
         data: imgData.buffer,
-        transformation: { width: 100, height: 50 },
+        transformation: { width: 120, height: 60 }, // Tamaño optimizado
         type: imgData.type
     });
 }
@@ -171,7 +169,6 @@ function construirHeaderLogos(logoConfig, empresaInfo) {
         const logoEmpresa = procesarLogoEmpresa(empresaInfo);
         const logoCustom = procesarLogoCustom(logoConfig.rightLogoData);
 
-        // Si no hay imagenes disponibles y se requieren, no explota, pone vacío
         const leftImgRun = (logoConfig.left && logoEmpresa) ? crearImageRunHeader(logoEmpresa) : null;
 
         let rightImgData = null;
@@ -181,9 +178,13 @@ function construirHeaderLogos(logoConfig, empresaInfo) {
         }
         const rightImgRun = rightImgData ? crearImageRunHeader(rightImgData) : null;
 
-        // Construir celdas
+        // Celdas con anchos 50% explícitos para Google Docs
         const cellLeft = new TableCell({
-            children: [new Paragraph({ children: leftImgRun ? [leftImgRun] : [] })],
+            children: [new Paragraph({
+                alignment: AlignmentType.LEFT,
+                children: leftImgRun ? [leftImgRun] : []
+            })],
+            width: { size: 50, type: WidthType.PERCENTAGE },
             borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
         });
 
@@ -192,11 +193,13 @@ function construirHeaderLogos(logoConfig, empresaInfo) {
                 alignment: AlignmentType.RIGHT,
                 children: rightImgRun ? [rightImgRun] : []
             })],
+            width: { size: 50, type: WidthType.PERCENTAGE },
             borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
         });
 
         const table = new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
+            columnWidths: [4800, 4800], // ~8.5cm cada columna
             borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE } },
             rows: [new TableRow({ children: [cellLeft, cellRight] })]
         });
@@ -209,7 +212,7 @@ function construirHeaderLogos(logoConfig, empresaInfo) {
 
     } catch (e) {
         console.error("Error construyendo header logos:", e);
-        return null;
+        throw e; // Relanzar
     }
 }
 
