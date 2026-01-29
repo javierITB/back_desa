@@ -242,6 +242,7 @@ router.get("/full/:mail", async (req, res) => {
             projection: {
                _id: 1,
                nombre: 1,
+               apellido: 1,
                mail: 1,
                empresa: 1,
                cargo: 1,
@@ -262,6 +263,7 @@ router.get("/full/:mail", async (req, res) => {
       const usuarioDesencriptado = {
          _id: usr._id,
          nombre: decrypt(usr.nombre),
+         apellido: decrypt(usr.apellido),
          mail: decrypt(usr.mail),
          empresa: decrypt(usr.empresa),
          cargo: decrypt(usr.cargo),
