@@ -77,35 +77,111 @@ async function obtenerEmpresaDesdeBD(nombreEmpresa, db) {
     }
 }
 
-function crearLogoImagen(logoData) {
-    if (!logoData || !logoData.fileData) return null;
+// ========== LOGO HELPERS ==========
+
+// Helper para obtener tipo imagen DOCX
+const mapMimeToDocxType = (mime) => {
+    const m = mime ? mime.toLowerCase() : '';
+    if (m.includes('jpeg') || m.includes('jpg')) return 'jpeg';
+    if (m.includes('png')) return 'png';
+    if (m.includes('gif')) return 'gif';
+    return 'png';
+};
+
+function procesarLogoEmpresa(empresaInfo) {
+    if (!empresaInfo || !empresaInfo.logo || !empresaInfo.logo.fileData) return null;
     try {
-        let imageBuffer;
-        if (typeof logoData.fileData === 'string' && logoData.fileData.includes(':')) {
-            const base64Descifrado = decrypt(logoData.fileData);
-            imageBuffer = Buffer.from(base64Descifrado, 'base64');
-        } else if (logoData.fileData && logoData.fileData.buffer) {
-            imageBuffer = Buffer.from(logoData.fileData.buffer);
-        } else if (Buffer.isBuffer(logoData.fileData)) {
-            imageBuffer = logoData.fileData;
-        } else if (typeof logoData.fileData === 'string') {
-            imageBuffer = Buffer.from(logoData.fileData, 'base64');
-        } else {
-            return null;
-        }
-
-        if (!imageBuffer || imageBuffer.length === 0) return null;
-
-        return new ImageRun({
-            data: imageBuffer,
-            transformation: { width: 100, height: 100 },
-            floating: { horizontalPosition: { offset: 201440 }, verticalPosition: { offset: 201440 } }
-        });
-    } catch (error) {
-        console.error('Error creando imagen del logo:', error);
+        const logoDecrypted = decrypt(empresaInfo.logo.fileData);
+        return {
+            buffer: Buffer.from(logoDecrypted, 'base64'),
+            type: mapMimeToDocxType(empresaInfo.logo.mimeType)
+        };
+    } catch (e) {
+        console.error("Error procesando logo empresa:", e);
         return null;
     }
 }
+
+function procesarLogoCustom(dataUrl) {
+    if (!dataUrl) return null;
+    try {
+        const parts = dataUrl.split(',');
+        if (parts.length > 1) {
+            // data:image/jpeg;base64,...
+            const mimeMatch = parts[0].match(/:(.*?);/);
+            const type = mimeMatch ? mapMimeToDocxType(mimeMatch[1]) : 'png';
+            const buffer = Buffer.from(parts[1], 'base64');
+            return { buffer, type };
+        } else {
+            // Raw base64 fallback
+            return { buffer: Buffer.from(parts[0], 'base64'), type: 'png' };
+        }
+    } catch (e) {
+        console.error("Error procesando logo custom:", e);
+        return null;
+    }
+}
+
+// Crea el ImageRun para el Header
+function crearImageRunHeader(imgData) {
+    if (!imgData || !imgData.buffer) return null;
+    return new ImageRun({
+        data: imgData.buffer,
+        transformation: { width: 100, height: 50 },
+        type: imgData.type
+    });
+}
+
+// Construye el objeto Header completo
+function construirHeaderLogos(logoConfig, empresaInfo) {
+    if (!logoConfig || (!logoConfig.left && !logoConfig.right)) return null;
+
+    try {
+        const logoEmpresa = procesarLogoEmpresa(empresaInfo);
+        const logoCustom = procesarLogoCustom(logoConfig.rightLogoData);
+
+        // Si no hay imagenes disponibles y se requieren, no explota, pone vacío
+        const leftImgRun = (logoConfig.left && logoEmpresa) ? crearImageRunHeader(logoEmpresa) : null;
+
+        let rightImgData = null;
+        if (logoConfig.right) {
+            if (logoCustom) rightImgData = logoCustom;
+            else if (logoEmpresa) rightImgData = logoEmpresa;
+        }
+        const rightImgRun = rightImgData ? crearImageRunHeader(rightImgData) : null;
+
+        // Construir celdas
+        const cellLeft = new TableCell({
+            children: [new Paragraph({ children: leftImgRun ? [leftImgRun] : [] })],
+            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
+        });
+
+        const cellRight = new TableCell({
+            children: [new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                children: rightImgRun ? [rightImgRun] : []
+            })],
+            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
+        });
+
+        const table = new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE } },
+            rows: [new TableRow({ children: [cellLeft, cellRight] })]
+        });
+
+        return {
+            default: new Header({
+                children: [table, new Paragraph({ text: "", spacing: { after: 200 } })]
+            })
+        };
+
+    } catch (e) {
+        console.error("Error construyendo header logos:", e);
+        return null;
+    }
+}
+
 
 async function buscarPlantillaPorFormId(formId, db) {
     try {
@@ -533,18 +609,12 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         console.log("=== GENERANDO DOCUMENTO (TIPTAP SYSTEM) ===");
         const variables = await extraerVariablesDeRespuestas(responses, userData, db);
         const empresaInfo = await obtenerEmpresaDesdeBD(userData?.empresa || '', db);
-        const logo = empresaInfo ? empresaInfo.logo : null;
 
+        // --- HEADER LOGOS (Generados mediante helpers) ---
+        const header = construirHeaderLogos(plantilla.logoConfig, empresaInfo);
+
+        // --- BODY ---
         const children = [];
-
-        // 1. LOGO
-        if (logo) {
-            const logoImagen = crearLogoImagen(logo);
-            if (logoImagen) {
-                children.push(new Paragraph({ children: [logoImagen] }));
-                children.push(new Paragraph({ text: "" }));
-            }
-        }
 
         // 2. CONTENIDO PRINCIPAL
         if (plantilla.documentContent) {
@@ -605,7 +675,6 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                     }
 
                     if (linea.trim() === '__________________________') {
-                        // Línea de firma
                         parrafosFirma.push(new Paragraph({
                             children: [new TextRun({ text: linea, bold: true, size: 24 })],
                             alignment: AlignmentType.CENTER
@@ -613,18 +682,9 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
                         continue;
                     }
 
-                    // Ignorar líneas vacías extra (opcional)
-                    // if (!linea.trim()) continue;
-
-                    // Procesar contenido con estilos
-                    // Detectar si la línea contiene variables para NO aplicar negrita forzada a la línea completa si es la firma
-                    // Pero aquí queremos aplicar los estilos definidos en la configuración de la firma (titleBold, etc)
-
                     const runOpts = { ...baseStyles };
-                    // IMPORTANTE: Aquí la negrita ya viene definida por baseStyles (que viene de sig.titleBold o sig.textBold)
-                    // No forzamos nada extra.
+                    const runsLinea = reemplazarVariablesEnTexto(linea, variables, runOpts, null);
 
-                    const runs = reemplazarVariablesEnTexto(linea, variables, runOpts, null);
                     parrafosFirma.push(new Paragraph({
                         alignment: AlignmentType.CENTER,
                         children: runsLinea,
@@ -733,126 +793,6 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
             }));
         }
 
-        // Logica de logos
-        let header = null;
-        const logoConfig = plantilla.logoConfig || { left: false, right: false };
-
-        if (logoConfig.left || logoConfig.right) {
-            try {
-                // 1. Obtener Logo de la empresa
-                const { decrypt } = require('./seguridad.helper');
-                const empresas = await db.collection("empresas").find().toArray();
-                const empresaFound = empresas.find(e => {
-                    try { return decrypt(e.nombre) === userData.empresa; } catch { return false; }
-                });
-
-                // Helper simple para mapear mime a tipo docx
-                const mapMimeToDocxType = (mime) => {
-                    const m = mime ? mime.toLowerCase() : '';
-                    if (m.includes('jpeg') || m.includes('jpg')) return 'jpeg';
-                    if (m.includes('png')) return 'png';
-                    if (m.includes('gif')) return 'gif';
-                    return 'png';
-                };
-
-                let logoImage = null;
-                let logoAuthType = 'png';
-
-                if (empresaFound && empresaFound.logo && empresaFound.logo.fileData) {
-                    const logoDecrypted = decrypt(empresaFound.logo.fileData);
-                    logoImage = Buffer.from(logoDecrypted, 'base64');
-                    logoAuthType = mapMimeToDocxType(empresaFound.logo.mimeType);
-                }
-
-                // 2. Construir Tabla del Header
-                if (logoImage || logoConfig.rightLogoData) {
-                    const headerRows = [];
-                    const cellChildrenLeft = [];
-                    const cellChildrenRight = [];
-
-                    // Celda Izquierda
-                    if (logoConfig.left && logoImage) {
-                        cellChildrenLeft.push(new Paragraph({
-                            children: [new ImageRun({
-                                data: logoImage,
-                                transformation: { width: 100, height: 50 },
-                                type: logoAuthType
-                            })]
-                        }));
-                    } else {
-                        cellChildrenLeft.push(new Paragraph(""));
-                    }
-
-                    // Celda Derecha
-                    if (logoConfig.right) {
-                        let rightImage = logoImage;
-                        let rightImgType = logoAuthType;
-
-                        if (logoConfig.rightLogoData) {
-                            try {
-                                const parts = logoConfig.rightLogoData.split(',');
-                                if (parts.length > 1) {
-                                    // data:image/jpeg;base64
-                                    const mimeMatch = parts[0].match(/:(.*?);/);
-                                    if (mimeMatch) {
-                                        rightImgType = mapMimeToDocxType(mimeMatch[1]);
-                                    }
-                                    rightImage = Buffer.from(parts[1], 'base64');
-                                } else {
-                                    rightImage = Buffer.from(parts[0], 'base64');
-                                }
-                            } catch (e) {
-                                console.error("Error procesando custom right logo:", e);
-                                if (!logoImage) rightImage = null;
-                            }
-                        }
-
-                        if (rightImage) {
-                            cellChildrenRight.push(new Paragraph({
-                                alignment: AlignmentType.RIGHT,
-                                children: [new ImageRun({
-                                    data: rightImage,
-                                    transformation: { width: 100, height: 50 },
-                                    type: rightImgType
-                                })]
-                            }));
-                        } else {
-                            cellChildrenRight.push(new Paragraph(""));
-                        }
-                    } else {
-                        cellChildrenRight.push(new Paragraph(""));
-                    }
-
-                    const tableHeader = new Table({
-                        width: { size: 100, type: WidthType.PERCENTAGE },
-                        borders: {
-                            top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                            bottom: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                            left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                            right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                            insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
-                        },
-                        rows: [
-                            new TableRow({
-                                children: [
-                                    new TableCell({ children: cellChildrenLeft }),
-                                    new TableCell({ children: cellChildrenRight })
-                                ]
-                            })
-                        ]
-                    });
-
-                    header = {
-                        default: new Header({
-                            children: [tableHeader, new Paragraph({ text: "", spacing: { after: 200 } })]
-                        })
-                    };
-                }
-            } catch (error) {
-                console.error("Error generando header logos:", error);
-            }
-        }
-
         const doc = new Document({
             sections: [{
                 properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
@@ -862,6 +802,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
         });
 
         const buffer = await Packer.toBuffer(doc);
+
         const fileName = `${normalizarNombreVariable(formTitle)}.docx`;
 
         const existing = await db.collection('docxs').findOne({ responseId });
@@ -880,7 +821,7 @@ async function generarDocumentoDesdePlantilla(responses, responseId, db, plantil
     }
 }
 
-// TXT Fallback
+// ========== TXT FALLBACK ==========
 
 async function generarDocumentoTxt(responses, responseId, db, formTitle) {
     try {
@@ -922,6 +863,12 @@ async function generarAnexoDesdeRespuesta(responses, responseId, db, section, us
             return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
         } catch (error) {
             console.error("[GENERADOR] Error crítico generando DOCX desde plantilla:", error);
+            // DEBUG: Write error
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                // fs.writeFileSync(path.join(process.cwd(), 'debug_error.txt'), error.stack || error.toString());
+            } catch (e) { }
             return await generarDocumentoTxt(responses, responseId, db, formTitle);
         }
     } else {
