@@ -15,6 +15,7 @@ router.get("/todos", async (req, res) => {
       const eventsProcessed = events.map(event => ({
          ...event,
          actor: decryptActor(event.actor),
+         metadata: decryptMetadata(event.metadata),
       }));
 
       res.json(eventsProcessed);
@@ -25,23 +26,53 @@ router.get("/todos", async (req, res) => {
    }
 });
 
-function decryptActor(actor) {
-   if (!actor || typeof actor !== 'object') return actor;
-   
-   const actorDeciphered = { ...actor };
+function decryptMetadata(value) {
+   if (typeof value === "string") {
+      if (!value.includes(":")) return value;
+
+      try {
+         return decrypt(value);
+      } catch {
+         return value; // si no era cifrado real, no rompe
+      }
+   }
+
+   if (Array.isArray(value)) {
+      return value.map(decryptMetadata);
+   }
+
+   if (value && typeof value === "object") {
+      const result = {};
+      for (const key in value) {
+         result[key] = decryptMetadata(value[key]);
+      }
+      return result;
+   }
+
+   return value;
+}
+
+function decryptActor(actor) {   
    const campos = ['name', 'last_name', 'email', 'empresa', 'cargo'];
-   
-   for (const campo of campos) {
-      if (actorDeciphered[campo] && actorDeciphered[campo].includes(':')) {
+   return decryptByFields(actor, campos);
+}
+
+function decryptByFields(obj, fields = []) {
+   if (!obj || typeof obj !== "object") return obj;
+
+   const result = { ...obj };
+
+   for (const field of fields) {
+      if (typeof result[field] === "string" && result[field].includes(":")) {
          try {
-            actorDeciphered[campo] = decrypt(actorDeciphered[campo]);
-         } catch (error) {
-            console.error(`Error descifrando ${campo}:`, error);
+            result[field] = decrypt(result[field]);
+         } catch (err) {
+            console.error(`Error descifrando ${field}:`, err);
          }
       }
    }
 
-   return actorDeciphered;
+   return result;
 }
 
 const verifyRequest = async (req) => {
