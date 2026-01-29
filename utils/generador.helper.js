@@ -576,10 +576,11 @@ function procesarHTML(html, variables) {
                 if (lower.startsWith('<u>')) { currentSpanStyle.underline = true; continue; }
                 if (lower.startsWith('</u>')) { currentSpanStyle.underline = false; continue; }
 
-                // Soporte para SPAN con font-size
+                // Soporte para SPAN con font-size y font-family
                 if (lower.startsWith('<span')) {
-                    if (styleMatch && styleMatch[1]) {
-                        const stylesStr = styleMatch[1];
+                    const spanStyleMatch = part.match(/style="([^"]*)"/i);
+                    if (spanStyleMatch && spanStyleMatch[1]) {
+                        const stylesStr = spanStyleMatch[1];
 
                         // Font Size
                         const sizeMatch = stylesStr.match(/font-size:\s*([\d\.]+)(pt|px)/i);
@@ -599,8 +600,9 @@ function procesarHTML(html, variables) {
                             currentSpanStyle.font = fontMatch[1].trim();
                         }
                     }
-                    continue;
+                    continue; // Skip adding text for the opening tag
                 }
+
 
                 if (lower.startsWith('</span>')) {
                     // Restaurar tamaño base al cerrar span
