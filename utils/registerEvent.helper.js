@@ -1,7 +1,31 @@
 const { ObjectId } = require("mongodb");
-const { encrypt } = require('../utils/seguridad.helper');
+const { encrypt } = require("../utils/seguridad.helper");
 
-export async function getUserByTokenId(db, tokenId) {
+async function getActor(req, auth) {
+   const tokenId = auth?.data?._id?.toString() || null;
+   const userData = await getUserByTokenId(req.db, tokenId);
+
+   if (!userData) {
+      return {
+         uid: null,
+         name: "sistema",
+         role: "system",
+      };
+   }
+
+   return {
+      uid: userData.uid?.toString() || null,
+      name: userData.nombre || "desconocido",
+      last_name: userData.apellido || "desconocido",
+      role: userData.rol || "desconocido",
+      email: userData.mail || "desconocido",
+      empresa: userData.empresa || "desconocido",
+      cargo: userData.cargo || "desconocido",
+      estado: userData.estado || "desconocido",
+   };
+}
+
+async function getUserByTokenId(db, tokenId) {
    if (!tokenId || !ObjectId.isValid(tokenId)) {
       console.warn(`getUserByTokenId: tokenId inválido: ${tokenId}`);
       return null;
@@ -75,7 +99,7 @@ export async function getUserByTokenId(db, tokenId) {
    }
 }
 
-export function encryptObject(obj, seen = new WeakSet()) {
+function encryptObject(obj, seen = new WeakSet()) {
    if (!obj || typeof obj !== "object") return obj;
    if (seen.has(obj)) return obj;
 
@@ -87,15 +111,10 @@ export function encryptObject(obj, seen = new WeakSet()) {
 
       if (typeof valor === "string" && valor.trim() !== "" && !valor.includes(":")) {
          resultado[key] = encrypt(valor);
-
       } else if (typeof valor === "object" && valor !== null) {
          if (Array.isArray(valor)) {
             resultado[key] = valor.map((item) => {
-               if (
-                  typeof item === "string" &&
-                  item.trim() !== "" &&
-                  !item.includes(":")
-               ) {
+               if (typeof item === "string" && item.trim() !== "" && !item.includes(":")) {
                   return encrypt(item);
                } else if (typeof item === "object" && item !== null) {
                   return encryptObject(item, seen);
@@ -113,3 +132,7 @@ export function encryptObject(obj, seen = new WeakSet()) {
    return resultado;
 }
 
+module.exports = {
+   getActor,
+   encryptObject,
+};

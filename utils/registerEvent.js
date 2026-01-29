@@ -1,28 +1,20 @@
-const { getUserByTokenId, encryptObject } = require("./registerEvent.helper.js");
+const { getActor, encryptObject } = require("./registerEvent.helper.js");
 const { encrypt } = require("../utils/seguridad.helper");
 
-async function registerEvent(req, auth, event, metadata = {}) {
-   const tokenId = auth?.data?._id?.toString() || null;
-   const userData = await getUserByTokenId(req.db, tokenId);
+async function registerEvent(req, auth, event, metadata = {}, descriptionBuilder = null) {
+   const actor = await getActor(req, auth);
+
+   const description = typeof descriptionBuilder === "function" ? descriptionBuilder(actor) || "" : event.description;
+   const finalDescription =
+      typeof description === "string" && description.trim() !== "" && !description.includes(":")
+         ? encrypt(description)
+         : description;
 
    const payload = {
       ...event,
-      actor: {
-         uid: userData?.uid?.toString() || null,
-         name: userData?.nombre || "desconocido",
-         last_name: userData?.apellido || "desconocido",
-         role: userData?.rol || "desconocido",
-         email: userData?.mail || "desconocido",
-         empresa: userData?.empresa || "desconocido",
-         cargo: userData?.cargo || "desconocido",
-         estado: userData?.estado || "desconocido",
-      },
-      description:
-         typeof event.description === "string" && !event.description.includes(":")
-            ? encrypt(event.description)
-            : event.description,
-
-      metadata: encryptObject(metadata),
+      actor,
+      description: finalDescription,
+      metadata: metadata && Object.keys(metadata).length ? encryptObject(metadata) : metadata,
       createdAt: new Date(),
    };
 
@@ -40,10 +32,23 @@ async function registerSolicitudCreationEvent(req, auth, description = "", metad
       target: {
          type: TARGET_TYPES.SOLICITUD,
       },
-      description
+      description,
    };
 
    await registerEvent(req, auth, payload, metadata);
+}
+
+async function registerSolicitudRemovedEvent(req, auth, metadata = {}) {
+   const descriptionBuilder = (actor) => `El usuario ${actor?.name || "desconocido"} eliminó una solicitud`;
+
+   const payload = {
+      code: CODES.SOLICITUD_ELIMINACION,
+      target: {
+         type: TARGET_TYPES.SOLICITUD,
+      },
+   };
+
+   await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
 async function registerTicketCreationEvent(req, auth, description = "", metadata = {}) {
@@ -52,7 +57,7 @@ async function registerTicketCreationEvent(req, auth, description = "", metadata
       target: {
          type: TARGET_TYPES.TICKET,
       },
-      description
+      description,
    };
 
    await registerEvent(req, auth, payload, metadata);
@@ -61,6 +66,7 @@ async function registerTicketCreationEvent(req, auth, description = "", metadata
 // codes
 const CODES = {
    SOLICITUD_CREACION: "SOLICITUD_CREACION",
+   SOLICITUD_ELIMINACION: "SOLICITUD_ELIMINACION",
    TICKET_CREACION: "TICKET_CREACION",
 };
 
@@ -70,8 +76,8 @@ const TARGET_TYPES = {
    TICKET: "ticket",
 };
 
-
 module.exports = {
-  registerSolicitudCreationEvent,
-  registerTicketCreationEvent,
+   registerSolicitudCreationEvent,
+   registerTicketCreationEvent,
+   registerSolicitudRemovedEvent,
 };
