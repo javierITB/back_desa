@@ -7,7 +7,7 @@ const { addNotification } = require("../utils/notificaciones.helper");
 const { sendEmail } = require("../utils/mail.helper");
 const useragent = require("useragent");
 const { encrypt, createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
-const { registerUserUpdateEvent, registerUserCreationEvent, registerUserRemovedEvent } = require("../utils/registerEvent");
+const { registerUserUpdateEvent, registerUserCreationEvent, registerUserRemovedEvent, registerEmpresaCreationEvent, registerEmpresaUpdateEvent, registerEmpresaRemovedEvent } = require("../utils/registerEvent");
 
 const getAhoraChile = () => {
    const d = new Date();
@@ -986,7 +986,10 @@ router.post("/logout", async (req, res) => {
 
 router.post("/register", async (req, res) => {
    try {
-      await verifyRequest(req); // Tu middleware de seguridad
+      const auth = await verifyRequest(req);
+      if (!auth.ok) {
+         return res.status(403).json({ error: auth.error });
+      }
       const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
       const m = mail.toLowerCase().trim();
 
@@ -1433,7 +1436,10 @@ router.get("/empresas/:id", async (req, res) => {
 
 router.post("/empresas/register", upload.single("logo"), async (req, res) => {
    try {
-      await verifyRequest(req);
+      const auth = await verifyRequest(req);
+      if (!auth.ok) {
+         return res.status(403).json({ error: auth.error });
+      }
       const { nombre, rut, direccion, encargado, rut_encargado } = req.body;
       if (!nombre || !rut) return res.status(400).json({ error: "Nombre y RUT obligatorios" });
 
@@ -1470,6 +1476,8 @@ router.post("/empresas/register", upload.single("logo"), async (req, res) => {
          };
       }
 
+      registerEmpresaCreationEvent(req, auth, req.body);
+
       const result = await req.db.collection("empresas").insertOne(empresaData);
       res.status(201).json({ success: true, id: result.insertedId });
    } catch (err) {
@@ -1479,7 +1487,10 @@ router.post("/empresas/register", upload.single("logo"), async (req, res) => {
 
 router.put("/empresas/:id", upload.single("logo"), async (req, res) => {
    try {
-      await verifyRequest(req);
+      const auth = await verifyRequest(req);
+      if (!auth.ok) {
+         return res.status(403).json({ error: auth.error });
+      }
       const { nombre, rut, direccion, encargado, rut_encargado } = req.body;
       const id = new ObjectId(req.params.id);
 
@@ -1509,6 +1520,8 @@ router.put("/empresas/:id", upload.single("logo"), async (req, res) => {
       const result = await req.db.collection("empresas").updateOne({ _id: id }, { $set: updateData });
       if (result.matchedCount === 0) return res.status(404).json({ error: "No encontrada" });
 
+      registerEmpresaUpdateEvent(req, auth, req.body);
+
       res.json({ success: true, message: "Empresa actualizada" });
    } catch (err) {
       res.status(500).json({ error: "Error al actualizar" });
@@ -1517,10 +1530,15 @@ router.put("/empresas/:id", upload.single("logo"), async (req, res) => {
 
 router.delete("/empresas/:id", async (req, res) => {
    try {
-      await verifyRequest(req);
+      const auth = await verifyRequest(req);
+      if (!auth.ok) {
+         return res.status(403).json({ error: auth.error });
+      }
       const result = await req.db.collection("empresas").deleteOne({ _id: new ObjectId(req.params.id) });
       if (result.deletedCount === 0) return res.status(404).json({ error: "No encontrada" });
       res.json({ message: "Empresa eliminada exitosamente" });
+
+      registerEmpresaRemovedEvent(req, auth);
    } catch (err) {
       if (err.status) return res.status(err.status).json({ message: err.message });
       res.status(500).json({ error: "Error al eliminar" });
