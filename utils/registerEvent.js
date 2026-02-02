@@ -1,5 +1,5 @@
 const { getActor, encryptObject } = require("./registerEvent.helper.js");
-const { encrypt } = require("../utils/seguridad.helper");
+const { encrypt, decrypt } = require("../utils/seguridad.helper");
 
 async function registerEvent(req, auth, event, metadata = {}, descriptionBuilder = null) {
    const actor = await getActor(req, auth);
@@ -39,7 +39,7 @@ async function registerSolicitudCreationEvent(req, auth, description = "", metad
 }
 
 async function registerSolicitudRemovedEvent(req, auth, metadata = {}) {
-   const descriptionBuilder = (actor) => `El usuario ${actor?.name || "desconocido"} eliminó una solicitud`;
+   const descriptionBuilder = (actor) => `El usuario ${decrypt(actor?.name) || "desconocido"} eliminó una solicitud`;
 
    const payload = {
       code: CODES.SOLICITUD_ELIMINACION,
