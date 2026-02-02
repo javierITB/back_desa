@@ -6,10 +6,31 @@ const router = express.Router();
 router.get("/todos", async (req, res) => {
    try {
       await verifyRequest(req);
-      const events = await req.db
-         .collection("cambios")
-         .find({}, { projection: { error_message: 0, "actor.uid": 0, result: 0 } })
+
+      const page = Math.max(parseInt(req.query.page) || 1, 1);
+      const limit = Math.min(parseInt(req.query.limit) || 20, 100); // límite máximo de seguridad
+      const skip = (page - 1) * limit;
+
+      const collection = req.db.collection("cambios");
+
+      // 🔹 Query base
+      const query = {};
+
+      // 🔹 Obtener total de documentos (para paginación)
+      const total = await collection.countDocuments(query);
+
+      // 🔹 Obtener página
+      const events = await collection
+         .find(query, {
+            projection: {
+               error_message: 0,
+               "actor.uid": 0,
+               result: 0
+            }
+         })
          .sort({ createdAt: -1 })
+         .skip(skip)
+         .limit(limit)
          .toArray();
 
       const eventsProcessed = events.map(event => ({
@@ -19,13 +40,26 @@ router.get("/todos", async (req, res) => {
          metadata: decryptMetadata(event.metadata),
       }));
 
-      res.json(eventsProcessed);
+      res.json({
+         data: eventsProcessed,
+         pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+            hasNextPage: page * limit < total,
+            hasPrevPage: page > 1
+         }
+      });
 
    } catch (err) {
-      if (err.status) return res.status(err.status).json({ message: err.message });
+      if (err.status) {
+         return res.status(err.status).json({ message: err.message });
+      }
       res.status(500).json({ error: "Error al obtener registros" });
    }
 });
+
 
 function decryptMetadata(value) {
    if (typeof value === "string") {
