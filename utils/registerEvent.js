@@ -74,12 +74,24 @@ async function registerTicketRemovedEvent(req, auth, metadata = {}) {
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
+async function registerDomicilioVirtualRemovalEvent(req, auth, metadata = {}) {
+   const descriptionBuilder = (actor) => `El usuario ${decrypt(actor?.name) || "desconocido"} eliminó una solicitud de domicilio virtual`;
+   const payload = {
+      code: CODES.DOMICILIOV_ELIMINACION,
+      target: {
+         type: TARGET_TYPES.TICKET,
+      },
+   };
+   await registerEvent(req, auth, payload, metadata, descriptionBuilder);
+}
+
 // codes
 const CODES = {
    SOLICITUD_CREACION: "SOLICITUD_CREACION",
    SOLICITUD_ELIMINACION: "SOLICITUD_ELIMINACION",
    TICKET_CREACION: "TICKET_CREACION",
    TICKET_ELIMINACION: "TICKET_ELIMINACION",
+   DOMICILIOV_ELIMINACION: "DOMICILIOV_ELIMINACION",
 };
 
 // target types
@@ -93,4 +105,5 @@ module.exports = {
    registerTicketCreationEvent,
    registerSolicitudRemovedEvent,
    registerTicketRemovedEvent,
+   registerDomicilioVirtualRemovalEvent
 };

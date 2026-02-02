@@ -7,6 +7,7 @@ const { sendEmail } = require("../utils/mail.helper");
 const { addNotification } = require("../utils/notificaciones.helper");
 const { generarAnexoDesdeRespuesta } = require("../utils/generador.helper");
 const { encrypt, decrypt } = require("../utils/seguridad.helper");
+const { registerDomicilioVirtualRemovalEvent } = require("../utils/registerEvent.js");
 
 // Helper para normalizar nombres
 const normalizeFilename = (filename) => {
@@ -769,6 +770,8 @@ router.delete("/:id", async (req, res) => {
         if (resultPrincipal.deletedCount === 0) {
             return res.status(404).json({ error: "No se encontró la solicitud." });
         }
+
+        registerDomicilioVirtualRemovalEvent(req, auth);
 
         res.json({ success: true, message: "Eliminado totalmente." });
     } catch (e) {
