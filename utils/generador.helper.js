@@ -929,8 +929,8 @@ async function generarAnexoDesdeRespuesta(responses, responseId, db, section, us
     console.log(`[GENERADOR] Iniciando para formId: ${formId}, responseId: ${responseId}`);
 
     if (!formId) {
-        console.log("[GENERADOR] No hay formId, generando TXT");
-        return await generarDocumentoTxt(responses, responseId, db, formTitle);
+        console.log("[GENERADOR] No hay formId, NO se genera documento.");
+        return null;
     }
 
     const plantilla = await buscarPlantillaPorFormId(formId, db);
@@ -941,17 +941,12 @@ async function generarAnexoDesdeRespuesta(responses, responseId, db, section, us
             return await generarDocumentoDesdePlantilla(responses, responseId, db, plantilla, userData, formTitle);
         } catch (error) {
             console.error("[GENERADOR] Error crítico generando DOCX desde plantilla:", error);
-            try {
-                const fs = require('fs');
-                const path = require('path');
-            } catch (e) { }
-            return await generarDocumentoTxt(responses, responseId, db, formTitle);
+            return null;
         }
     } else {
-        console.log(`[GENERADOR] No se encontró plantilla para formId: ${formId}`);
+        console.log("[GENERADOR] No se encontró plantilla. NO se genera documento.");
+        return null;
     }
-
-    return await generarDocumentoTxt(responses, responseId, db, formTitle);
 }
 
 module.exports = {

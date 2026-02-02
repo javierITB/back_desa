@@ -63,21 +63,12 @@ router.get("/download/:IDdoc", async (req, res) => {
             finalFileName = finalFileName.slice(0, -(extension.length + 1));
         }
 
-        // CONFIGURAR HEADERS SEGÚN EL TIPO DE DOCUMENTO
-        if (documento.tipo === 'txt') {
-            res.set({
-                'Content-Type': 'text/plain',
-                'Content-Disposition': `attachment; filename="${finalFileName}.${extension}"`,
-                'Content-Length': bufferLength
-            });
-        } else {
-            // Para archivos DOCX (por defecto)
-            res.set({
-                'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'Content-Disposition': `attachment; filename="${finalFileName}.${extension}"`,
-                'Content-Length': bufferLength
-            });
-        }
+        // Por ahora solo DOCX
+        res.set({
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Disposition': `attachment; filename="${finalFileName}.${extension}"`,
+            'Content-Length': bufferLength
+        });
 
         // ENVIAR EL BUFFER
         res.send(fileBuffer);
