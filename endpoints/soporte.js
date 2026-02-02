@@ -1242,7 +1242,7 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Respuesta no encontrada" });
     }
 
-    registerTicketRemovedEvent(req.db, responseId);
+    registerTicketRemovedEvent(req, auth);
 
     res.status(200).json({
       message: "Formulario y todos los datos relacionados eliminados",
