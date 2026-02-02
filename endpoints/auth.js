@@ -1049,14 +1049,11 @@ router.post("/register", async (req, res) => {
             html: htmlContent,
          });
 
-
-
-         registerUserCreationEvent(req, auth, req.body);
-
       } catch (mailError) {
          console.error("Error enviando email:", mailError);
       }
 
+      registerUserCreationEvent(req, auth, req.body);
       res.status(201).json({ success: true, message: "Usuario registrado y correo enviado", userId });
    } catch (err) {
       res.status(500).json({ error: "Error al registrar" });
