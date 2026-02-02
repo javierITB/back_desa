@@ -41,17 +41,14 @@ router.get("/download/:IDdoc", async (req, res) => {
     try {
         const { IDdoc } = req.params;
         console.log("=== SOLICITUD DE DESCARGA ===");
-        console.log("Buscando documento con IDdoc:", IDdoc);
 
         const documento = await req.db.collection('docxs').findOne({ IDdoc: IDdoc });
 
         if (!documento) {
-            console.log("Documento no encontrado para IDdoc:", IDdoc);
             return res.status(404).json({ error: "Documento no encontrado" });
         }
 
         console.log("Documento encontrado");
-        console.log("Tipo de documento:", documento.tipo || 'docx');
 
         // OBTENER EL BUFFER CORRECTAMENTE
         const fileBuffer = documento.docxFile.buffer || documento.docxFile;
@@ -60,23 +57,26 @@ router.get("/download/:IDdoc", async (req, res) => {
         // USAR EL fileName GUARDADO EN LUGAR DEL IDdoc
         const fileName = documento.fileName || IDdoc;
         const extension = documento.tipo === 'txt' ? 'txt' : 'docx';
+        let finalFileName = documento.fileName || IDdoc;
+
+        if (finalFileName.toLowerCase().endsWith(`.${extension}`)) {
+            finalFileName = finalFileName.slice(0, -(extension.length + 1));
+        }
 
         // CONFIGURAR HEADERS SEGÚN EL TIPO DE DOCUMENTO
         if (documento.tipo === 'txt') {
             res.set({
                 'Content-Type': 'text/plain',
-                'Content-Disposition': `attachment; filename="${fileName}.${extension}"`,
+                'Content-Disposition': `attachment; filename="${finalFileName}.${extension}"`,
                 'Content-Length': bufferLength
             });
-            console.log("Enviando archivo TXT:", fileName);
         } else {
             // Para archivos DOCX (por defecto)
             res.set({
                 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'Content-Disposition': `attachment; filename="${fileName}.${extension}"`,
+                'Content-Disposition': `attachment; filename="${finalFileName}.${extension}"`,
                 'Content-Length': bufferLength
             });
-            console.log("Enviando archivo DOCX:", fileName);
         }
 
         // ENVIAR EL BUFFER

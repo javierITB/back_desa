@@ -227,7 +227,7 @@ function construirHeaderLogos(logoConfig, empresaInfo) {
                         children: children,
                         text: ""
                     }),
-                    new Paragraph({ text: "", spacing: { after: 200 } })
+                    new Paragraph({ text: "", spacing: { after: 800 } })
                 ]
             })
         };
