@@ -5,7 +5,8 @@ const crypto = require("crypto");
 const { hash, verify, Algorithm } = require('@node-rs/argon2');
 
 // En producción, usa process.env.MASTER_KEY (debe ser de 32 bytes / 64 caracteres hex)
-const MASTER_KEY = Buffer.from(process.env.MASTER_KEY || "", 'hex');
+const MASTER_KEY = Buffer.from(process.env.MASTER_KEY, 'hex');
+const ALGORITHM = 'aes-256-gcm';
 
 /**
  * Crea un hash determinístico para buscar datos cifrados (como el mail) 
