@@ -63,11 +63,23 @@ async function registerTicketCreationEvent(req, auth, description = "", metadata
    await registerEvent(req, auth, payload, metadata);
 }
 
+async function registerTicketRemovedEvent(req, auth, metadata = {}) {
+   const descriptionBuilder = (actor) => `El usuario ${decrypt(actor?.name) || "desconocido"} eliminó un ticket`;
+   const payload = {
+      code: CODES.TICKET_ELIMINACION,
+      target: {
+         type: TARGET_TYPES.TICKET,
+      },
+   };
+   await registerEvent(req, auth, payload, metadata, descriptionBuilder);
+}
+
 // codes
 const CODES = {
    SOLICITUD_CREACION: "SOLICITUD_CREACION",
    SOLICITUD_ELIMINACION: "SOLICITUD_ELIMINACION",
    TICKET_CREACION: "TICKET_CREACION",
+   TICKET_ELIMINACION: "TICKET_ELIMINACION",
 };
 
 // target types
@@ -80,4 +92,5 @@ module.exports = {
    registerSolicitudCreationEvent,
    registerTicketCreationEvent,
    registerSolicitudRemovedEvent,
+   registerTicketRemovedEvent,
 };

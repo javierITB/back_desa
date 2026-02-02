@@ -8,7 +8,7 @@ const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper.js");
 const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper.js");
 const { sendEmail } = require("../utils/mail.helper.js");
-const { registerTicketCreationEvent } = require("../utils/registerEvent.js");
+const { registerTicketCreationEvent, registerTicketRemovedEvent } = require("../utils/registerEvent.js");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -1241,6 +1241,8 @@ router.delete("/:id", async (req, res) => {
     if (resultRespuestas.deletedCount === 0) {
       return res.status(404).json({ error: "Respuesta no encontrada" });
     }
+
+    registerTicketRemovedEvent(req.db, responseId);
 
     res.status(200).json({
       message: "Formulario y todos los datos relacionados eliminados",
