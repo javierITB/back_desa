@@ -4,12 +4,12 @@ const { isEmail } = require("validator");
 
 // --- CONFIGURACIÓN SMTP ---
 const MAIL_CREDENTIALS = {
-  host: "mail.infoacciona.cl",
-  port: 465,
-  secure: true,
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT),
+  secure: process.env.SMTP_SECURE,
   auth: {
-    user: "administracion@infoacciona.cl",
-    pass: "CorreoAdmin.1",
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
   },
 };
 

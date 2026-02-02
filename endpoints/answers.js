@@ -397,11 +397,13 @@ router.post("/admin", async (req, res) => {
 
 
     const description = `${adminUser?.nombre} creó Solicitud para el cliente ${destinatarioNombre} de la empresa ${destinatarioEmpresa}`;
-    const metadata = { nombre_solicitud: formTitle, cliente: {
-      nombre: destinatarioUserObject.nombre,
-      email: destinatarioUserObject.mail,
-      empresa: destinatarioUserObject.empresa,
-    } };
+    const metadata = {
+      nombre_solicitud: formTitle, cliente: {
+        nombre: destinatarioUserObject.nombre,
+        email: destinatarioUserObject.mail,
+        empresa: destinatarioUserObject.empresa,
+      }
+    };
 
     registerSolicitudCreationEvent(req, tokenValido, description, metadata);
     // Responder con datos DESCIFRADOS al frontend
@@ -1828,7 +1830,7 @@ router.post("/chat", async (req, res) => {
 
         // ENVIAR CORREO SI TENEMOS EMAIL
         if (userEmail) {
-          const baseUrl = process.env.PORTAL_URL || "https://infodesa.vercel.app";
+          const baseUrl = process.env.PORTAL_URL;
           const responseUrl = `${baseUrl}/preview?type=messages&id=${respuestaId}`;
 
           const emailHtml = `
@@ -2351,7 +2353,7 @@ router.post("/upload-corrected-files", async (req, res) => {
       if (userEmail) {
         try {
           const { sendEmail } = require("../utils/mail.helper");
-          const portalUrl = process.env.PORTAL_URL || "https://infodesa.vercel.app";
+          const portalUrl = process.env.PORTAL_URL;
           const responseUrl = `${portalUrl}/preview?type=details&id=${responseId}`;
 
 

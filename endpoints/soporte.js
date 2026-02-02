@@ -411,7 +411,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
         );
 
         const mailPayload = {
-          accessKey: "wBlL283JH9TqdEJRxon1QOBuI0A6jGVEwpUYchnyMGz", // Reemplaza con tu clave real
+          accessKey: process.env.MAIL_KEY,
           to: correoRespaldo.trim(),
           subject: `Ticket levantado`,
           text: contenido.texto,
@@ -460,7 +460,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
     }
 
     const metadata = {
-       categoria: category || "desconocida",
+      categoria: category || "desconocida",
     };
     registerTicketCreationEvent(req, tokenValido, message, metadata);
 

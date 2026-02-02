@@ -7,7 +7,7 @@ const { addNotification } = require("../utils/notificaciones.helper");
 const { sendEmail } = require("../utils/mail.helper");
 const useragent = require("useragent");
 const { encrypt, createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
-const { registerUserUpdateEvent } = require("../utils/registerEvent");
+const { registerUserUpdateEvent, registerUserCreationEvent, registerUserRemovedEvent } = require("../utils/registerEvent");
 
 const getAhoraChile = () => {
    const d = new Date();
@@ -1031,7 +1031,7 @@ router.post("/register", async (req, res) => {
                <h2 style="color: #3B82F6;">¡Bienvenido, ${nombre}!</h2>
                <p>Has sido registrado en la plataforma. Para activar tu cuenta, haz clic en el botón:</p>
                <div style="text-align: center; margin: 30px 0;">
-                  <a href="https://infodesa.vercel.app/set-password?userId=${userId}" 
+                  <a href="${process.env.PORTAL_URL}/set-password?userId=${userId}" 
                      style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
                      Configurar mi Contraseña
                   </a>
@@ -1045,6 +1045,11 @@ router.post("/register", async (req, res) => {
             subject: "Completa tu registro",
             html: htmlContent,
          });
+
+
+
+         registerUserCreationEvent(req, auth, req.body);
+
       } catch (mailError) {
          console.error("Error enviando email:", mailError);
       }
@@ -1217,19 +1222,8 @@ router.put("/users/:id", async (req, res) => {
          },
       );
 
-      const description = "Usuario actualizado";
-      const metadata = {
-         Usuario: {
-            nombre,
-            apellido,
-            mail,
-            empresa,
-            cargo,
-            rol,
-            estado,
-         },
-      };
-      registerUserUpdateEvent(req, auth, description, metadata);
+      
+      registerUserUpdateEvent(req, auth, req.body);
 
       res.json({
          success: true,
@@ -1247,7 +1241,10 @@ router.put("/users/:id", async (req, res) => {
 
 router.delete("/users/:id", async (req, res) => {
    try {
-      await verifyRequest(req);
+      const auth = await verifyRequest(req);
+      if (!auth.ok) {
+         return res.status(403).json({ error: auth.error });
+      }
       const result = await req.db.collection("usuarios").deleteOne({
          _id: new ObjectId(req.params.id),
       });
@@ -1255,6 +1252,8 @@ router.delete("/users/:id", async (req, res) => {
       if (result.deletedCount === 0) {
          return res.status(404).json({ error: "Usuario no encontrado" });
       }
+
+      registerUserRemovedEvent(req, auth);
 
       res.json({ message: "Usuario eliminado exitosamente" });
    } catch (err) {

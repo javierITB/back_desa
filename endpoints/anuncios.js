@@ -10,7 +10,6 @@ const { sendEmail } = require("../utils/mail.helper");
 const { validarToken } = require("../utils/validarToken.js");
 
 router.post('/', async (req, res) => {
-  console.log('POST /api/anuncios - Body recibido:', req.body);
 
   try {
     const db = req.db;
@@ -35,12 +34,11 @@ router.post('/', async (req, res) => {
     }
 
     const sessionToken = authHeader.split(' ')[1];
-    
+
     // Usar TU función validarToken EXACTAMENTE COMO ESTÁ
     const tokenValido = await validarToken(db, sessionToken);
-    
+
     if (!tokenValido.ok) {
-      console.log("DEBUG anuncios: Token inválido - Razón:", tokenValido.reason);
       return res.status(401).json({
         success: false,
         error: `Token inválido: ${tokenValido.reason}`
@@ -48,7 +46,7 @@ router.post('/', async (req, res) => {
     }
 
     const tokenData = tokenValido.data;
-    
+
     // ==================== 2. BUSCAR USUARIO COMPLETO ====================
     const user = await db.collection("usuarios").findOne({
       mail_index: createBlindIndex(tokenData.email.toLowerCase().trim())
@@ -63,19 +61,13 @@ router.post('/', async (req, res) => {
     }
 
     if (user.estado !== 'activo') {
-      console.log("DEBUG anuncios: Usuario no activo - Estado:", user.estado);
       return res.status(401).json({
         success: false,
         error: "Usuario inactivo. Contacta al administrador."
       });
     }
 
-    console.log("DEBUG anuncios: Usuario autenticado:", {
-      userId: user._id.toString(),
-      email: tokenData.email,
-      rol: user.rol,
-      estado: user.estado
-    });
+
 
     // ==================== 3. CONTINUAR CON LA LÓGICA ORIGINAL ====================
     // TODO TU CÓDIGO ORIGINAL AQUÍ (todo lo que ya tenías después de las validaciones)
@@ -91,7 +83,7 @@ router.post('/', async (req, res) => {
       enviarNotificacion = true
     } = req.body;
 
-    const urlNotificaciones = actionUrl || "https://infoacciona.cl/";
+    const urlNotificaciones = actionUrl || process.env.PORTAL_URL;
 
     if (!titulo || !descripcion) {
       console.log('Validación fallida: título o descripción faltante');
@@ -117,9 +109,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    console.log('Enviar correo:', enviarCorreo);
-    console.log('Enviar notificación:', enviarNotificacion);
-    console.log('Procesando destinatarios tipo:', destinatarios.tipo);
+
 
     let resultadoEnvio;
     const fechaEnvio = new Date();
@@ -143,14 +133,13 @@ router.post('/', async (req, res) => {
           .find({ estado: "activo", mail: { $exists: true } })
           .project({ mail: 1 })
           .toArray();
-    
-        console.log('Usuarios encontrados para correo:', usuarios.length);
-        
+
+
         for (const usuarioItem of usuarios) {
           if (usuarioItem.mail) {
             try {
               const emailDecrypted = decrypt(usuarioItem.mail);
-              
+
               if (emailDecrypted && emailDecrypted.includes('@')) {
                 await sendEmail({
                   to: emailDecrypted,
@@ -166,19 +155,17 @@ router.post('/', async (req, res) => {
                     </a>
                   `
                 });
-                console.log('Correo enviado a:', emailDecrypted);
               }
             } catch (emailError) {
-              console.error("Error enviando correo:", emailError.message);
+              console.error("Error enviando correo");
+
             }
           }
         }
       }
 
-      console.log('Notificación enviada a todos:', resultadoEnvio);
 
     } else if (destinatarios.tipo === 'filtro') {
-      console.log('Enviando por FILTROS:', destinatarios.filtro);
 
       const filtro = destinatarios.filtro || {};
       const condicionesFiltro = { estado: 'activo' };
@@ -201,7 +188,6 @@ router.post('/', async (req, res) => {
         condicionesFiltro.$and = andConditions;
       }
 
-      console.log('Filtro construido:', condicionesFiltro);
 
       resultadoEnvio = await addNotification(db, {
         filtro: condicionesFiltro,
@@ -220,13 +206,12 @@ router.post('/', async (req, res) => {
           .project({ mail: 1 })
           .toArray();
 
-        console.log('Usuarios encontrados por filtro:', usuarios.length);
 
         for (const usuarioItem of usuarios) {
           if (usuarioItem.mail) {
             try {
               const emailDecrypted = decrypt(usuarioItem.mail);
-              
+
               if (emailDecrypted && emailDecrypted.includes('@')) {
                 await sendEmail({
                   to: emailDecrypted,
@@ -242,7 +227,6 @@ router.post('/', async (req, res) => {
                     </a>
                   `
                 });
-                console.log('Correo enviado a:', emailDecrypted);
               }
             } catch (emailError) {
               console.error("Error enviando correo:", emailError.message);
@@ -251,10 +235,8 @@ router.post('/', async (req, res) => {
         }
       }
 
-      console.log('Notificación enviada por filtro:', resultadoEnvio);
 
     } else if (destinatarios.tipo === 'manual') {
-      console.log('Enviando a usuarios MANUALES:', destinatarios.usuariosManuales);
 
       if (!destinatarios.usuariosManuales || destinatarios.usuariosManuales.length === 0) {
         return res.status(400).json({
@@ -269,7 +251,6 @@ router.post('/', async (req, res) => {
 
       for (const userId of destinatarios.usuariosManuales) {
         try {
-          console.log(`Enviando a usuario: ${userId}`);
 
           await addNotification(db, {
             userId: userId,
@@ -282,17 +263,16 @@ router.post('/', async (req, res) => {
           });
 
           totalEnviados++;
-          console.log(`Enviado a ${userId}`);
 
           if (enviarCorreo === true) {
             const usuarioDestino = await db
               .collection("usuarios")
               .findOne({ _id: new ObjectId(userId) });
-          
+
             if (usuarioDestino?.mail) {
               try {
                 const emailDecrypted = decrypt(usuarioDestino.mail);
-                
+
                 if (emailDecrypted && emailDecrypted.includes('@')) {
                   await sendEmail({
                     to: emailDecrypted,
@@ -308,7 +288,6 @@ router.post('/', async (req, res) => {
                       </a>
                     `
                   });
-                  console.log('Correo enviado a:', emailDecrypted);
                 }
               } catch (emailError) {
                 console.error("Error enviando correo:", emailError.message);
@@ -332,7 +311,6 @@ router.post('/', async (req, res) => {
         erroresDetalle
       };
 
-      console.log(`Total manual: ${totalEnviados} enviados, ${totalErrores} errores`);
     }
 
     const respuesta = {
@@ -351,7 +329,6 @@ router.post('/', async (req, res) => {
       }
     };
 
-    console.log('Enviando respuesta al frontend:', respuesta);
     res.json(respuesta);
 
   } catch (error) {
@@ -368,7 +345,6 @@ router.post('/', async (req, res) => {
 
 // Las rutas GET se mantienen IGUAL, SIN tokenizar
 router.get('/', async (req, res) => {
-  console.log('GET /api/anuncios - Sin almacenamiento histórico');
 
   try {
     const respuesta = {
@@ -389,7 +365,6 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/test', (req, res) => {
-  console.log('GET /api/anuncios/test - Prueba de conexión');
   res.json({
     success: true,
     message: 'Endpoint de anuncios funcionando',
