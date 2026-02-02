@@ -75,7 +75,8 @@ async function registerTicketRemovedEvent(req, auth, metadata = {}) {
 }
 
 async function registerDomicilioVirtualRemovalEvent(req, auth, metadata = {}) {
-   const descriptionBuilder = (actor) => `El usuario ${decrypt(actor?.name) || "desconocido"} eliminó una solicitud de domicilio virtual`;
+   const descriptionBuilder = (actor) =>
+      `El usuario ${decrypt(actor?.name) || "desconocido"} eliminó una solicitud de domicilio virtual`;
    const payload = {
       code: CODES.DOMICILIOV_ELIMINACION,
       target: {
@@ -85,6 +86,18 @@ async function registerDomicilioVirtualRemovalEvent(req, auth, metadata = {}) {
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
+async function registerUserUpdateEvent(req, auth, description = "", metadata = {}) {
+   const payload = {
+      code: CODES.USUARIO_ACTUALIZACION,
+      target: {
+         type: TARGET_TYPES.USUARIO,
+      },
+      description,
+   };
+
+   await registerEvent(req, auth, payload, metadata);
+}
+
 // codes
 const CODES = {
    SOLICITUD_CREACION: "SOLICITUD_CREACION",
@@ -92,12 +105,14 @@ const CODES = {
    TICKET_CREACION: "TICKET_CREACION",
    TICKET_ELIMINACION: "TICKET_ELIMINACION",
    DOMICILIOV_ELIMINACION: "DOMICILIOV_ELIMINACION",
+   USUARIO_ACTUALIZACION: "USUARIO_ACTUALIZACION",
 };
 
 // target types
 const TARGET_TYPES = {
-   SOLICITUD: "solicitud",
-   TICKET: "ticket",
+   SOLICITUD: "Solicitud",
+   TICKET: "Ticket",
+   USUARIO: "Usuario",
 };
 
 module.exports = {
@@ -105,5 +120,6 @@ module.exports = {
    registerTicketCreationEvent,
    registerSolicitudRemovedEvent,
    registerTicketRemovedEvent,
-   registerDomicilioVirtualRemovalEvent
+   registerDomicilioVirtualRemovalEvent,
+   registerUserUpdateEvent,
 };

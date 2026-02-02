@@ -7,10 +7,10 @@ const { addNotification } = require("../utils/notificaciones.helper");
 const { sendEmail } = require("../utils/mail.helper");
 const useragent = require("useragent");
 const { encrypt, createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
+const { registerUserUpdateEvent } = require("../utils/registerEvent");
 
 const getAhoraChile = () => {
    const d = new Date();
-   return new Date(d.toLocaleString("en-US", { timeZone: "America/Santiago" }));
    return new Date(d.toLocaleString("en-US", { timeZone: "America/Santiago" }));
 };
 
@@ -72,7 +72,7 @@ const generateAndSend2FACode = async (db, user, type) => {
       .collection("2fa_codes")
       .updateMany(
          { userId: userId, active: true, type: type },
-         { $set: { active: false, revokedAt: new Date(), reason: "new_code_issued" } }
+         { $set: { active: false, revokedAt: new Date(), reason: "new_code_issued" } },
       );
 
    await db.collection("2fa_codes").insertOne({
@@ -151,7 +151,7 @@ const desactivarTokenPorEmail = async (db, email) => {
             active: encrypt("false"),
             revokedAt: ahora,
          },
-      }
+      },
    );
 };
 
@@ -251,7 +251,7 @@ router.get("/full/:mail", async (req, res) => {
                twoFactorEnabled: 1,
                estado: 1,
             },
-         }
+         },
       );
 
       if (!usr) return res.status(404).json({ error: "Usuario no encontrado" });
@@ -319,7 +319,7 @@ router.post("/login", async (req, res) => {
             console.error("Error enviando 2FA login:", mailError);
             return res.status(500).json({
                success: false,
-               message: "Error enviando código 2FA: " + (mailError.message || "Error desconocido")
+               message: "Error enviando código 2FA: " + (mailError.message || "Error desconocido"),
             });
          }
 
@@ -364,9 +364,8 @@ router.post("/login", async (req, res) => {
       let rol = "";
       try {
          nombre = decrypt(user.nombre);
-         apellido = user.apellido ? decrypt(user.apellido) : ""; 
+         apellido = user.apellido ? decrypt(user.apellido) : "";
          rol = decrypt(user.cargo);
-
       } catch {
          nombre = user.nombre || "";
          apellido = user.apellido || "";
@@ -411,8 +410,6 @@ router.post("/login", async (req, res) => {
 router.post("/verify-login-2fa", async (req, res) => {
    const { email, verificationCode } = req.body;
 
-
-
    if (!email || !verificationCode || verificationCode.length !== 6) {
       return res.status(400).json({
          success: false,
@@ -445,7 +442,6 @@ router.post("/verify-login-2fa", async (req, res) => {
          active: true,
          expiresAt: { $gt: now },
       });
-
 
       if (!codeRecord) {
          // Verificar si hay códigos pero expirados
@@ -522,7 +518,6 @@ router.post("/verify-login-2fa", async (req, res) => {
          now: now,
       });
 
-
       return res.json({
          success: true,
          token: finalToken,
@@ -567,8 +562,8 @@ router.post("/recuperacion", async (req, res) => {
       });
 
       // --- CONFIGURACIÓN VISUAL DEL CORREO ---
-      const primaryColor = '#2563eb'; // Azul elegante
-      const bgColor = '#f3f4f6';      // Gris claro de fondo
+      const primaryColor = "#2563eb"; // Azul elegante
+      const bgColor = "#f3f4f6"; // Gris claro de fondo
 
       await sendEmail({
          to: userEmail,
@@ -609,9 +604,6 @@ router.post("/recuperacion", async (req, res) => {
       res.status(500).json({ error: "Error interno" });
    }
 });
-
-
-
 
 router.post("/borrarpass", async (req, res) => {
    const { email, code } = req.body;
@@ -694,7 +686,6 @@ router.post("/send-2fa-code", async (req, res) => {
 router.post("/verify-2fa-activation", async (req, res) => {
    const { email, verificationCode } = req.body;
 
-
    if (!email || !verificationCode || verificationCode.length !== 6) {
       return res.status(400).json({
          success: false,
@@ -758,7 +749,6 @@ router.post("/verify-2fa-activation", async (req, res) => {
 router.post("/disable-2fa", async (req, res) => {
    const { email } = req.body;
 
-
    if (!email) {
       return res.status(400).json({ error: "Bad request" });
    }
@@ -766,7 +756,6 @@ router.post("/disable-2fa", async (req, res) => {
    try {
       // ==================== 1. VALIDAR TOKEN (MISMA LÓGICA QUE TODAS) ====================
       const tokenCheck = await verifyRequest(req);
-
 
       if (!tokenCheck.ok) {
          return res.status(401).json({ error: "Unauthorized" });
@@ -804,7 +793,7 @@ router.post("/disable-2fa", async (req, res) => {
          .collection("2fa_codes")
          .updateMany(
             { userId: userId, active: true },
-            { $set: { active: false, revokedAt: new Date(), reason: "2fa_disabled" } }
+            { $set: { active: false, revokedAt: new Date(), reason: "2fa_disabled" } },
          );
 
       // ==================== 5. REGISTRAR ACCIÓN ====================
@@ -820,7 +809,6 @@ router.post("/disable-2fa", async (req, res) => {
       } catch (logError) {
          console.error("Error registrando en logs:", logError);
       }
-
 
       res.status(200).json({
          success: true,
@@ -843,16 +831,12 @@ router.get("/logins/todos", async (req, res) => {
    }
 });
 
-
-
 router.post("/validate", async (req, res) => {
    const { token, email, cargo } = req.body;
 
    if (!token || !email || !cargo) return res.status(401).json({ valid: false, message: "Acceso inválido" });
 
    try {
-
-
       // Buscar token (el campo 'token' no está cifrado)
       const tokenRecord = await req.db.collection("tokens").findOne({
          token,
@@ -865,8 +849,6 @@ router.post("/validate", async (req, res) => {
             message: "Token inválido o inexistente",
          });
       }
-
-
 
       // 1. Verificar si está activo (descifrar campo 'active')
       let activeDescifrado = "false"; // Por defecto
@@ -897,7 +879,6 @@ router.post("/validate", async (req, res) => {
       const expiresAt = new Date(tokenRecord.expiresAt);
 
       if (expiresAt < now) {
-
          // Desactivar token (cifrar como "false")
          await req.db.collection("tokens").updateOne(
             { token },
@@ -906,7 +887,7 @@ router.post("/validate", async (req, res) => {
                   active: encrypt("false"),
                   revokedAt: new Date(),
                },
-            }
+            },
          );
 
          return res.status(401).json({
@@ -994,7 +975,7 @@ router.post("/logout", async (req, res) => {
                active: encrypt("false"), // Cifrar como string "false"
                revokedAt: new Date(),
             },
-         }
+         },
       );
       res.json({ success: true, message: "Sesión cerrada" });
    } catch (err) {
@@ -1032,7 +1013,7 @@ router.post("/register", async (req, res) => {
       const userId = result.insertedId.toString();
 
       // --- NOTIFICACIÓN Y EMAIL ---
-      
+
       // 1. Notificación en DB
       await addNotification(req.db, {
          userId: userId,
@@ -1062,7 +1043,7 @@ router.post("/register", async (req, res) => {
          await sendEmail({
             to: m,
             subject: "Completa tu registro",
-            html: htmlContent
+            html: htmlContent,
          });
       } catch (mailError) {
          console.error("Error enviando email:", mailError);
@@ -1076,41 +1057,41 @@ router.post("/register", async (req, res) => {
 
 router.post("/set-initial-password", async (req, res) => {
    try {
-     const { userId, password } = req.body;
- 
-     if (!userId || !password) {
-       return res.status(400).json({ error: "Datos incompletos" });
-     }
- 
-     // Usamos createFromHexString para evitar el error de "deprecado"
-     const user = await req.db.collection("usuarios").findOne({ 
-       _id: ObjectId.createFromHexString(String(userId)) 
-     });
- 
-     if (!user || user.estado !== "pendiente" || user.pass !== "") {
-       return res.status(403).json({ error: "El enlace ha expirado o ya es inválido" });
-     }
- 
-     // Usamos tus helpers de seguridad
-     const { hashPassword } = require("../utils/seguridad.helper"); 
-     const hashedPassword = await hashPassword(password);
- 
-     await req.db.collection("usuarios").updateOne(
-       { _id: ObjectId.createFromHexString(String(userId)) },
-       { 
-         $set: { 
-           pass: hashedPassword, 
-           estado: "activo",
-           updatedAt: new Date().toISOString() 
-         } 
-       }
-     );
- 
-     res.json({ success: true, message: "Contraseña creada exitosamente" });
+      const { userId, password } = req.body;
+
+      if (!userId || !password) {
+         return res.status(400).json({ error: "Datos incompletos" });
+      }
+
+      // Usamos createFromHexString para evitar el error de "deprecado"
+      const user = await req.db.collection("usuarios").findOne({
+         _id: ObjectId.createFromHexString(String(userId)),
+      });
+
+      if (!user || user.estado !== "pendiente" || user.pass !== "") {
+         return res.status(403).json({ error: "El enlace ha expirado o ya es inválido" });
+      }
+
+      // Usamos tus helpers de seguridad
+      const { hashPassword } = require("../utils/seguridad.helper");
+      const hashedPassword = await hashPassword(password);
+
+      await req.db.collection("usuarios").updateOne(
+         { _id: ObjectId.createFromHexString(String(userId)) },
+         {
+            $set: {
+               pass: hashedPassword,
+               estado: "activo",
+               updatedAt: new Date().toISOString(),
+            },
+         },
+      );
+
+      res.json({ success: true, message: "Contraseña creada exitosamente" });
    } catch (err) {
-     res.status(500).json({ error: "Error al procesar la solicitud" });
+      res.status(500).json({ error: "Error al procesar la solicitud" });
    }
- });
+});
 
 router.post("/change-password", async (req, res) => {
    const { email, currentPassword, newPassword } = req.body;
@@ -1152,7 +1133,7 @@ router.post("/change-password", async (req, res) => {
                pass: hashedNewPassword,
                updatedAt: new Date().toISOString(),
             },
-         }
+         },
       );
 
       if (result.modifiedCount === 0) {
@@ -1178,7 +1159,10 @@ router.post("/change-password", async (req, res) => {
 
 router.put("/users/:id", async (req, res) => {
    try {
-      await verifyRequest(req);
+      const auth = await verifyRequest(req);
+      if (!auth.ok) {
+         return res.status(403).json({ error: auth.error });
+      }
       const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
       const userId = req.params.id;
 
@@ -1230,8 +1214,22 @@ router.put("/users/:id", async (req, res) => {
                active: encrypt("false"),
                revokedAt: ahora,
             },
-         }
+         },
       );
+
+      const description = "Usuario actualizado";
+      const metadata = {
+         Usuario: {
+            nombre,
+            apellido,
+            mail,
+            empresa,
+            cargo,
+            rol,
+            estado,
+         },
+      };
+      registerUserUpdateEvent(req, auth, description, metadata);
 
       res.json({
          success: true,
@@ -1315,7 +1313,7 @@ router.post("/set-password", async (req, res) => {
          .collection("usuarios")
          .updateOne(
             { _id: new ObjectId(userId) },
-            { $set: { pass: hashed, estado: "activo", updatedAt: new Date().toISOString() } }
+            { $set: { pass: hashed, estado: "activo", updatedAt: new Date().toISOString() } },
          );
 
       if (result.matchedCount === 0) {
@@ -1396,7 +1394,7 @@ router.get("/empresas/todas", async (req, res) => {
 
       // --- CAMBIO SOLICITADO: Ordenar alfabéticamente por nombre ---
       empresasDescifradas.sort((a, b) => {
-         return (a.nombre || "").localeCompare((b.nombre || ""), 'es', { sensitivity: 'base' });
+         return (a.nombre || "").localeCompare(b.nombre || "", "es", { sensitivity: "base" });
       });
 
       res.json(empresasDescifradas);
@@ -1529,7 +1527,7 @@ router.delete("/empresas/:id", async (req, res) => {
       res.status(500).json({ error: "Error al eliminar" });
    }
 });
-// ruta para recopilar todos los usuarios de la empresa asociados a un email 
+// ruta para recopilar todos los usuarios de la empresa asociados a un email
 
 router.get("/empresas/usuarios/:email", async (req, res) => {
    try {
@@ -1542,7 +1540,7 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
 
       // 2. IDENTIFICAR AL USUARIO PIVOTE
       const hashBusqueda = createBlindIndex(emailABuscar.toLowerCase().trim());
-      const usuarioPivote = todosLosUsuarios.find(u => u.mail_index === hashBusqueda);
+      const usuarioPivote = todosLosUsuarios.find((u) => u.mail_index === hashBusqueda);
 
       if (!usuarioPivote) {
          return res.status(404).json({ success: false, message: "Usuario no encontrado" });
@@ -1553,7 +1551,7 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
 
       // 3. FILTRADO POST-DESENCRIPTACIÓN Y FORMATEO
       const usuariosProcesados = todosLosUsuarios
-         .filter(u => {
+         .filter((u) => {
             try {
                // Comparamos el texto plano de la empresa (evita errores por IV distinto)
                return decrypt(u.empresa) === empresaReferencia;
@@ -1561,28 +1559,24 @@ router.get("/empresas/usuarios/:email", async (req, res) => {
                return false;
             }
          })
-         .map(u => ({
+         .map((u) => ({
             id: u._id.toString(),
             nombre: u.nombre ? decrypt(u.nombre) : "",
             apellido: u.apellido ? decrypt(u.apellido) : "",
-            mail: u.mail ? decrypt(u.mail) : ""
+            mail: u.mail ? decrypt(u.mail) : "",
          }));
 
       res.json({
          success: true,
          count: usuariosProcesados.length,
-         data: usuariosProcesados
+         data: usuariosProcesados,
       });
-
    } catch (err) {
       console.error("Error al listar usuarios de empresa:", err);
       if (err.status) return res.status(err.status).json({ message: err.message });
       res.status(500).json({ error: "Error al obtener la lista de empresa" });
    }
 });
-
-
-
 
 router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
    try {
@@ -1592,11 +1586,9 @@ router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
       let logosConError = 0;
       let logosYaCifrados = 0;
 
-
       for (let emp of empresas) {
          const updates = {};
          let procesado = false;
-
 
          // 1. Cifrar campos de texto
          if (emp.nombre && !emp.nombre.includes(":")) {
@@ -1633,7 +1625,6 @@ router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
 
          // 2. Cifrar logo (LA PARTE IMPORTANTE)
          if (emp.logo && emp.logo.fileData) {
-
             // Verificar si ya está cifrado
             if (typeof emp.logo.fileData === "string" && emp.logo.fileData.includes(":")) {
                console.log(`   Logo ya cifrado, saltando`);
@@ -1681,7 +1672,6 @@ router.get("/mantenimiento/migrar-empresas-pqc", async (req, res) => {
                   logosConError++;
                   continue;
                }
-
 
                // CIFRAR (igual que el endpoint PUT)
                const fileDataCifrado = encrypt(base64Str);
@@ -1789,7 +1779,5 @@ router.get("/mantenimiento/migrar-tokens-pqc", async (req, res) => {
       res.status(500).json({ error: err.message });
    }
 });
-
-
 
 module.exports = router;
