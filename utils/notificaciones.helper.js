@@ -1,11 +1,10 @@
-// routes/notificaciones.helper.js - VERSIÓN CORREGIDA
+// routes/notificaciones.helper.js
 const { ObjectId } = require("mongodb");
 const { createBlindIndex, decrypt } = require("./seguridad.helper");
 
 /**
  * Añade una notificación a uno o varios usuarios
  * @param {Db} db - Conexión activa a MongoDB
- * ...
  */
 async function addNotification(
   db,
@@ -38,32 +37,24 @@ async function addNotification(
 
   let query = {};
 
-  // Si es usuario específico
   if (userId) {
     try {
-      // Intentar como ObjectId primero
       query = { _id: new ObjectId(userId) };
     } catch (error) {
-      // Si no es ObjectId válido, asumir que es email
       const mailIndex = createBlindIndex(userId);
       query = { mail_index: mailIndex };
     }
   }
-  // Si es por filtro
   else if (filtro) {
     const encryptedFields = ['rol', 'cargo', 'empresa', 'mail', 'nombre', 'apellido'];
-
-    let dbQuery = { estado: 'activo' }; // Base query
+    let dbQuery = { estado: 'activo' }; 
     let memoryFilters = [];
 
-    // Helper para procesar condiciones - Separar DB vs Memoria
     const processCondition = (key, value) => {
       if (encryptedFields.includes(key)) {
         memoryFilters.push({ key, value });
       } else {
-        // DB Query Normal logic
         if (value && value.$in) {
-          // ya viene formateado
           dbQuery[key] = value;
         } else if (Array.isArray(value)) {
           dbQuery[key] = { $in: value };
@@ -73,7 +64,6 @@ async function addNotification(
       }
     };
 
-    // CASO 1: Filtro con estructura compleja (desde anuncios.js - $and)
     if (filtro.$and && Array.isArray(filtro.$and)) {
       filtro.$and.forEach(condition => {
         Object.keys(condition).forEach(key => {
@@ -81,32 +71,48 @@ async function addNotification(
         });
       });
     }
-    // CASO 2: Filtro simple
     else {
       Object.keys(filtro).forEach(key => {
         processCondition(key, filtro[key]);
       });
     }
 
-    // Si NO hay filtros de memoria, usamos el query directo (optimizado)
     if (memoryFilters.length === 0) {
       query = dbQuery;
     } else {
-      // Si HAY filtros de memoria, debemos traer los candidatos y filtrar en JS
-      // 1. Traer candidatos (filtrados por lógicas de DB como 'estado')
       const candidates = await db.collection("usuarios").find(dbQuery).toArray();
-
       const matchingIds = [];
 
       for (const u of candidates) {
         let match = true;
 
         for (const filter of memoryFilters) {
+          // --- ÚNICO CAMBIO REAL: Lógica de comparación con decrypt ---
+          let valorEnDB = u[filter.key];
+          let valorComparar = valorEnDB;
+
+          // Si el campo tiene el formato cifrado de tu proyecto
+          if (valorEnDB && typeof valorEnDB === 'string' && valorEnDB.includes(':')) {
+            try {
+              valorComparar = decrypt(valorEnDB);
+            } catch (e) {
+              valorComparar = valorEnDB;
+            }
+          }
+
+          // Comparación simple para no romper lógica de negocio
+          if (!valorComparar || valorComparar.toString() !== filter.value.toString()) {
+            match = false;
+            break;
+          }
+          // -----------------------------------------------------------
+        }
+
+        if (match) {
           matchingIds.push(u._id);
         }
       }
 
-      // Si nadie coincide, forzamos un query que no devuelva nada
       if (matchingIds.length === 0) {
         return { notificacion, modifiedCount: 0 };
       }
@@ -114,7 +120,6 @@ async function addNotification(
       query = { _id: { $in: matchingIds } };
     }
   }
-
 
   const result = await db.collection("usuarios").updateMany(query, {
     $push: { notificaciones: notificacion },
