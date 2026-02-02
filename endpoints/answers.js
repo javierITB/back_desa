@@ -3,12 +3,12 @@ const router = express.Router();
 const { ObjectId } = require("mongodb");
 const multer = require('multer');
 const { addNotification } = require("../utils/notificaciones.helper");
-const { generarAnexoDesdeRespuesta } = require("../utils/generador.helper");
+const { generarAnexoDesdeRespuesta, buscarPlantillaPorFormId } = require("../utils/generador.helper");
 const { enviarCorreoRespaldo } = require("../utils/mailrespaldo.helper");
 const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
-const { registerSolicitudCreationEvent, registerSolicitudRemovedEvent} = require("../utils/registerEvent");
+const { registerSolicitudCreationEvent, registerSolicitudRemovedEvent } = require("../utils/registerEvent");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -397,11 +397,13 @@ router.post("/admin", async (req, res) => {
 
 
     const description = `El administrador ${adminUser?.nombre} creó Solicitud para el cliente ${destinatarioNombre} de la empresa ${destinatarioEmpresa}`;
-    const metadata = { nombre_solicitud: formTitle, cliente: {
-      nombre: destinatarioUserObject.nombre,
-      email: destinatarioUserObject.mail,
-      empresa: destinatarioUserObject.empresa,
-    } };
+    const metadata = {
+      nombre_solicitud: formTitle, cliente: {
+        nombre: destinatarioUserObject.nombre,
+        email: destinatarioUserObject.mail,
+        empresa: destinatarioUserObject.empresa,
+      }
+    };
 
     registerSolicitudCreationEvent(req, tokenValido, description, metadata);
     // Responder con datos DESCIFRADOS al frontend
@@ -1146,7 +1148,7 @@ router.get("/filtros", async (req, res) => {
     });
 
     // 5. Función de normalización (Reutilizable para todos los filtros de texto)
-    const normalizeText = (str) => 
+    const normalizeText = (str) =>
       str ? str.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
 
     // 5.1 Filtrado en Memoria (Búsqueda por texto claro)
@@ -1155,7 +1157,7 @@ router.get("/filtros", async (req, res) => {
 
       answersProcessed = answersProcessed.filter(item => {
         return (
-          normalizeText(item._id).includes(searchTerm) || 
+          normalizeText(item._id).includes(searchTerm) ||
           normalizeText(item.trabajador).includes(searchTerm) ||
           normalizeText(item.formTitle).includes(searchTerm) ||
           normalizeText(item.submittedBy).includes(searchTerm) ||
@@ -1429,6 +1431,19 @@ router.get("/:id", async (req, res) => {
       respuestaProcesada.responses = procesarResponses(respuestaProcesada.responses);
     }
 
+    // Verificar si existe una plantilla asignada al formulario de esta respuesta
+    try {
+      if (respuestaProcesada.formId) {
+        const plantilla = await buscarPlantillaPorFormId(respuestaProcesada.formId, req.db);
+        respuestaProcesada.hasTemplate = !!plantilla;
+      } else {
+        respuestaProcesada.hasTemplate = false;
+      }
+    } catch (e) {
+      console.warn("Error verificando plantilla:", e);
+      respuestaProcesada.hasTemplate = false;
+    }
+
     res.json(respuestaProcesada);
 
   } catch (err) {
@@ -1682,7 +1697,7 @@ router.delete("/:id", async (req, res) => {
     if (resultRespuestas.deletedCount === 0) {
       return res.status(404).json({ error: "Respuesta no encontrada" });
     }
-    
+
     registerSolicitudRemovedEvent(req, auth)
 
     res.status(200).json({
@@ -2252,8 +2267,8 @@ router.post("/upload-corrected-files", async (req, res) => {
         if (response) {
           // --- NUEVA LÓGICA: VALIDACIÓN DE ESTADO ARCHIVADO ---
           if (response.status === "archivado") {
-            return res.status(403).json({ 
-              error: 'No se pueden subir archivos a una solicitud que ya está archivada.' 
+            return res.status(403).json({
+              error: 'No se pueden subir archivos a una solicitud que ya está archivada.'
             });
           }
 
@@ -2548,8 +2563,8 @@ router.delete("/delete-corrected-file/:responseId", async (req, res) => {
     });
 
     if (respuestaActual && respuestaActual.status === "archivado") {
-      return res.status(403).json({ 
-        error: "No se pueden eliminar archivos de una solicitud que ya está archivada." 
+      return res.status(403).json({
+        error: "No se pueden eliminar archivos de una solicitud que ya está archivada."
       });
     }
 
@@ -2968,7 +2983,7 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
     const resps = respuesta.responses || {};
     // Busca el valor en cualquiera de las dos variantes de la llave
     const valorOriginal = resps['NOMBRE DEL TRABAJADOR'] || resps['Nombre del trabajador'];
-    
+
     // Si el valor existe y contiene ':', se descifra; si no, se usa tal cual
     const nombreTrabajador = (typeof valorOriginal === 'string' && valorOriginal.includes(':'))
       ? decrypt(valorOriginal)
@@ -3103,8 +3118,8 @@ router.delete("/:responseId/client-signature", async (req, res) => {
     });
 
     if (respuestaActual && respuestaActual.status === "archivado") {
-      return res.status(403).json({ 
-        error: "No se puede eliminar la firma de una solicitud que ya está archivada." 
+      return res.status(403).json({
+        error: "No se puede eliminar la firma de una solicitud que ya está archivada."
       });
     }
     // -----------------------------------------------
@@ -3182,11 +3197,11 @@ router.post("/:id/regenerate-document", async (req, res) => {
     const { id } = req.params;
 
     // Verificar token
-     auth = await verifyRequest(req);
+    auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
 
-     respuesta = await req.db.collection("respuestas").findOne({
+    respuesta = await req.db.collection("respuestas").findOne({
       _id: new ObjectId(id)
     });
 
@@ -3237,7 +3252,7 @@ router.post("/:id/regenerate-document", async (req, res) => {
         }
       }
 
-      await generarAnexoDesdeRespuesta(
+      const docGenerado = await generarAnexoDesdeRespuesta(
         respuesta.responses,
         respuesta._id.toString(),
         req.db,
@@ -3251,7 +3266,12 @@ router.post("/:id/regenerate-document", async (req, res) => {
         respuesta.formId,
         respuesta.formTitle
       );
-      
+
+      if (!docGenerado) {
+        return res.status(400).json({
+          error: "No se pudo generar el documento. Verifique que exista una plantilla asignada y válida."
+        });
+      }
 
       res.json({
         success: true,
@@ -3262,7 +3282,7 @@ router.post("/:id/regenerate-document", async (req, res) => {
 
     } catch (generationError) {
       console.error("Error en generación de documento:", generationError);
-       res.status(500).json({
+      res.status(500).json({
         error: "Error regenerando documento: " + generationError.message
       });
 
@@ -3285,7 +3305,7 @@ router.put("/:id/status", async (req, res) => {
     const { status } = req.body;
 
     // Verificar token
-     auth = await verifyRequest(req);
+    auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     if (!ObjectId.isValid(id)) {
@@ -3338,7 +3358,7 @@ router.put("/:id/status", async (req, res) => {
       return res.status(404).json({ error: "No se pudo actualizar la respuesta" });
     }
 
-     updatedResponse = await req.db.collection("respuestas").findOne({
+    updatedResponse = await req.db.collection("respuestas").findOne({
       _id: new ObjectId(id)
     });
 
@@ -3403,7 +3423,7 @@ router.put("/:id/status", async (req, res) => {
     }
 
 
-  
+
 
     res.json({
       success: true,
