@@ -79,7 +79,7 @@ async function registerDomicilioVirtualRemovalEvent(req, auth, metadata = {}) {
    const payload = {
       code: CODES.DOMICILIOV_ELIMINACION,
       target: {
-         type: TARGET_TYPES.TICKET,
+         type: TARGET_TYPES.SOLICITUD,
       },
    };
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
