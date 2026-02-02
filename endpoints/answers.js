@@ -396,14 +396,12 @@ router.post("/admin", async (req, res) => {
     }
 
 
-    const description = `El administrador ${adminUser?.nombre} creó Solicitud para el cliente ${destinatarioNombre} de la empresa ${destinatarioEmpresa}`;
-    const metadata = {
-      nombre_solicitud: formTitle, cliente: {
-        nombre: destinatarioUserObject.nombre,
-        email: destinatarioUserObject.mail,
-        empresa: destinatarioUserObject.empresa,
-      }
-    };
+    const description = `${adminUser?.nombre} creó Solicitud para el cliente ${destinatarioNombre} de la empresa ${destinatarioEmpresa}`;
+    const metadata = { nombre_solicitud: formTitle, cliente: {
+      nombre: destinatarioUserObject.nombre,
+      email: destinatarioUserObject.mail,
+      empresa: destinatarioUserObject.empresa,
+    } };
 
     registerSolicitudCreationEvent(req, tokenValido, description, metadata);
     // Responder con datos DESCIFRADOS al frontend
