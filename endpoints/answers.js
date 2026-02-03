@@ -774,6 +774,8 @@ router.get("/mail/:mail", async (req, res) => {
         status: answerDescifrada.status,
         createdAt: answerDescifrada.createdAt,
         updatedAt: answerDescifrada.updatedAt,
+        updateAdmin: answerDescifrada.updateAdmin,
+        updateClient: answerDescifrada.updateClient,
         compartida: esCompartida, // TAG SOLICITADO
         isShared: esCompartida,    // Alias para compatibilidad
         metadata: {
