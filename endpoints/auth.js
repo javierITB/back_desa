@@ -658,7 +658,7 @@ router.post("/borrarpass", async (req, res) => {
       const encryptedPassword = encrypt(password);
 
       const updateUserResult = await req.db.collection("usuarios").updateOne(
-         { _id: ObjectId(userId) },
+         { _id: new ObjectId(userId) },
          {
             $set: {
                pass: encryptedPassword,
