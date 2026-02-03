@@ -183,6 +183,9 @@ router.post("/", async (req, res) => {
       mail: correoRespaldo,
       status: "pendiente",
       createdAt: new Date(),
+      status: "pendiente",
+      updateClient: new Date(),
+      createdAt: new Date(),
       updatedAt: new Date()
     });
 
@@ -1184,11 +1187,10 @@ router.get("/filtros", async (req, res) => {
     }
 
     // 6.2 ORDENAMIENTO PERSONALIZADO
-    // Prioridad: updateClient desc -> submittedAt desc
     answersProcessed.sort((a, b) => {
-      const dateA = new Date(a.updateClient || a.submittedAt || a.createdAt || 0);
-      const dateB = new Date(b.updateClient || b.submittedAt || b.createdAt || 0);
-      return dateB - dateA; // Descendiente
+      const dateA = new Date(a.updateClient || 0);
+      const dateB = new Date(b.updateClient || 0);
+      return dateB - dateA;
     });
 
     // 7. Paginación manual tras el filtrado
