@@ -56,6 +56,78 @@ router.post("/", async (req, res) => {
   }
 });
 
+// Agrupar notificaciones similares (Mover arriba de /:nombre para evitar shadow)
+router.get("/gestion/agrupadas", async (req, res) => {
+  try {
+    const auth = await verifyRequest(req);
+    if (!auth.ok || (auth.data.rol !== 'admin' && auth.data.rol !== 'root')) {
+      return res.status(403).json({ error: "Acceso denegado" });
+    }
+
+    const collection = req.db.collection("usuarios");
+
+    const pipeline = [
+      { $unwind: "$notificaciones" },
+      {
+        $group: {
+          _id: {
+            titulo: "$notificaciones.titulo",
+            descripcion: "$notificaciones.descripcion",
+            prioridad: "$notificaciones.prioridad",
+            tipo: "$notificaciones.icono"
+          },
+          count: { $sum: 1 },
+          usuarios: {
+            $push: {
+              _id: "$_id",
+              nombre: "$nombre",
+              empresa: "$empresa",
+              mail: "$mail",
+              notiId: "$notificaciones.id",
+              fecha: "$notificaciones.fecha_creacion"
+            }
+          }
+        }
+      },
+      { $sort: { count: -1 } }
+    ];
+
+    const results = await collection.aggregate(pipeline).toArray();
+
+    // Desencriptar datos de usuarios
+    const groups = results.map(group => {
+      const decryptedUsers = group.usuarios.map(u => {
+        try {
+          return {
+            ...u,
+            nombre: decrypt(u.nombre) || "Sin nombre",
+            empresa: decrypt(u.empresa) || "Sin empresa",
+            mail: decrypt(u.mail) || "Sin email"
+          };
+        } catch (e) {
+          return u;
+        }
+      });
+
+      return {
+        key: Buffer.from(JSON.stringify(group._id)).toString('base64'),
+        titulo: group._id.titulo,
+        descripcion: group._id.descripcion,
+        prioridad: group._id.prioridad,
+        tipo: group._id.tipo,
+        count: group.count,
+        usuarios: decryptedUsers
+      };
+    });
+
+    res.json(groups);
+
+  } catch (err) {
+    console.error("Error agrupando notificaciones:", err);
+    res.status(500).json({ error: "Error al agrupar notificaciones" });
+  }
+});
+
 // Listar notificaciones de un usuario
 router.get("/:nombre", async (req, res) => {
   try {
@@ -233,77 +305,7 @@ router.get("/:mail/unread-count", async (req, res) => {
   }
 });
 
-// Agrupar notificaciones similares
-router.get("/gestion/agrupadas", async (req, res) => {
-  try {
-    const auth = await verifyRequest(req);
-    if (!auth.ok || (auth.data.rol !== 'admin' && auth.data.rol !== 'root')) {
-      return res.status(403).json({ error: "Acceso denegado" });
-    }
-
-    const collection = req.db.collection("usuarios");
-
-    const pipeline = [
-      { $unwind: "$notificaciones" },
-      {
-        $group: {
-          _id: {
-            titulo: "$notificaciones.titulo",
-            descripcion: "$notificaciones.descripcion",
-            prioridad: "$notificaciones.prioridad",
-            tipo: "$notificaciones.icono" // Agrupar también por tipo/icono
-          },
-          count: { $sum: 1 },
-          usuarios: {
-            $push: {
-              _id: "$_id",
-              nombre: "$nombre",
-              empresa: "$empresa",
-              mail: "$mail",
-              notiId: "$notificaciones.id",
-              fecha: "$notificaciones.fecha_creacion"
-            }
-          }
-        }
-      },
-      { $sort: { count: -1 } }
-    ];
-
-    const results = await collection.aggregate(pipeline).toArray();
-
-    // Desencriptar datos de usuarios
-    const groups = results.map(group => {
-      const decryptedUsers = group.usuarios.map(u => {
-        try {
-          return {
-            ...u,
-            nombre: decrypt(u.nombre) || "Sin nombre",
-            empresa: decrypt(u.empresa) || "Sin empresa",
-            mail: decrypt(u.mail) || "Sin email"
-          };
-        } catch (e) {
-          return u;
-        }
-      });
-
-      return {
-        key: Buffer.from(JSON.stringify(group._id)).toString('base64'), // ID único para el frontend
-        titulo: group._id.titulo,
-        descripcion: group._id.descripcion,
-        prioridad: group._id.prioridad,
-        tipo: group._id.tipo,
-        count: group.count,
-        usuarios: decryptedUsers
-      };
-    });
-
-    res.json(groups);
-
-  } catch (err) {
-    console.error("Error agrupando notificaciones:", err);
-    res.status(500).json({ error: "Error al agrupar notificaciones" });
-  }
-});
+// (Ruta /gestion/agrupadas removida de aquí y movida arriba)
 
 // Eliminar notificaciones en lote
 router.post("/gestion/delete-batch", async (req, res) => {
