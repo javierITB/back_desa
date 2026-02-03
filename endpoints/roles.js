@@ -46,9 +46,9 @@ router.post("/", async (req, res) => {
     } else {
       // ACTUALIZAR ROL
       if (id === 'admin') {
-          return res.status(403).json({ error: "No se puede modificar el rol raíz de administrador" });
+        return res.status(403).json({ error: "No se puede modificar el rol raíz de administrador" });
       }
-      
+
       const result = await req.db.collection("roles").findOneAndUpdate(
         { _id: new ObjectId(id) },
         { $set: roleData },
@@ -86,6 +86,28 @@ router.get("/", async (req, res) => {
 });
 
 /**
+ * @route   GET /roles/name/:name
+ * @desc    Obtener detalle de un rol por su nombre
+ */
+router.get("/name/:name", async (req, res) => {
+  try {
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
+
+    const roleName = req.params.name;
+    const role = await req.db.collection("roles").findOne({
+      name: { $regex: new RegExp(`^${roleName}$`, "i") }
+    });
+
+    if (!role) return res.status(404).json({ error: "Rol no encontrado" });
+    res.json(role);
+  } catch (err) {
+    console.error("Error en GET /roles/name/:name:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
  * @route   GET /roles/:id
  * @desc    Obtener detalle de un rol específico
  */
@@ -94,8 +116,8 @@ router.get("/:id", async (req, res) => {
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
 
-    const role = await req.db.collection("roles").findOne({ 
-        _id: new ObjectId(req.params.id) 
+    const role = await req.db.collection("roles").findOne({
+      _id: new ObjectId(req.params.id)
     });
 
     if (!role) return res.status(404).json({ error: "Rol no encontrado" });
@@ -118,23 +140,23 @@ router.delete("/:id", async (req, res) => {
 
     // 1. Evitar borrar el admin
     if (roleId === 'admin' || roleId === '67a25...') { // ID quemado o flag de sistema
-        return res.status(403).json({ error: "No se puede eliminar un rol de sistema" });
+      return res.status(403).json({ error: "No se puede eliminar un rol de sistema" });
     }
 
     // 2. Verificar si hay usuarios con este rol antes de borrar
     // Nota: Aquí buscamos en tu colección de 'usuarios'
-    const usersCount = await req.db.collection("usuarios").countDocuments({ 
-        roleId: roleId 
+    const usersCount = await req.db.collection("usuarios").countDocuments({
+      roleId: roleId
     });
 
     if (usersCount > 0) {
-      return res.status(400).json({ 
-        error: "No se puede eliminar: Hay usuarios asignados a este rol." 
+      return res.status(400).json({
+        error: "No se puede eliminar: Hay usuarios asignados a este rol."
       });
     }
 
-    const result = await req.db.collection("roles").deleteOne({ 
-        _id: new ObjectId(roleId) 
+    const result = await req.db.collection("roles").deleteOne({
+      _id: new ObjectId(roleId)
     });
 
     if (result.deletedCount === 0) return res.status(404).json({ error: "Rol no encontrado" });
@@ -151,24 +173,24 @@ router.delete("/:id", async (req, res) => {
  * @desc    Utility para que el frontend verifique si el usuario actual tiene un permiso
  */
 router.get("/check-permission/:permission", async (req, res) => {
-    try {
-        const tokenCheck = await verifyRequest(req);
-        if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const tokenCheck = await verifyRequest(req);
+    if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
 
-        // El verifyRequest devuelve la data del usuario (incluyendo su rol)
-        const userRoleName = tokenCheck.data.role; 
+    // El verifyRequest devuelve la data del usuario (incluyendo su rol)
+    const userRoleName = tokenCheck.data.role;
 
-        const role = await req.db.collection("roles").findOne({ name: userRoleName });
-        
-        if (!role) return res.status(403).json({ hasPermission: false });
+    const role = await req.db.collection("roles").findOne({ name: userRoleName });
 
-        const hasPermission = role.permissions.includes('all') || 
-                            role.permissions.includes(req.params.permission);
+    if (!role) return res.status(403).json({ hasPermission: false });
 
-        res.json({ hasPermission });
-    } catch (err) {
-        res.status(500).json({ error: "Internal server error" });
-    }
+    const hasPermission = role.permissions.includes('all') ||
+      role.permissions.includes(req.params.permission);
+
+    res.json({ hasPermission });
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 module.exports = router;
