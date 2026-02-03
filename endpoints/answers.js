@@ -1021,7 +1021,9 @@ router.get("/mini", async (req, res) => {
         } : answer.user,
         status: answer.status,
         createdAt: answer.createdAt,
-        adjuntosCount: answer.adjuntosCount || 0
+        adjuntosCount: answer.adjuntosCount || 0,
+        updateClient: answer.updateClient,
+        updateAdmin: answer.updateAdmin
       };
     });
 
@@ -1818,7 +1820,8 @@ router.post("/chat", async (req, res) => {
 
     if (token) {
       const authData = await validarToken(req.db, token);
-      if (authData.ok && (authData.data.rol === 'admin' || authData.data.rol === 'root')) {
+      const rol = authData.data.rol?.toLowerCase();
+      if (authData.ok && (rol === 'admin' || rol === 'root')) {
         isSenderAdmin = true;
       }
     }
