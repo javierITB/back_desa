@@ -7,7 +7,15 @@ const { addNotification } = require("../utils/notificaciones.helper");
 const { sendEmail } = require("../utils/mail.helper");
 const useragent = require("useragent");
 const { encrypt, createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
-const { registerUserUpdateEvent, registerUserCreationEvent, registerUserRemovedEvent, registerEmpresaCreationEvent, registerEmpresaUpdateEvent, registerEmpresaRemovedEvent, registerUserPasswordChange } = require("../utils/registerEvent");
+const {
+   registerUserUpdateEvent,
+   registerUserCreationEvent,
+   registerUserRemovedEvent,
+   registerEmpresaCreationEvent,
+   registerEmpresaUpdateEvent,
+   registerEmpresaRemovedEvent,
+   registerUserPasswordChange,
+} = require("../utils/registerEvent");
 
 const getAhoraChile = () => {
    const d = new Date();
@@ -606,47 +614,88 @@ router.post("/recuperacion", async (req, res) => {
 });
 
 router.post("/borrarpass", async (req, res) => {
-   const { email, code } = req.body;
+   const { email, code, password } = req.body;
    const now = new Date();
 
-   if (!email || !code) {
-      return res.status(400).json({ message: "Correo y código de verificación son obligatorios." });
+   if (!email || !code || !password) {
+      return res.status(400).json({
+         message: "Correo, código y nueva contraseña son obligatorios.",
+      });
    }
 
    try {
       const recoveryRecord = await req.db.collection("recovery_codes").findOne({
          email: email.toLowerCase().trim(),
-         code: code,
+         code,
          active: true,
       });
 
       if (!recoveryRecord) {
-         return res.status(401).json({ message: "Código inválido o ya utilizado." });
+         return res.status(401).json({
+            message: "Código inválido o ya utilizado.",
+         });
       }
 
       if (recoveryRecord.expiresAt < now) {
-         await req.db
-            .collection("recovery_codes")
-            .updateOne({ _id: recoveryRecord._id }, { $set: { active: false, revokedAt: now, reason: "expired" } });
-         return res.status(401).json({ message: "Código expirado. Solicita uno nuevo." });
-      }
+         await req.db.collection("recovery_codes").updateOne(
+            { _id: recoveryRecord._id },
+            { $set: { active: false, revokedAt: now, reason: "expired" } }
+         );
 
-      await req.db
-         .collection("recovery_codes")
-         .updateOne({ _id: recoveryRecord._id }, { $set: { active: false, revokedAt: now, reason: "consumed" } });
+         return res.status(401).json({
+            message: "Código expirado. Solicita uno nuevo.",
+         });
+      }
 
       const userId = recoveryRecord.userId;
 
       if (!userId) {
-         return res.status(404).json({ message: "Error interno: ID de usuario no encontrado." });
+         return res.status(500).json({
+            message: "Error interno: usuario no asociado al código.",
+         });
       }
 
-      return res.json({ success: true, uid: userId });
+      const encryptedPassword = encrypt(password);
+
+      const updateUserResult = await req.db.collection("usuarios").updateOne(
+         { _id: ObjectId(userId) },
+         {
+            $set: {
+               pass: encryptedPassword,
+               updatedAt: now,
+            },
+         }
+      );
+
+      if (updateUserResult.matchedCount === 0) {
+         return res.status(404).json({
+            message: "Usuario no encontrado.",
+         });
+      }
+
+      await req.db.collection("recovery_codes").updateOne(
+         { _id: recoveryRecord._id },
+         {
+            $set: {
+               active: false,
+               revokedAt: now,
+               reason: "consumed",
+            },
+         }
+      );
+
+      return res.json({
+         success: true,
+         uid: userId, 
+      });
    } catch (err) {
       console.error("Error en /borrarpass:", err);
-      res.status(500).json({ message: "Error interno al verificar el código." });
+      return res.status(500).json({
+         message: "Error interno al cambiar la contraseña.",
+      });
    }
 });
+
 
 router.post("/send-2fa-code", async (req, res) => {
    try {
@@ -1048,7 +1097,6 @@ router.post("/register", async (req, res) => {
             subject: "Completa tu registro",
             html: htmlContent,
          });
-
       } catch (mailError) {
          console.error("Error enviando email:", mailError);
       }
@@ -1155,7 +1203,6 @@ router.post("/change-password", async (req, res) => {
          icono: "Shield",
       });
 
-
       registerUserPasswordChange(req, user);
       res.json({ success: true, message: "Contraseña actualizada exitosamente" });
    } catch (err) {
@@ -1224,7 +1271,6 @@ router.put("/users/:id", async (req, res) => {
          },
       );
 
-      
       registerUserUpdateEvent(req, auth, req.body);
 
       res.json({
@@ -1310,8 +1356,8 @@ router.post("/set-password", async (req, res) => {
       // --- VALIDACIÓN SOLICITADA ---
       // Solo funciona si el estado es pendiente y la contraseña está vacía
       if (existingUser.estado !== "pendiente" || (existingUser.pass && existingUser.pass !== "")) {
-         return res.status(403).json({ 
-            error: "La contraseña ya fue establecida o el enlace ha expirado" 
+         return res.status(403).json({
+            error: "La contraseña ya fue establecida o el enlace ha expirado",
          });
       }
 
