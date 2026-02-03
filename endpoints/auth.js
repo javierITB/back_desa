@@ -1307,6 +1307,14 @@ router.post("/set-password", async (req, res) => {
          return res.status(404).json({ error: "Usuario no encontrado" });
       }
 
+      // --- VALIDACIÓN SOLICITADA ---
+      // Solo funciona si el estado es pendiente y la contraseña está vacía
+      if (existingUser.estado !== "pendiente" || (existingUser.pass && existingUser.pass !== "")) {
+         return res.status(403).json({ 
+            error: "La contraseña ya fue establecida o el enlace ha expirado" 
+         });
+      }
+
       const hashPassword = require("../utils/seguridad.helper").hashPassword;
       const hashed = await hashPassword(password);
 
