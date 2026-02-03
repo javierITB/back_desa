@@ -1979,7 +1979,7 @@ router.post("/chat", async (req, res) => {
         actionUrl: `/RespuestasForms?id=${respuesta._id}`,
       };
       await addNotification(req.db, notifChat);
-      await addNotification(req.db, { ...notifChat, filtro: { cargo: "admin" } });
+      await addNotification(req.db, { ...notifChat, filtro: { cargo: "Admin" } });
     } else {
       await addNotification(req.db, {
         userId: respuesta.user.uid,
