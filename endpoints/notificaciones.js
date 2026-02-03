@@ -60,7 +60,8 @@ router.post("/", async (req, res) => {
 router.get("/gestion/agrupadas", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
-    if (!auth.ok || (auth.data.rol !== 'admin' && auth.data.rol !== 'root')) {
+    const userRole = auth.data.rol ? auth.data.rol.toLowerCase() : '';
+    if (!auth.ok || (userRole !== 'admin' && userRole !== 'root')) {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
@@ -311,7 +312,8 @@ router.get("/:mail/unread-count", async (req, res) => {
 router.post("/gestion/delete-batch", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
-    if (!auth.ok || (auth.data.rol !== 'admin' && auth.data.rol !== 'root')) {
+    const userRole = auth.data.rol ? auth.data.rol.toLowerCase() : '';
+    if (!auth.ok || (userRole !== 'admin' && userRole !== 'root')) {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
