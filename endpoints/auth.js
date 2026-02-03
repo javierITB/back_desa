@@ -647,7 +647,7 @@ router.post("/borrarpass", async (req, res) => {
          });
       }
 
-      const userId = recoveryRecord.userId;
+      const userId = recoveryRecord?.userId;
 
       if (!userId) {
          return res.status(500).json({
@@ -655,14 +655,15 @@ router.post("/borrarpass", async (req, res) => {
          });
       }
 
-      const encryptedPassword = encrypt(password);
+      const { hashPassword } = require("../utils/seguridad.helper");
+      const hashedPassword = await hashPassword(password);
 
       const updateUserResult = await req.db.collection("usuarios").updateOne(
-         { _id: new ObjectId(userId) },
+         { _id: ObjectId.createFromHexString(String(userId)) },
          {
             $set: {
-               pass: encryptedPassword,
-               updatedAt: now,
+               pass: hashedPassword,
+               updatedAt: now.toISOString(),
             },
          }
       );
