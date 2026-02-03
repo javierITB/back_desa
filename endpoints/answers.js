@@ -1812,13 +1812,27 @@ router.post("/chat", async (req, res) => {
     const respuesta = await req.db.collection("respuestas").findOne(query);
     if (!respuesta) return res.status(404).json({ error: "Respuesta no encontrada" });
 
+    // Validar rol del remitente desde el token
+    const token = req.headers['authorization']?.split(' ')[1];
+    let isSenderAdmin = false;
+
+    if (token) {
+      const authData = await validarToken(req.db, token);
+      if (authData.ok && (authData.data.rol === 'admin' || authData.data.rol === 'root')) {
+        isSenderAdmin = true;
+      }
+    }
+
+    // Determinar qué fecha actualizar
+    const updateField = isSenderAdmin ? { updateAdmin: new Date() } : { updateClient: new Date() };
+
     await req.db.collection("respuestas").updateOne(
       { _id: respuesta._id },
       {
         $push: { mensajes: nuevoMensaje },
         $set: {
           updatedAt: new Date(),
-          ...(admin ? { updateAdmin: new Date() } : { updateClient: new Date() })
+          ...updateField
         }
       }
     );
