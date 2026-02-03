@@ -1,10 +1,10 @@
 const { getActor, encryptObject } = require("./registerEvent.helper.js");
 const { encrypt, decrypt } = require("../utils/seguridad.helper");
 
-async function registerEvent(req, auth, event, metadata = {}, descriptionBuilder = null) {
-   const actor = await getActor(req, auth);
+async function registerEvent(req, auth, event, metadata = {}, descriptionBuilder = null, actorOverride = null) {
+   const actor = actorOverride ?? (await getActor(req, auth));
 
-   const description = typeof descriptionBuilder === "function" ? descriptionBuilder(actor) || "" : event.description;
+   const description = typeof descriptionBuilder === "function" ? descriptionBuilder(actor) || "" : event?.description;
    const finalDescription =
       typeof description === "string" && description.trim() !== "" && !description.includes(":")
          ? encrypt(description)
@@ -182,6 +182,36 @@ async function registerEmpresaRemovedEvent(req, auth, metadata = {}) {
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
+async function registerUserPasswordChange(req, userData){
+
+
+   const actorOverride = {
+      uid: userData?._id?.toString() || null,
+      name: userData?.nombre || "desconocido",
+      last_name: userData?.apellido || "desconocido",
+      role: userData?.rol || "desconocido",
+      email: userData?.mail || "desconocido",
+      empresa: userData?.empresa || "desconocido",
+      cargo: userData?.cargo || "desconocido",
+      estado: userData?.estado || "desconocido",
+   };
+
+   const description = `${decrypt(userData?.nombre) || "desconocido"} ${decrypt(userData?.apellido) || "desconocido"} cambió su contraseña`;
+
+   const payload = {
+      code: CODES.USUARIO_CAMBIO_CONTRASEÑA,
+      target: {
+         type: TARGET_TYPES.USUARIO,
+      },
+      description,
+   };
+
+
+   await registerEvent(req, null, payload,{}, null, actorOverride);
+
+}
+
+
 // codes
 const CODES = {
    SOLICITUD_CREACION: "SOLICITUD_CREACION",
@@ -192,6 +222,7 @@ const CODES = {
    USUARIO_CREACION: "USUARIO_CREACION",
    USUARIO_ACTUALIZACION: "USUARIO_ACTUALIZACION",
    USUARIO_ELIMINACION: "USUARIO_ELIMINACION",
+   USUARIO_CAMBIO_CONTRASEÑA: "USUARIO_CAMBIO_CONTRASEÑA",
    EMPRESA_CREACION: "EMPRESA_CREACION",
    EMPRESA_ACTUALIZACION: "EMPRESA_ACTUALIZACION",
    EMPRESA_ELIMINACION: "EMPRESA_ELIMINACION",
@@ -217,4 +248,5 @@ module.exports = {
    registerEmpresaCreationEvent,
    registerEmpresaUpdateEvent,
    registerEmpresaRemovedEvent,
+   registerUserPasswordChange
 };

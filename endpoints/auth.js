@@ -7,7 +7,7 @@ const { addNotification } = require("../utils/notificaciones.helper");
 const { sendEmail } = require("../utils/mail.helper");
 const useragent = require("useragent");
 const { encrypt, createBlindIndex, verifyPassword, decrypt } = require("../utils/seguridad.helper");
-const { registerUserUpdateEvent, registerUserCreationEvent, registerUserRemovedEvent, registerEmpresaCreationEvent, registerEmpresaUpdateEvent, registerEmpresaRemovedEvent } = require("../utils/registerEvent");
+const { registerUserUpdateEvent, registerUserCreationEvent, registerUserRemovedEvent, registerEmpresaCreationEvent, registerEmpresaUpdateEvent, registerEmpresaRemovedEvent, registerUserPasswordChange } = require("../utils/registerEvent");
 
 const getAhoraChile = () => {
    const d = new Date();
@@ -1155,6 +1155,8 @@ router.post("/change-password", async (req, res) => {
          icono: "Shield",
       });
 
+
+      registerUserPasswordChange(req, user);
       res.json({ success: true, message: "Contraseña actualizada exitosamente" });
    } catch (err) {
       console.error("Error cambiando contraseña:", err);

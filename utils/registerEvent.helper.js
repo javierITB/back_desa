@@ -15,13 +15,13 @@ async function getActor(req, auth) {
 
    return {
       uid: userData.uid?.toString() || null,
-      name: userData.nombre || "desconocido",
-      last_name: userData.apellido || "desconocido",
-      role: userData.rol || "desconocido",
-      email: userData.mail || "desconocido",
-      empresa: userData.empresa || "desconocido",
-      cargo: userData.cargo || "desconocido",
-      estado: userData.estado || "desconocido",
+      name: userData?.nombre || "desconocido",
+      last_name: userData?.apellido || "desconocido",
+      role: userData?.rol || "desconocido",
+      email: userData?.mail || "desconocido",
+      empresa: userData?.empresa || "desconocido",
+      cargo: userData?.cargo || "desconocido",
+      estado: userData?.estado || "desconocido",
    };
 }
 
