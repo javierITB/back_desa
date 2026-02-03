@@ -1183,6 +1183,14 @@ router.get("/filtros", async (req, res) => {
       );
     }
 
+    // 6.2 ORDENAMIENTO PERSONALIZADO
+    // Prioridad: updateClient desc -> submittedAt desc
+    answersProcessed.sort((a, b) => {
+      const dateA = new Date(a.updateClient || a.submittedAt || a.createdAt || 0);
+      const dateB = new Date(b.updateClient || b.submittedAt || b.createdAt || 0);
+      return dateB - dateA; // Descendiente
+    });
+
     // 7. Paginación manual tras el filtrado
     const totalCount = answersProcessed.length;
     const skip = (page - 1) * limit;
@@ -1289,6 +1297,7 @@ router.post("/compartir/", async (req, res) => {
     const result = await req.db.collection("respuestas").updateOne(
       { _id: new ObjectId(responseId) },
       {
+        $set: { updatedAt: new Date(), updateAdmin: new Date() }, // ← Actualizamos updateAdmin
         $addToSet: {
           "user.compartidos": { $each: usuarios }
         }
@@ -1631,7 +1640,7 @@ router.put("/:id", async (req, res) => {
   try {
     const result = await req.db.collection("respuestas").findOneAndUpdate(
       { _id: new ObjectId(req.params.id) },
-      { $set: { ...req.body, updatedAt: new Date() } },
+      { $set: { ...req.body, updatedAt: new Date(), updateAdmin: new Date() } },
       { returnDocument: "after" }
     );
 
@@ -1799,7 +1808,16 @@ router.post("/chat", async (req, res) => {
     const respuesta = await req.db.collection("respuestas").findOne(query);
     if (!respuesta) return res.status(404).json({ error: "Respuesta no encontrada" });
 
-    await req.db.collection("respuestas").updateOne({ _id: respuesta._id }, { $push: { mensajes: nuevoMensaje } });
+    await req.db.collection("respuestas").updateOne(
+      { _id: respuesta._id },
+      {
+        $push: { mensajes: nuevoMensaje },
+        $set: {
+          updatedAt: new Date(),
+          ...(admin ? { updateAdmin: new Date() } : { updateClient: new Date() })
+        }
+      }
+    );
 
     // ENVIAR CORREO SI ESTÁ MARCADO EL CHECKBOX Y NO ES MENSAJE DE ADMIN
     if (sendToEmail === true && admin !== true) {
@@ -2008,7 +2026,8 @@ router.post("/:id/upload-correction", upload.single('correctedFile'), async (req
           hasCorrection: true,
           correctionFileName: normalizedFileName,
           fileData: req.file.buffer, // Considerar cifrar aquí si el PDF es sensible
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          updateAdmin: new Date()
         }
       }
     );
@@ -2064,7 +2083,9 @@ router.get("/:id/finalized", async (req, res) => {
         $set: {
           status: "finalizado",
           finalizedAt: new Date(),
-          updatedAt: new Date()
+          finalizedAt: new Date(),
+          updatedAt: new Date(),
+          updateAdmin: new Date()
         }
       }
     );
@@ -2178,7 +2199,9 @@ router.get("/:id/archived", async (req, res) => {
         $set: {
           status: "archivado",
           archivedAt: new Date(),
-          updatedAt: new Date()
+          archivedAt: new Date(),
+          updatedAt: new Date(),
+          updateAdmin: new Date()
         }
       }
     );
@@ -2347,6 +2370,12 @@ router.post("/upload-corrected-files", async (req, res) => {
           console.log(`Nuevo documento creado en DB con 1 archivo`);
         }
       }
+
+      // Actualizar respuesta updateAdmin
+      await req.db.collection("respuestas").updateOne(
+        { _id: new ObjectId(responseId) },
+        { $set: { updatedAt: new Date(), updateAdmin: new Date() } }
+      );
 
       // ENVIAR CORREO AL USUARIO DESPUÉS DE SUBIR A LA DB
       let emailSent = false;
