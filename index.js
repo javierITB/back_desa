@@ -17,6 +17,7 @@ const domicilioVirtualRoutes = require("./endpoints/domicilioVirtual");
 const configTicketsRoutes = require("./endpoints/configTickets");
 const dashboardRoutes = require("./endpoints/dashboard");
 const registroRoutes = require("./endpoints/registro");
+const roles = require("./endpoints/roles");
 const app = express();
 
 // Configuración CORS
@@ -68,6 +69,7 @@ app.use("/api/domicilio-virtual", domicilioVirtualRoutes);
 app.use("/api/config-tickets", configTicketsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/registro", registroRoutes);
+app.use("/api/roles", roles);
 
 // Ruta base
 app.get("/", (req, res) => {
