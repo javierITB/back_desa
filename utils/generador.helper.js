@@ -514,16 +514,9 @@ function parsearEstilosInline(elementStr) {
 function procesarHTML(html, variables) {
     if (!html) return [];
 
+    // 1. Limpieza preliminar (solo estructural)
     let cleanHtml = html
         .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&#91;/g, '[')
-        .replace(/&#93;/g, ']')
-        .replace(/\u00A0/g, ' ')
         .replace(/<br\s*\/?>/gi, '\n');
 
     const contadorNumeral = { valor: 1 };
@@ -564,13 +557,29 @@ function procesarHTML(html, variables) {
         return styles;
     }
 
+    // Helper para decodificar entidades FINALMENTE (antes de evaluar)
+    const decodeEntities = (str) => {
+        return str
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&#91;/g, '[')
+            .replace(/&#93;/g, ']')
+            .replace(/&amp;/g, '&');
+    };
+
     while ((match = regexBloques.exec(cleanHtml)) !== null) {
         const fullTag = match[0];
         const tagName = match[1].toLowerCase();
         const innerContent = match[2];
 
+        // 1. Quitar tags HTML
         let textoPlano = innerContent.replace(/<[^>]*>/g, '');
-        textoPlano = textoPlano.replace(/&nbsp;/g, ' ').replace(/\u200B/g, '').trim(); // Remove ZWSP
+        // 2. Limpiar espacios raros
+        textoPlano = textoPlano.replace(/&nbsp;/g, ' ').replace(/\u200B/g, '').trim();
+        // 3. Decodificar entidades (AHORA, que ya no hay tags que se rompan)
+        textoPlano = decodeEntities(textoPlano);
 
         const matchIf = textoPlano.match(/^\[\[\s*IF:([\s\S]*?)\s*\]\]$/i);
         const matchEndIf = textoPlano.match(/^\[\[\s*ENDIF\s*\]\]$/i);
@@ -591,6 +600,12 @@ function procesarHTML(html, variables) {
 
         if (tagName === 'p') {
             const style = parsearEstilosInline(fullTag);
+
+            // IMPORTANTE: Para el contenido real del párrafo, TAMBIÉN decodificar al final
+            // Pero aquí dividimos por tags... es complejo porque "split" usa regex de tags.
+            // Si decodificamos ANTES de split, reintroducimos < > que rompen lógica?
+            // No, porque split es sobre innerContent (con tags).
+            // Entonces, dentro del loop de parts, decodificar el TEXTO de los textNodes.
 
             const parts = innerContent.split(/(<\/?(?:strong|b|em|i|u|span(?:\s+[^>]*)?)>)/gi);
             const paragraphChildren = [];
