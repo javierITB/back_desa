@@ -20,8 +20,22 @@ router.get("/", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+        // Helper para verificar permisos dinámicamente
+        const hasPermission = async (db, userRole, requiredPerm) => {
+            // Siempre permitir admin
+            if (userRole === 'admin') return true;
+
+            const role = await db.collection("roles").findOne({ name: userRole });
+            if (!role) return false;
+
+            return role.permissions.includes('all') || role.permissions.includes(requiredPerm);
+        };
+
         const userRole = auth.user.rol?.toLowerCase() || '';
-        if (userRole !== 'admin') return res.status(403).json({ error: "Acceso denegado. Se requiere rol de administrador." });
+        const permitted = await hasPermission(req.db, userRole, 'view_configuracion_tickets');
+
+        if (!permitted) return res.status(403).json({ error: "Acceso denegado." });
 
         const db = req.db;
         const collection = db.collection("config_tickets");
@@ -68,7 +82,17 @@ router.post("/", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
-        if ((auth.user.rol?.toLowerCase() || '') !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
+
+        // Reutilizamos lógica de validación
+        const checkPerm = async (db, userRole, requiredPerm) => {
+            if (userRole === 'admin') return true;
+            const role = await db.collection("roles").findOne({ name: userRole });
+            return role && (role.permissions.includes('all') || role.permissions.includes(requiredPerm));
+        };
+
+        if (!(await checkPerm(req.db, auth.user.rol?.toLowerCase() || '', 'create_categoria_ticket'))) {
+            return res.status(403).json({ error: "Acceso denegado" });
+        }
 
         const { name, icon } = req.body;
 
@@ -121,7 +145,20 @@ router.put("/:key", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
-        if ((auth.user.rol?.toLowerCase() || '') !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
+
+        // Check Permission Inline or via helper (logic repeated for safety as helper scope in GET isn't global)
+        // To be clean, we should probably extract the helper globally in this file, but inline is fine for now to avoid large refactor risk.
+        const userRole = auth.user.rol?.toLowerCase() || '';
+        let hasPerm = false;
+        if (userRole === 'admin') hasPerm = true;
+        else {
+            const role = await req.db.collection("roles").findOne({ name: userRole });
+            if (role && (role.permissions.includes('all') || role.permissions.includes('edit_categoria_ticket'))) {
+                hasPerm = true;
+            }
+        }
+
+        if (!hasPerm) return res.status(403).json({ error: "Acceso denegado" });
 
         const { key } = req.params;
         const { statuses, subcategories, icon } = req.body;
@@ -166,7 +203,18 @@ router.delete("/:key", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
-        if ((auth.user.rol?.toLowerCase() || '') !== 'admin') return res.status(403).json({ error: "Acceso denegado" });
+
+        const userRole = auth.user.rol?.toLowerCase() || '';
+        let hasPerm = false;
+        if (userRole === 'admin') hasPerm = true;
+        else {
+            const role = await req.db.collection("roles").findOne({ name: userRole });
+            if (role && (role.permissions.includes('all') || role.permissions.includes('delete_categoria_ticket'))) {
+                hasPerm = true;
+            }
+        }
+
+        if (!hasPerm) return res.status(403).json({ error: "Acceso denegado" });
 
         const { key } = req.params;
         const db = req.db;
