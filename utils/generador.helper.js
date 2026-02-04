@@ -337,8 +337,8 @@ async function extraerVariablesDeRespuestas(responses, userData, db) {
 function evaluarCondicional(conditionalVar, variables) {
     if (!conditionalVar || conditionalVar.trim() === '') return true;
 
-    // Quitar [[IF: y ]] si vienen
-    let condicion = conditionalVar.replace(/^(\[\[IF:|{{)(.*?)(]])?$/i, '$2').trim();
+    // Quitar [[IF: y ]] si vienen (con soporte multilinea)
+    let condicion = conditionalVar.replace(/^(\[\[IF:|{{)([\s\S]*?)(]])?$/i, '$2').trim();
 
     // 1. OR ||
     if (condicion.includes('||')) {
@@ -512,6 +512,8 @@ function procesarHTML(html, variables) {
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
         .replace(/<br\s*\/?>/gi, '\n');
 
     const contadorNumeral = { valor: 1 };
@@ -560,7 +562,7 @@ function procesarHTML(html, variables) {
         let textoPlano = innerContent.replace(/<[^>]*>/g, '');
         textoPlano = textoPlano.replace(/&nbsp;/g, ' ').trim();
 
-        const matchIf = textoPlano.match(/^\[\[\s*IF:(.*?)\s*\]\]$/i);
+        const matchIf = textoPlano.match(/^\[\[\s*IF:([\s\S]*?)\s*\]\]$/i);
         const matchEndIf = textoPlano.match(/^\[\[\s*ENDIF\s*\]\]$/i);
 
         if (matchIf) {
