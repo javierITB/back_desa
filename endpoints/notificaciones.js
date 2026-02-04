@@ -70,12 +70,20 @@ router.get("/gestion/agrupadas", async (req, res) => {
     const pipeline = [
       { $unwind: "$notificaciones" },
       {
+        $addFields: {
+          "notificaciones.fechaObj": {
+            $convert: { input: "$notificaciones.fecha_creacion", to: "date", onError: null, onNull: null }
+          }
+        }
+      },
+      {
         $group: {
           _id: {
             titulo: "$notificaciones.titulo",
             descripcion: "$notificaciones.descripcion",
             prioridad: "$notificaciones.prioridad",
-            tipo: "$notificaciones.icono"
+            tipo: "$notificaciones.icono",
+            mes: { $dateToString: { format: "%Y-%m", date: "$notificaciones.fechaObj" } }
           },
           count: { $sum: 1 },
           usuarios: {
@@ -85,7 +93,10 @@ router.get("/gestion/agrupadas", async (req, res) => {
               empresa: "$empresa",
               mail: "$mail",
               notiId: "$notificaciones.id",
-              fecha: "$notificaciones.fecha_creacion"
+              fecha: "$notificaciones.fecha_creacion",
+              leido: "$notificaciones.leido",
+              rol: "$rol",
+              cargo: "$cargo"
             }
           }
         }
@@ -116,6 +127,7 @@ router.get("/gestion/agrupadas", async (req, res) => {
         descripcion: group._id.descripcion,
         prioridad: group._id.prioridad,
         tipo: group._id.tipo,
+        mes: group._id.mes,
         count: group.count,
         usuarios: decryptedUsers
       };
@@ -317,34 +329,22 @@ router.post("/gestion/delete-batch", async (req, res) => {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
-    const { titulo, descripcion, userIds } = req.body;
+    const { ids } = req.body;
 
-    if (!titulo) {
-      return res.status(400).json({ error: "Falta el título para identificar notificaciones" });
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "Falta array de IDs de notificaciones" });
     }
 
-    let filter = {};
-    if (userIds && Array.isArray(userIds) && userIds.length > 0) {
-      filter._id = { $in: userIds.map(id => new ObjectId(id)) };
-    }
-
-    // Buscamos usuarios que coincidan con el filtro de ID (si hay) y que tengan la notificación
-    // Y hacemos PULL de la notificación que coincida en titulo y descripcion
-
-    const updateQuery = {
-      $pull: {
-        notificaciones: {
-          titulo: titulo,
-          ...(descripcion ? { descripcion: descripcion } : {})
-        }
-      }
-    };
-
-    const result = await req.db.collection("usuarios").updateMany(filter, updateQuery);
+    // UPDATE: Usar IDs específicos de notificaciones para eliminar
+    const result = await req.db.collection("usuarios").updateMany(
+      { "notificaciones.id": { $in: ids } },
+      { $pull: { notificaciones: { id: { $in: ids } } } }
+    );
 
     res.json({
       message: "Proceso de eliminación completado",
-      modifiedCount: result.modifiedCount
+      modifiedCount: result.modifiedCount,
+      deletedCount: ids.length
     });
 
   } catch (err) {
