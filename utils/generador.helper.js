@@ -387,7 +387,14 @@ function evaluarCondicional(conditionalVar, variables) {
         return valorStr !== '' && valorStr !== 'false' && valorStr !== '0';
     }
 
-    if (operator === '<') return valorStr.toLowerCase() < valueToCheck.toLowerCase();
+    if (operator === '<') {
+        // Soporte para "CONTIENE" en arrays (separados por coma)
+        if (valorStr.includes(',')) {
+            const arr = valorStr.split(',').map(s => s.trim().toLowerCase());
+            if (arr.includes(valueToCheck.toLowerCase())) return true;
+        }
+        return valorStr.toLowerCase() < valueToCheck.toLowerCase();
+    }
     if (operator === '>') return valorStr.toLowerCase() > valueToCheck.toLowerCase();
     if (operator === '=') return valorStr.toLowerCase() === valueToCheck.toLowerCase();
     if (operator === '!=') return valorStr.toLowerCase() !== valueToCheck.toLowerCase();
@@ -563,7 +570,7 @@ function procesarHTML(html, variables) {
         const innerContent = match[2];
 
         let textoPlano = innerContent.replace(/<[^>]*>/g, '');
-        textoPlano = textoPlano.replace(/&nbsp;/g, ' ').trim();
+        textoPlano = textoPlano.replace(/&nbsp;/g, ' ').replace(/\u200B/g, '').trim(); // Remove ZWSP
 
         const matchIf = textoPlano.match(/^\[\[\s*IF:([\s\S]*?)\s*\]\]$/i);
         const matchEndIf = textoPlano.match(/^\[\[\s*ENDIF\s*\]\]$/i);
