@@ -65,81 +65,63 @@ router.get("/gestion/agrupadas", async (req, res) => {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
-    // 1. Obtener todos los usuarios que tengan notificaciones
-    // Proyección para traer solo lo necesario
-    const users = await req.db.collection("usuarios").find(
-      { "notificaciones.0": { $exists: true } }, // Solo usuarios con notificaciones
+    const collection = req.db.collection("usuarios");
+
+    const pipeline = [
+      { $unwind: "$notificaciones" },
       {
-        projection: {
-          nombre: 1, empresa: 1, mail: 1, rol: 1, cargo: 1, notificaciones: 1
-        }
-      }
-    ).toArray();
-
-    const groupsMap = {};
-
-    // 2. Procesar en JS (Lógica idéntica a la que había en Frontend anteriormente)
-    users.forEach(user => {
-      if (user.notificaciones && Array.isArray(user.notificaciones)) {
-
-        // Desencriptar datos del usuario una sola vez
-        const usuarioInfo = {
-          _id: user._id,
-          nombre: decrypt(user.nombre) || "Sin nombre",
-          empresa: decrypt(user.empresa) || "Sin empresa",
-          mail: decrypt(user.mail) || "Sin email",
-          rol: user.rol,
-          cargo: user.cargo
-        };
-
-        user.notificaciones.forEach(noti => {
-          // Calcular mes
-          let mes = "";
-          try {
-            if (noti.fecha_creacion) {
-              const d = new Date(noti.fecha_creacion);
-              if (!isNaN(d.getTime())) {
-                mes = d.toISOString().slice(0, 7); // "YYYY-MM"
-              }
+        $group: {
+          _id: {
+            titulo: "$notificaciones.titulo",
+            descripcion: "$notificaciones.descripcion",
+            prioridad: "$notificaciones.prioridad",
+            tipo: "$notificaciones.icono"
+          },
+          count: { $sum: 1 },
+          usuarios: {
+            $push: {
+              _id: "$_id",
+              nombre: "$nombre",
+              empresa: "$empresa",
+              mail: "$mail",
+              notiId: "$notificaciones.id",
+              fecha: "$notificaciones.fecha_creacion"
             }
-          } catch (e) { }
-
-          const groupKeyObj = {
-            titulo: noti.titulo,
-            descripcion: noti.descripcion,
-            tipo: noti.icono,
-            mes: mes
-          };
-          const groupKey = JSON.stringify(groupKeyObj);
-
-          if (!groupsMap[groupKey]) {
-            groupsMap[groupKey] = {
-              key: Buffer.from(groupKey).toString('base64'),
-              titulo: noti.titulo,
-              descripcion: noti.descripcion,
-              tipo: noti.icono,
-              mes: mes,
-              prioridad: noti.prioridad, // Tomamos la prioridad del primero
-              count: 0,
-              usuarios: []
-            };
           }
+        }
+      },
+      { $sort: { count: -1 } }
+    ];
 
-          groupsMap[groupKey].count++;
-          groupsMap[groupKey].usuarios.push({
-            ...usuarioInfo, // Spread de info básica desencriptada
-            notiId: noti.id,
-            fecha: noti.fecha_creacion,
-            leido: noti.leido
-          });
-        });
-      }
+    const results = await collection.aggregate(pipeline).toArray();
+
+    // Desencriptar datos de usuarios
+    const groups = results.map(group => {
+      const decryptedUsers = group.usuarios.map(u => {
+        try {
+          return {
+            ...u,
+            nombre: decrypt(u.nombre) || "Sin nombre",
+            empresa: decrypt(u.empresa) || "Sin empresa",
+            mail: decrypt(u.mail) || "Sin email"
+          };
+        } catch (e) {
+          return u;
+        }
+      });
+
+      return {
+        key: Buffer.from(JSON.stringify(group._id)).toString('base64'),
+        titulo: group._id.titulo,
+        descripcion: group._id.descripcion,
+        prioridad: group._id.prioridad,
+        tipo: group._id.tipo,
+        count: group.count,
+        usuarios: decryptedUsers
+      };
     });
 
-    // 3. Convertir a Array y ordenar
-    const groupsArray = Object.values(groupsMap).sort((a, b) => b.count - a.count);
-
-    res.json(groupsArray);
+    res.json(groups);
 
   } catch (err) {
     console.error("Error agrupando notificaciones:", err);
@@ -335,22 +317,34 @@ router.post("/gestion/delete-batch", async (req, res) => {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
-    const { ids } = req.body;
+    const { titulo, descripcion, userIds } = req.body;
 
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: "Falta array de IDs de notificaciones" });
+    if (!titulo) {
+      return res.status(400).json({ error: "Falta el título para identificar notificaciones" });
     }
 
-    // UPDATE: Usar IDs específicos de notificaciones para eliminar
-    const result = await req.db.collection("usuarios").updateMany(
-      { "notificaciones.id": { $in: ids } },
-      { $pull: { notificaciones: { id: { $in: ids } } } }
-    );
+    let filter = {};
+    if (userIds && Array.isArray(userIds) && userIds.length > 0) {
+      filter._id = { $in: userIds.map(id => new ObjectId(id)) };
+    }
+
+    // Buscamos usuarios que coincidan con el filtro de ID (si hay) y que tengan la notificación
+    // Y hacemos PULL de la notificación que coincida en titulo y descripcion
+
+    const updateQuery = {
+      $pull: {
+        notificaciones: {
+          titulo: titulo,
+          ...(descripcion ? { descripcion: descripcion } : {})
+        }
+      }
+    };
+
+    const result = await req.db.collection("usuarios").updateMany(filter, updateQuery);
 
     res.json({
       message: "Proceso de eliminación completado",
-      modifiedCount: result.modifiedCount,
-      deletedCount: ids.length
+      modifiedCount: result.modifiedCount
     });
 
   } catch (err) {
