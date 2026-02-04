@@ -514,6 +514,9 @@ function procesarHTML(html, variables) {
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
+        .replace(/&#91;/g, '[')
+        .replace(/&#93;/g, ']')
+        .replace(/\u00A0/g, ' ')
         .replace(/<br\s*\/?>/gi, '\n');
 
     const contadorNumeral = { valor: 1 };
