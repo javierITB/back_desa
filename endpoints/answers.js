@@ -667,16 +667,29 @@ router.get("/mail/:mail", async (req, res) => {
     }
 
     const userIdString = user._id.toString();
+    const userCargo = user?.cargo;
+    
+    const ROLES_WITH_COMPANY_SCOPE = new Set(["jefatura"]);
+
+    const hasCompanyScope = ROLES_WITH_COMPANY_SCOPE.has(userCargo?.toLowerCase().trim());
+
+    let matchStage;
+
+    if (hasCompanyScope) {
+       const userEmpresa = user?.empresa?.toLowerCase().trim();
+       matchStage = {
+          "user.empresa": userEmpresa,
+       };
+    } else {
+       matchStage = {
+          $or: [{ "user.compartidos": userIdString }, { "user.uid": userIdString }],
+       };
+    }
 
     // 2. AGGREGATION PIPELINE: Filtrado y Lookup en un solo paso
     const answersProcessed = await req.db.collection("respuestas").aggregate([
       {
-        $match: {
-          $or: [
-            { "user.compartidos": userIdString },
-            { "user.uid": userIdString } 
-          ]
-        }
+        $match: matchStage
       },
       {
         $lookup: {
