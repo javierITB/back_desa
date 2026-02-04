@@ -23,10 +23,9 @@ router.get("/", async (req, res) => {
 
         // Helper para verificar permisos dinámicamente
         const hasPermission = async (db, userRole, requiredPerm) => {
-            // Siempre permitir admin
-            if (userRole === 'admin') return true;
-
-            const role = await db.collection("roles").findOne({ name: userRole });
+            const role = await db.collection("roles").findOne({
+                name: { $regex: new RegExp(`^${userRole}$`, "i") }
+            });
             if (!role) return false;
 
             return role.permissions.includes('all') || role.permissions.includes(requiredPerm);
@@ -85,8 +84,9 @@ router.post("/", async (req, res) => {
 
         // Reutilizamos lógica de validación
         const checkPerm = async (db, userRole, requiredPerm) => {
-            if (userRole === 'admin') return true;
-            const role = await db.collection("roles").findOne({ name: userRole });
+            const role = await db.collection("roles").findOne({
+                name: { $regex: new RegExp(`^${userRole}$`, "i") }
+            });
             return role && (role.permissions.includes('all') || role.permissions.includes(requiredPerm));
         };
 
@@ -148,14 +148,16 @@ router.put("/:key", async (req, res) => {
 
         // Check Permission Inline or via helper (logic repeated for safety as helper scope in GET isn't global)
         // To be clean, we should probably extract the helper globally in this file, but inline is fine for now to avoid large refactor risk.
+        // Check Permission Inline
         const userRole = auth.user.rol?.toLowerCase() || '';
         let hasPerm = false;
-        if (userRole === 'admin') hasPerm = true;
-        else {
-            const role = await req.db.collection("roles").findOne({ name: userRole });
-            if (role && (role.permissions.includes('all') || role.permissions.includes('edit_categoria_ticket'))) {
-                hasPerm = true;
-            }
+
+        const role = await req.db.collection("roles").findOne({
+            name: { $regex: new RegExp(`^${userRole}$`, "i") }
+        });
+
+        if (role && (role.permissions.includes('all') || role.permissions.includes('edit_categoria_ticket'))) {
+            hasPerm = true;
         }
 
         if (!hasPerm) return res.status(403).json({ error: "Acceso denegado" });
@@ -206,12 +208,13 @@ router.delete("/:key", async (req, res) => {
 
         const userRole = auth.user.rol?.toLowerCase() || '';
         let hasPerm = false;
-        if (userRole === 'admin') hasPerm = true;
-        else {
-            const role = await req.db.collection("roles").findOne({ name: userRole });
-            if (role && (role.permissions.includes('all') || role.permissions.includes('delete_categoria_ticket'))) {
-                hasPerm = true;
-            }
+
+        const role = await req.db.collection("roles").findOne({
+            name: { $regex: new RegExp(`^${userRole}$`, "i") }
+        });
+
+        if (role && (role.permissions.includes('all') || role.permissions.includes('delete_categoria_ticket'))) {
+            hasPerm = true;
         }
 
         if (!hasPerm) return res.status(403).json({ error: "Acceso denegado" });
