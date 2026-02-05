@@ -60,8 +60,17 @@ router.post("/", async (req, res) => {
 router.get("/gestion/agrupadas", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
-    const userRole = auth.data.rol ? auth.data.rol.toLowerCase() : '';
-    if (!auth.ok || (userRole !== 'admin' && userRole !== 'root')) {
+    if (!auth.ok) return res.status(403).json({ error: "Acceso denegado" });
+
+    const userRoleName = auth.data.rol || '';
+    let hasPermission = false;
+
+    const role = await req.db.collection("roles").findOne({ name: userRoleName });
+    if (role && (role.permissions.includes('all') || role.permissions.includes('view_gestor_notificaciones'))) {
+      hasPermission = true;
+    }
+
+    if (!hasPermission) {
       return res.status(403).json({ error: "Acceso denegado" });
     }
 
@@ -312,9 +321,18 @@ router.get("/:mail/unread-count", async (req, res) => {
 router.post("/gestion/delete-batch", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
-    const userRole = auth.data.rol ? auth.data.rol.toLowerCase() : '';
-    if (!auth.ok || (userRole !== 'admin' && userRole !== 'root')) {
-      return res.status(403).json({ error: "Acceso denegado" });
+    if (!auth.ok) return res.status(403).json({ error: "Acceso denegado" });
+
+    const userRoleName = auth.data.rol || '';
+    let hasPermission = false;
+
+    const role = await req.db.collection("roles").findOne({ name: userRoleName });
+    if (role && (role.permissions.includes('all') || role.permissions.includes('delete_gestor_notificaciones'))) {
+      hasPermission = true;
+    }
+
+    if (!hasPermission) {
+      return res.status(403).json({ error: "Acceso denegado. Se requiere permiso para eliminar notificaciones." });
     }
 
     const { titulo, descripcion, userIds } = req.body;
