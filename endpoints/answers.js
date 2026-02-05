@@ -505,6 +505,12 @@ router.post("/:id/adjuntos", async (req, res) => {
       );
     }
 
+    // ACTUALIZAR TIMESTAMP EN RESPUESTA PADRE
+    await req.db.collection("respuestas").updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { updatedAt: new Date(), updateClient: new Date() } }
+    );
+
     res.json({
       success: true,
       message: `Adjunto ${index + 1} de ${total} subido exitosamente`,
@@ -1874,7 +1880,16 @@ router.post("/chat", async (req, res) => {
     }
 
     // --- RECUPERADO: Determinar qué fecha actualizar ---
-    const updateField = isSenderAdmin ? { updateAdmin: new Date() } : { updateClient: new Date() };
+    let updateField = {};
+    if (isSenderAdmin) {
+      // Si es ADMIN, solo actualizamos updateAdmin si NO es un mensaje interno
+      if (!req.body.internal) {
+        updateField = { updateAdmin: new Date() };
+      }
+    } else {
+      // Si es CLIENTE, siempre actualizamos updateClient
+      updateField = { updateClient: new Date() };
+    }
 
     // --- ACTUALIZACIÓN EN BD (Mantiene toda la estructura original) ---
     await req.db.collection("respuestas").updateOne(
