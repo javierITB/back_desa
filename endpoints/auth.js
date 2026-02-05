@@ -1289,36 +1289,27 @@ router.put("/users/:id", async (req, res) => {
 });
 
 router.delete("/users/:id", async (req, res) => {
-  try {
-    const auth = await verifyRequest(req);
-    if (!auth.ok) {
-      return res.status(403).json({ error: auth.error });
-    }
+   try {
+      const auth = await verifyRequest(req);
+      if (!auth.ok) {
+         return res.status(403).json({ error: auth.error });
+      }
+      const result = await req.db.collection("usuarios").deleteOne({
+         _id: new ObjectId(req.params.id),
+      });
 
-    const result = await req.db.collection("usuarios").findOneAndDelete({
-      _id: new ObjectId(req.params.id),
-    });
+      if (result.deletedCount === 0) {
+         return res.status(404).json({ error: "Usuario no encontrado" });
+      }
 
-    // Si no se encontró el usuario
-    if (!result.value) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
-    }
+      registerUserRemovedEvent(req, auth);
 
-    // 🔹 Acá tienes el documento completo eliminado
-    const deletedUser = result.value;
-
-    // Puedes pasar el usuario eliminado
-    registerUserRemovedEvent(req, auth, deletedUser);
-
-    res.json({
-      message: "Usuario eliminado exitosamente",
-    });
-  } catch (err) {
-    console.error("Error eliminando usuario:", err);
-    res.status(500).json({ error: "Error al eliminar usuario" });
-  }
+      res.json({ message: "Usuario eliminado exitosamente" });
+   } catch (err) {
+      console.error("Error eliminando usuario:", err);
+      res.status(500).json({ error: "Error al eliminar usuario" });
+   }
 });
-
 
 router.post("/set-password", async (req, res) => {
    try {
