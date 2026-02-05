@@ -652,126 +652,223 @@ router.get("/", async (req, res) => {
 // Obtener respuestas por email
 router.get("/mail/:mail", async (req, res) => {
   try {
+    // Verificar token
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     const cleanMail = req.params.mail.toLowerCase().trim();
 
-    // 1. Buscar usuario (con Blind Index)
+    // 1. Buscar usuario por Blind Index
     const user = await req.db.collection("usuarios").findOne({
       mail_index: createBlindIndex(cleanMail)
     });
 
     if (!user) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+        mailBuscado: cleanMail
+      });
     }
 
-    const userIdString = user?._id?.toString();
-    const userCargo = user?.cargo?.trim();
-    
-    const ROLES_WITH_COMPANY_SCOPE = new Set(["jefatura"]);
+    const userIdString = user._id.toString();
+    const userCargo = user?.cargo?.toLowerCase().trim();
 
-    const hasCompanyScope = ROLES_WITH_COMPANY_SCOPE.has(userCargo?.toLowerCase().trim());
+    // Determinar si es jefatura
+    const isJefatura = userCargo === "jefatura";
 
-    let matchStage;
-
-    if (hasCompanyScope) {
-       const userEmpresa = user?.empresa;
-       matchStage = {
-          "user.empresa": encrypt(userEmpresa),
-       };
-    } else {
-       matchStage = {
-          $or: [{ "user.compartidos": encrypt(userIdString) }, { "user.uid": encrypt(userIdString) }],
-       };
+    // Desencriptar empresa del usuario (si aplica)
+    let userEmpresa = null;
+    if (user.empresa) {
+      try {
+        userEmpresa = user.empresa.includes(":")
+          ? decrypt(user.empresa)
+          : user.empresa;
+      } catch {
+        userEmpresa = null;
+      }
     }
 
-    // 2. AGGREGATION PIPELINE: Filtrado y Lookup en un solo paso
-    const answersProcessed = await req.db.collection("respuestas").aggregate([
-      {
-        $match: matchStage
-      },
-      {
-        $lookup: {
-          from: "forms",
-          let: { formIdStr: "$formId" },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ["$_id", { $toObjectId: "$$formIdStr" }] }
-              }
-            },
-            {
-              $project: {
-                title: 1, icon: 1, primaryColor: 1, section: 1, description: 1, updatedAt: 1
-              }
-            }
-          ],
-          as: "formDetails"
+    // Desencriptar nombre del usuario
+    let nombreUsuario = "Usuario";
+    if (user.nombre && user.nombre.includes(":")) {
+      try {
+        nombreUsuario = decrypt(user.nombre);
+      } catch (e) {
+        console.error("Error descifrando nombre:", e);
+      }
+    }
+
+    // 2. Traer TODAS las respuestas (modo legacy / sin migración)
+    const allAnswers = await req.db.collection("respuestas").find({}).toArray();
+
+    const answers = allAnswers.filter(answer => {
+      if (!answer.user) return false;
+
+      // --- Solicitudes propias ---
+      let isOwner = false;
+      if (answer.user.uid) {
+        let uidToCheck = answer.user.uid;
+        if (typeof uidToCheck === "string" && uidToCheck.includes(":")) {
+          try {
+            uidToCheck = decrypt(uidToCheck);
+          } catch {
+            return false;
+          }
         }
-      },
-      { $unwind: { path: "$formDetails", preserveNullAndEmptyArrays: true } },
-      { $sort: { createdAt: -1 } }
-    ]).toArray();
+        isOwner = uidToCheck === userIdString;
+      }
+
+      // --- Solicitudes compartidas ---
+      let isShared = false;
+      if (answer.user.compartidos && Array.isArray(answer.user.compartidos)) {
+        isShared = answer.user.compartidos.includes(userIdString);
+      }
+
+      // --- Solicitudes por empresa (SOLO JEFATURA) ---
+      let isSameCompany = false;
+      if (isJefatura && userEmpresa && answer.user.empresa) {
+        try {
+          const empresaRespuesta = answer.user.empresa.includes(":")
+            ? decrypt(answer.user.empresa)
+            : answer.user.empresa;
+
+          isSameCompany = empresaRespuesta === userEmpresa;
+        } catch {
+          isSameCompany = false;
+        }
+      }
+
+      return isOwner || isShared || isSameCompany;
+    });
 
     // --- Helpers de Desencriptación ---
     const descifrarCampo = (valor) => {
       const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
-      if (typeof valor === 'string' && encryptedRegex.test(valor)) {
-        try { return decrypt(valor); } catch { return valor; }
+      if (typeof valor === "string" && encryptedRegex.test(valor)) {
+        try {
+          return decrypt(valor);
+        } catch {
+          return valor;
+        }
       }
       return valor;
     };
 
     const descifrarObjeto = (obj) => {
-      if (!obj || typeof obj !== 'object') return obj;
+      if (!obj || typeof obj !== "object") return obj;
       if (Array.isArray(obj)) return obj.map(item => descifrarCampo(item));
+
       const resultado = {};
       for (const key in obj) {
         const valor = obj[key];
-        resultado[key] = (typeof valor === 'object' && valor !== null) 
-          ? descifrarObjeto(valor) 
-          : descifrarCampo(valor);
+        if (typeof valor === "string") {
+          resultado[key] = descifrarCampo(valor);
+        } else if (typeof valor === "object" && valor !== null) {
+          resultado[key] = descifrarObjeto(valor);
+        } else {
+          resultado[key] = valor;
+        }
       }
       return resultado;
     };
 
-    // 3. Post-procesamiento (Desencriptación de lo que ya viene filtrado)
-    const finalAnswers = answersProcessed.map(answer => {
-      // Desencriptamos solo los datos del usuario y respuestas
-      const userDecrypted = descifrarObjeto(answer.user);
-      const responsesDecrypted = descifrarObjeto(answer.responses);
-      
-      const esCompartida = userDecrypted?.uid !== userIdString;
+    // 3. Procesar y desencriptar respuestas
+    const answersProcessed = answers.map(answer => {
+      const answerDescifrada = { ...answer };
+
+      if (answerDescifrada.user) {
+        answerDescifrada.user = descifrarObjeto(answerDescifrada.user);
+      }
+      if (answerDescifrada.responses) {
+        answerDescifrada.responses = descifrarObjeto(answerDescifrada.responses);
+      }
+
+      let trabajador = "No especificado";
+      if (answerDescifrada.responses) {
+        trabajador =
+          answerDescifrada.responses["Nombre del trabajador"] ||
+          answerDescifrada.responses["NOMBRE DEL TRABAJADOR"] ||
+          answerDescifrada.responses["Nombre del solicitante responsable de la empresa"] ||
+          "No especificado";
+      }
+
+      const esCompartida = answerDescifrada.user?.uid !== userIdString;
 
       return {
-        _id: answer._id,
-        formId: answer.formId,
-        formTitle: answer.formTitle || answer.formDetails?.title,
-        trabajador: responsesDecrypted?.["Nombre del trabajador"] || 
-                    responsesDecrypted?.["NOMBRE DEL TRABAJADOR"] || 
-                    "No especificado",
-        user: userDecrypted,
-        status: answer.status,
-        createdAt: answer.createdAt,
-        updatedAt: answer.updatedAt,
+        _id: answerDescifrada._id,
+        formId: answerDescifrada.formId,
+        formTitle: answerDescifrada.formTitle,
+        trabajador,
+        user: answerDescifrada.user,
+        status: answerDescifrada.status,
+        createdAt: answerDescifrada.createdAt,
+        updatedAt: answerDescifrada.updatedAt,
+        updateAdmin: answerDescifrada.updateAdmin,
+        updateClient: answerDescifrada.updateClient,
         compartida: esCompartida,
         isShared: esCompartida,
-        metadata: { esPropia: !esCompartida },
-        form: answer.formDetails || null
+        metadata: {
+          esPropia: !esCompartida,
+          scope: isJefatura && !esCompartida ? "empresa" : esCompartida ? "compartida" : "propia"
+        },
+        form: null
       };
     });
 
+    // --- Lookup de formularios ---
+    const formIds = [...new Set(answersProcessed.map(a => a.formId).filter(Boolean))];
+
+    const formsDetails = await req.db.collection("forms").find({
+      _id: { $in: formIds.map(id => new ObjectId(id)) }
+    }).project({
+      title: 1,
+      icon: 1,
+      primaryColor: 1,
+      section: 1,
+      description: 1,
+      updatedAt: 1
+    }).toArray();
+
+    const formsMap = new Map();
+    formsDetails.forEach(f => formsMap.set(f._id.toString(), f));
+
+    answersProcessed.forEach(answer => {
+      if (answer.formId && formsMap.has(answer.formId)) {
+        const formData = formsMap.get(answer.formId);
+        answer.form = {
+          _id: formData._id,
+          title: formData.title,
+          icon: formData.icon,
+          primaryColor: formData.primaryColor,
+          section: formData.section,
+          description: formData.description,
+          updatedAt: formData.updatedAt
+        };
+        if (!answer.formTitle) {
+          answer.formTitle = formData.title;
+        }
+      }
+    });
+
+    // Ordenar por fecha
+    answersProcessed.sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
     res.json({
       success: true,
-      usuario: descifrarCampo(user.nombre) || "Usuario",
-      total: finalAnswers.length,
-      respuestas: finalAnswers
+      usuario: nombreUsuario,
+      mail: cleanMail,
+      total: answersProcessed.length,
+      respuestas: answersProcessed
     });
 
   } catch (err) {
-    console.error("Error:", err);
-    res.status(500).json({ success: false, error: "Error interno del servidor" });
+    console.error("Error en GET /mail/:mail:", err);
+    res.status(500).json({
+      success: false,
+      error: "Error al procesar la solicitud de formularios"
+    });
   }
 });
 
