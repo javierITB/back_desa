@@ -1371,6 +1371,30 @@ router.post("/compartir/", async (req, res) => {
       });
     }
 
+    // --- AGREGADO: NOTIFICACIÓN DE SOLICITUD COMPARTIDA -
+    try {
+      
+      const notifData = {
+        titulo: "Se ha compartido una solicitud contigo",
+        descripcion: `Ahora tienes acceso a: ${solicitud.formTitle || 'una nueva solicitud'}`,
+        icono: "MessageCircle",
+        color: "#4f46e5",
+        actionUrl: `/?id=${solicitud._id}`, // Redirección para el cliente
+      };
+
+      // Notificar a cada uno de los usuarios nuevos en el array
+      for (const nuevoUsuarioId of usuarios) {
+        await addNotification(req.db, {
+          userId: nuevoUsuarioId,
+          ...notifData
+        });
+      }
+    } catch (notifErr) {
+      console.error("Error al notificar usuarios compartidos:", notifErr);
+      // No bloqueamos la respuesta principal si falla la notificación
+    }
+    // --- FIN AGREGADO ---
+
     // 3. Respuesta exitosa
     res.json({
       success: true,
