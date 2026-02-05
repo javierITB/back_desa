@@ -672,9 +672,10 @@ router.get("/mail/:mail", async (req, res) => {
 
     const userIdString = user._id.toString();
     const userCargo = user?.cargo?.toLowerCase().trim();
+    const jefatura = "Cliente Jefatura"
 
     // Determinar si es jefatura
-    const isJefatura = userCargo === "jefatura";
+    const isJefatura = userCargo === jefatura.toLowerCase().trim();
 
     // Desencriptar empresa del usuario (si aplica)
     let userEmpresa = null;
