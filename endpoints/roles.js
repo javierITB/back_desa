@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { ObjectId } = require("mongodb");
 const { validarToken } = require("../utils/validarToken.js");
+const { registerCargoCreationEvent } = require("../utils/registerEvent");
 
 // Helper para verificar token (Consistente con tu estructura)
 const verifyRequest = async (req) => {
@@ -42,6 +43,9 @@ router.post("/", async (req, res) => {
       // CREAR ROL
       roleData.createdAt = new Date();
       const result = await req.db.collection("roles").insertOne(roleData);
+
+      registerCargoCreationEvent(req, tokenCheck, roleData);
+      
       res.status(201).json({ _id: result.insertedId, ...roleData });
     } else {
       // ACTUALIZAR ROL

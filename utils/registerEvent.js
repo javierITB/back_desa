@@ -182,9 +182,7 @@ async function registerEmpresaRemovedEvent(req, auth, metadata = {}) {
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
-async function registerUserPasswordChange(req, userData){
-
-
+async function registerUserPasswordChange(req, userData) {
    const actorOverride = {
       uid: userData?._id?.toString() || null,
       name: userData?.nombre || "desconocido",
@@ -206,11 +204,25 @@ async function registerUserPasswordChange(req, userData){
       description,
    };
 
-
-   await registerEvent(req, null, payload,{}, null, actorOverride);
-
+   await registerEvent(req, null, payload, {}, null, actorOverride);
 }
 
+async function registerCargoCreationEvent(req, auth, cargoData) {
+   const { name, description, permissions } = cargoData;
+   const metadata = { Cargo: { Nombre: name, Descripcion: description, Permisos: permissions } };
+
+   const descriptionBuilder = (actor) =>
+      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} ha creado el cargo "${name}"`;
+
+   const payload = {
+      code: CODES.CARGO_CREACION,
+      target: {
+         type: TARGET_TYPES.CARGO,
+      },
+   };
+
+   await registerEvent(req, auth, payload, metadata, descriptionBuilder);
+}
 
 // codes
 const CODES = {
@@ -226,6 +238,8 @@ const CODES = {
    EMPRESA_CREACION: "EMPRESA_CREACION",
    EMPRESA_ACTUALIZACION: "EMPRESA_ACTUALIZACION",
    EMPRESA_ELIMINACION: "EMPRESA_ELIMINACION",
+   CARGO_CREACION: "CARGO_CREACION",
+   CARGO_ACTUALIZACION: "CARGO_ACTUALIZACION",
 };
 
 // target types
@@ -234,6 +248,7 @@ const TARGET_TYPES = {
    TICKET: "Ticket",
    USUARIO: "Usuario",
    EMPRESA: "Empresa",
+   CARGO: "Cargo",
 };
 
 module.exports = {
@@ -248,5 +263,6 @@ module.exports = {
    registerEmpresaCreationEvent,
    registerEmpresaUpdateEvent,
    registerEmpresaRemovedEvent,
-   registerUserPasswordChange
+   registerUserPasswordChange,
+   registerCargoCreationEvent,
 };
