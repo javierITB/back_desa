@@ -1189,13 +1189,15 @@ router.get("/filtros", async (req, res) => {
         submittedAt: answer.submittedAt,
         status: answer.status,
         createdAt: answer.createdAt,
+        updatedAt: answer.updatedAt,
         adjuntosCount: answer.adjuntosCount || 0,
         submittedBy: nombreUsuario || 'Usuario Desconocido',
         company: empresaUsuario || 'Empresa Desconocida',
         user: {
           nombre: nombreUsuario,
           empresa: empresaUsuario
-        }
+        },
+        updateClient: answer.updateClient
       };
     });
 
