@@ -671,7 +671,20 @@ router.get("/mail/:mail", async (req, res) => {
     }
 
     const userIdString = user._id.toString();
-    const userCargo = user?.cargo?.toLowerCase().trim();
+    let userCargo = null;
+
+    if (user?.cargo) {
+      try {
+        userCargo = user.cargo.includes(":")
+          ? decrypt(user.cargo)
+          : user.cargo;
+      } catch {
+        userCargo = null;
+      }
+    }
+
+    userCargo = userCargo?.toLowerCase().trim();
+
     const jefatura = "Cliente Jefatura"
 
     // Determinar si es jefatura
