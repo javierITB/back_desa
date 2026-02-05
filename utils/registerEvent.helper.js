@@ -1,5 +1,5 @@
 const { ObjectId } = require("mongodb");
-const { encrypt } = require("../utils/seguridad.helper");
+const { encrypt, decrypt } = require("../utils/seguridad.helper");
 
 async function getActor(req, auth) {
    const tokenId = auth?.data?._id?.toString() || null;
@@ -132,7 +132,29 @@ function encryptObject(obj, seen = new WeakSet()) {
    return resultado;
 }
 
+
+function formatName(name, lastName) {
+  const fullName = `${name || ""} ${lastName || ""}`.trim();
+  return fullName || "Desconocido";
+}
+
+function formatActor(actor) {
+   return formatEncriptedName(actor?.name, actor?.last_name);
+}
+
+function formatEncriptedName(name, lastName) {
+   const nameDecrypted = decrypt(name);
+   const lastNameDecrypted = decrypt(lastName);
+
+   const fullNameDecrypted = formatName(nameDecrypted, lastNameDecrypted);
+
+   return fullNameDecrypted;
+}
+
 module.exports = {
    getActor,
    encryptObject,
+   formatName,
+   formatActor,
+   formatEncriptedName,
 };

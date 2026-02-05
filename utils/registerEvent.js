@@ -1,4 +1,4 @@
-const { getActor, encryptObject } = require("./registerEvent.helper.js");
+const { getActor, encryptObject, formatActor, formatEncriptedName, formatName } = require("./registerEvent.helper.js");
 const { encrypt, decrypt } = require("../utils/seguridad.helper");
 
 async function registerEvent(req, auth, event, metadata = {}, descriptionBuilder = null, actorOverride = null) {
@@ -121,9 +121,26 @@ async function registerUserCreationEvent(req, auth, profileData = {}) {
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
-async function registerUserRemovedEvent(req, auth, metadata = {}) {
+async function registerUserRemovedEvent(req, auth, deletedUser = {}) {
+   const { nombre, apellido, mail, empresa, cargo, rol, estado } = deletedUser;
+
+   const nameDecrypted = decrypt(nombre);
+   const lastNameDecrypted = decrypt(apellido);
+
+   const metadata = {
+      usuario_eliminado: {
+         nombre: nameDecrypted,
+         apellido: lastNameDecrypted,
+         email: decrypt(mail),
+         empresa: decrypt(empresa),
+         cargo: decrypt(cargo),
+         rol,
+         estado,
+      },
+   };
+
    const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} eliminó un usuario`;
+      `${formatActor(actor)} eliminó al usuario ${formatName(nameDecrypted, lastNameDecrypted)}`;
 
    const payload = {
       code: CODES.USUARIO_ELIMINACION,
