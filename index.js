@@ -45,7 +45,7 @@ async function getTenantDB(tenantName) {
   }
 
   // Mapeo: si es "api" usamos la DB por defecto, de lo contrario usamos el nombre del tenant
-  const dbName = (tenantName === "api" || !tenantName) ? "formsdb" : tenantName;
+  const dbName = (tenantName === "api" || tenantName === "infodesa" || !tenantName) ? "formsdb" : tenantName;
 
   // Retornar de caché si ya existe para ahorrar recursos
   if (dbCache[dbName]) {
