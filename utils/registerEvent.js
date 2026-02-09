@@ -1,4 +1,11 @@
-const { getActor, encryptObject, decryptObject, formatActor, formatEncriptedName, formatName } = require("./registerEvent.helper.js");
+const {
+   getActor,
+   encryptObject,
+   decryptObject,
+   formatActor,
+   formatEncriptedName,
+   formatName,
+} = require("./registerEvent.helper.js");
 const { encrypt, decrypt } = require("../utils/seguridad.helper");
 
 async function registerEvent(req, auth, event, metadata = {}, descriptionBuilder = null, actorOverride = null) {
@@ -90,7 +97,7 @@ async function registerTicketRemovedEvent(req, auth, deletedTicket = {}) {
          origen: deletedTicket?.origin,
          fecha_de_creacion: deletedTicket?.createdAt,
       },
-   }
+   };
    const descriptionBuilder = (actor) => {
       const itsMyTicket = actor?._id?.toString() === deletedTicket?.user?.uid?.toString();
       if (itsMyTicket) {
@@ -115,10 +122,11 @@ async function registerDomicilioVirtualRemovalEvent(req, auth, deletedDomicilioV
          estado: deletedDomicilioVirtual?.status,
          respuestas: decryptObject(deletedDomicilioVirtual?.responses),
          fecha_de_creacion: deletedDomicilioVirtual?.createdAt,
-      }
-   }
+      },
+   };
 
-   const descriptionBuilder = (actor) => `${formatActor(actor)} eliminó una solicitud tipo "${formTitle}" de domicilio virtual`;
+   const descriptionBuilder = (actor) =>
+      `${formatActor(actor)} eliminó una solicitud tipo "${formTitle}" de domicilio virtual`;
    const payload = {
       code: CODES.DOMICILIOV_ELIMINACION,
       target: {
@@ -133,7 +141,10 @@ async function registerUserUpdateEvent(req, auth, profileData = {}) {
    const metadata = { Usuario: { nombre, apellido, mail, empresa, cargo, rol, estado } };
 
    const descriptionBuilder = (actor) => {
-      const itsMyProfile = decrypt(actor?.mail) == mail;
+      const actorMail = decrypt(actor?.mail)?.toLowerCase().trim();
+      const myMail = mail?.toLowerCase().trim();
+      const itsMyProfile = actorMail && myMail && actorMail === myMail;
+
       if (itsMyProfile) {
          return `${formatActor(actor)} actualizó su perfil de usuario`;
       }
