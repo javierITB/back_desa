@@ -236,7 +236,11 @@ router.get("/companies", async (req, res) => {
     } catch (err) {
         console.error("Error en GET /sas/companies:", err);
         // Retornar mensaje de error específico para debugging
-        res.status(500).json({ error: err.message || "Internal server error" });
+        res.status(500).json({
+            error: err.message || "Unknown SAS Error",
+            _debug_context: "SAS_GET_COMPANIES_V3",
+            _mongo_client_status: req.mongoClient ? "Present" : "Missing"
+        });
     }
 });
 

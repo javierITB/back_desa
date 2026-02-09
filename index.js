@@ -110,8 +110,18 @@ app.get("/", (req, res) => {
 });
 
 // Manejo de errores global para rutas no encontradas
-app.use((req, res) => {
+app.use((req, res, next) => {
   res.status(404).json({ error: "Ruta no encontrada o empresa no especificada correctamente" });
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error("Unhandled Error:", err);
+  res.status(500).json({
+    error: "CRITICAL SERVER ERROR",
+    details: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
 });
 
 module.exports = app;
