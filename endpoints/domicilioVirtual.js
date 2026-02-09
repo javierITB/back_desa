@@ -754,11 +754,14 @@ router.delete("/:id", async (req, res) => {
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
         const responseId = req.params.id;
+        const responseObjectId = new ObjectId(responseId);
+        const deletedDomicilioVirtual = await req.db.collection("domicilio_virtual").findOneAndDelete({ _id: responseObjectId });
+
+        if (!deletedDomicilioVirtual) return res.status(404).json({ error: "Solicitud no encontrada" });
 
         // Borramos en cascada solo lo que tu solicitud tiene asociado
-        const [resultPrincipal, resultDocxs, resultAdjuntos] = await Promise.all([
+        const [resultDocxs, resultAdjuntos] = await Promise.all([
             // 1. Borra la solicitud de Domicilio Virtual (La que me pasaste en el JSON)
-            req.db.collection("domicilio_virtual").deleteOne({ _id: new ObjectId(responseId) }),
 
             // 2. Borra el contrato generado (PDF/Word)
             req.db.collection("docxs").deleteOne({ responseId: responseId }),
@@ -767,11 +770,9 @@ router.delete("/:id", async (req, res) => {
             req.db.collection("adjuntos").deleteOne({ responseId: new ObjectId(responseId) })
         ]);
 
-        if (resultPrincipal.deletedCount === 0) {
-            return res.status(404).json({ error: "No se encontró la solicitud." });
-        }
+       
 
-        registerDomicilioVirtualRemovalEvent(req, auth);
+        registerDomicilioVirtualRemovalEvent(req, auth, deletedDomicilioVirtual);
 
         res.json({ success: true, message: "Eliminado totalmente." });
     } catch (e) {

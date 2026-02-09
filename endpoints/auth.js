@@ -1595,11 +1595,15 @@ router.delete("/empresas/:id", async (req, res) => {
       if (!auth.ok) {
          return res.status(403).json({ error: auth.error });
       }
-      const result = await req.db.collection("empresas").deleteOne({ _id: new ObjectId(req.params.id) });
-      if (result.deletedCount === 0) return res.status(404).json({ error: "No encontrada" });
-      res.json({ message: "Empresa eliminada exitosamente" });
 
-      registerEmpresaRemovedEvent(req, auth);
+      const empresaId = new ObjectId(req.params.id);
+      const deletedEmpresa = await req.db.collection("empresas").findOneAndDelete({ _id: empresaId });
+
+      if (!deletedEmpresa) return res.status(404).json({ error: "Empresa no encontrada" });
+
+      registerEmpresaRemovedEvent(req, auth, deletedEmpresa);
+      
+      res.json({ message: "Empresa eliminada exitosamente" });
    } catch (err) {
       if (err.status) return res.status(err.status).json({ message: err.message });
       res.status(500).json({ error: "Error al eliminar" });

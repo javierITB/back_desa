@@ -1,4 +1,4 @@
-const { getActor, encryptObject, formatActor, formatEncriptedName, formatName } = require("./registerEvent.helper.js");
+const { getActor, encryptObject, decryptObject, formatActor, formatEncriptedName, formatName } = require("./registerEvent.helper.js");
 const { encrypt, decrypt } = require("../utils/seguridad.helper");
 
 async function registerEvent(req, auth, event, metadata = {}, descriptionBuilder = null, actorOverride = null) {
@@ -39,10 +39,10 @@ async function registerSolicitudCreationEvent(req, auth, description = "", metad
 }
 
 async function registerSolicitudRemovedEvent(req, auth, deletedRespuesta = {}) {
-   const titleDecripted = deletedRespuesta?.formTitle ? decrypt(deletedRespuesta?.formTitle) : deletedRespuesta?.formTitle;
-   const nameDecripted = deletedRespuesta?.user?.nombre ? decrypt(deletedRespuesta?.user?.nombre) : deletedRespuesta?.user?.nombre;
-   const empresaDecripted = deletedRespuesta?.user?.empresa ? decrypt(deletedRespuesta?.user?.empresa) : deletedRespuesta?.user?.empresa;
-   const emailDecripted = deletedRespuesta?.user?.mail ? decrypt(deletedRespuesta?.user?.mail) : deletedRespuesta?.user?.mail;
+   const titleDecripted = decrypt(deletedRespuesta?.formTitle);
+   const nameDecripted = decrypt(deletedRespuesta?.user?.nombre);
+   const empresaDecripted = decrypt(deletedRespuesta?.user?.empresa);
+   const emailDecripted = decrypt(deletedRespuesta?.user?.mail);
 
    const metadata = {
       respuesta_eliminada: {
@@ -51,9 +51,9 @@ async function registerSolicitudRemovedEvent(req, auth, deletedRespuesta = {}) {
             nombre: nameDecripted,
             empresa: empresaDecripted,
             email: emailDecripted,
-         }
-      }
-   }
+         },
+      },
+   };
 
    const descriptionBuilder = (actor) =>
       `${formatActor(actor)} eliminó la solicitud ${titleDecripted} respondida por ${nameDecripted} de la empresa ${empresaDecripted}`;
@@ -80,9 +80,24 @@ async function registerTicketCreationEvent(req, auth, description = "", metadata
    await registerEvent(req, auth, payload, metadata);
 }
 
-async function registerTicketRemovedEvent(req, auth, metadata = {}) {
-   const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} eliminó un ticket`;
+async function registerTicketRemovedEvent(req, auth, deletedTicket = {}) {
+   const metadata = {
+      ticket_eliminado: {
+         titulo: deletedTicket?.formTitle,
+         email: deletedTicket?.mail,
+         estado: deletedTicket?.status,
+         categoria: deletedTicket?.category,
+         origen: deletedTicket?.origin,
+         fecha_de_creacion: deletedTicket?.createdAt,
+      },
+   }
+   const descriptionBuilder = (actor) => {
+      const itsMyTicket = actor?._id?.toString() === deletedTicket?.user?.uid?.toString();
+      if (itsMyTicket) {
+         return `${formatActor(actor)} eliminó su propio ticket`;
+      }
+      return `${formatActor(actor)} eliminó un ticket de ${deletedTicket?.user?.nombre} de la empresa ${deletedTicket?.user?.empresa}`;
+   };
    const payload = {
       code: CODES.TICKET_ELIMINACION,
       target: {
@@ -92,9 +107,18 @@ async function registerTicketRemovedEvent(req, auth, metadata = {}) {
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
-async function registerDomicilioVirtualRemovalEvent(req, auth, metadata = {}) {
-   const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} eliminó una solicitud de domicilio virtual`;
+async function registerDomicilioVirtualRemovalEvent(req, auth, deletedDomicilioVirtual = {}) {
+   const { formTitle } = deletedDomicilioVirtual;
+   const metadata = {
+      solicitud_eliminada: {
+         titulo: formTitle,
+         estado: deletedDomicilioVirtual?.status,
+         respuestas: decryptObject(deletedDomicilioVirtual?.responses),
+         fecha_de_creacion: deletedDomicilioVirtual?.createdAt,
+      }
+   }
+
+   const descriptionBuilder = (actor) => `${formatActor(actor)} eliminó una solicitud tipo "${formTitle}" de domicilio virtual`;
    const payload = {
       code: CODES.DOMICILIOV_ELIMINACION,
       target: {
@@ -108,8 +132,15 @@ async function registerUserUpdateEvent(req, auth, profileData = {}) {
    const { nombre, apellido, mail, empresa, cargo, rol, estado } = profileData;
    const metadata = { Usuario: { nombre, apellido, mail, empresa, cargo, rol, estado } };
 
-   const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} actualizó un perfil de usuario`;
+   const descriptionBuilder = (actor) => {
+      const itsMyProfile = decrypt(actor?.mail) == mail;
+      if (itsMyProfile) {
+         return `${formatActor(actor)} actualizó su perfil de usuario`;
+      }
+
+      return `${formatActor(actor)} actualizó el perfil de usuario de ${formatName(nombre, apellido)}`;
+   };
+
    const payload = {
       code: CODES.USUARIO_ACTUALIZACION,
       target: {
@@ -124,8 +155,7 @@ async function registerUserCreationEvent(req, auth, profileData = {}) {
    const { nombre, apellido, mail, empresa, cargo, rol, estado } = profileData;
    const metadata = { Usuario: { nombre, apellido, mail, empresa, cargo, rol, estado } };
 
-   const descriptionBuilder = (actor) =>
-      `${formatActor(actor)} creó el usuario de ${formatName(nombre, apellido)}`;
+   const descriptionBuilder = (actor) => `${formatActor(actor)} creó el usuario de ${formatName(nombre, apellido)}`;
 
    const payload = {
       code: CODES.USUARIO_CREACION,
@@ -172,8 +202,7 @@ async function registerEmpresaCreationEvent(req, auth, empresaData = {}) {
    const { nombre, rut, direccion, encargado, rut_encargado } = empresaData;
    const metadata = { Empresa: { nombre, rut, direccion, encargado, rut_encargado } };
 
-   const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} registró una nueva empresa`;
+   const descriptionBuilder = (actor) => `${formatActor(actor)} registró la empresa ${nombre}`;
 
    const payload = {
       code: CODES.EMPRESA_CREACION,
@@ -189,8 +218,7 @@ async function registerEmpresaUpdateEvent(req, auth, empresaData = {}) {
    const { nombre, rut, direccion, encargado, rut_encargado } = empresaData;
    const metadata = { Empresa: { nombre, rut, direccion, encargado, rut_encargado } };
 
-   const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} actualizó una empresa`;
+   const descriptionBuilder = (actor) => `${formatActor(actor)} actualizó la información de la empresa ${nombre}`;
 
    const payload = {
       code: CODES.EMPRESA_ACTUALIZACION,
@@ -202,9 +230,21 @@ async function registerEmpresaUpdateEvent(req, auth, empresaData = {}) {
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
-async function registerEmpresaRemovedEvent(req, auth, metadata = {}) {
-   const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} eliminó una empresa`;
+async function registerEmpresaRemovedEvent(req, auth, deletedEmpresa = {}) {
+   const { nombre, rut, direccion, encargado, rut_encargado, createdAt } = deletedEmpresa;
+   const nombreDecripted = decrypt(nombre);
+   const metadata = {
+      empresa_eliminada: {
+         nombre: nombreDecripted,
+         rut: decrypt(rut),
+         direccion: decrypt(direccion),
+         encargado: decrypt(encargado),
+         rut_encargado: decrypt(rut_encargado),
+         fecha_de_creacion: decrypt(createdAt),
+      },
+   };
+
+   const descriptionBuilder = (actor) => `${formatActor(actor)} eliminó la empresa ${nombreDecripted}`;
    const payload = {
       code: CODES.EMPRESA_ELIMINACION,
       target: {
@@ -227,7 +267,7 @@ async function registerUserPasswordChange(req, userData) {
       estado: userData?.estado || "desconocido",
    };
 
-   const description = `${decrypt(userData?.nombre) || "desconocido"} ${decrypt(userData?.apellido) || "desconocido"} cambió su contraseña`;
+   const description = `${formatName(userData?.nombre, userData?.apellido)} de la empresa ${userData?.empresa} cambió su contraseña`;
 
    const payload = {
       code: CODES.USUARIO_CAMBIO_CONTRASEÑA,
@@ -244,8 +284,7 @@ async function registerCargoCreationEvent(req, auth, cargoData) {
    const { name, description, permissions } = cargoData;
    const metadata = { Cargo: { Nombre: name, Descripcion: description, Permisos: permissions } };
 
-   const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} ha creado el cargo "${name}"`;
+   const descriptionBuilder = (actor) => `${formatActor(actor)} ha creado el cargo "${name}"`;
 
    const payload = {
       code: CODES.CARGO_CREACION,

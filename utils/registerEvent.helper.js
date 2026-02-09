@@ -132,6 +132,41 @@ function encryptObject(obj, seen = new WeakSet()) {
    return resultado;
 }
 
+function decryptObject(obj, seen = new WeakSet()) {
+   if (!obj || typeof obj !== "object") return obj;
+   if (seen.has(obj)) return obj;
+
+   seen.add(obj);
+   const resultado = {};
+
+   for (const key in obj) {
+      const valor = obj[key];
+
+      if (typeof valor === "string" && valor.trim() !== "") {
+         resultado[key] = decrypt(valor);
+      } 
+      else if (typeof valor === "object" && valor !== null) {
+         if (Array.isArray(valor)) {
+            resultado[key] = valor.map((item) => {
+               if (typeof item === "string" && item.trim() !== "") {
+                  return decrypt(item);
+               } 
+               else if (typeof item === "object" && item !== null) {
+                  return decryptObject(item, seen);
+               }
+               return item;
+            });
+         } else {
+            resultado[key] = decryptObject(valor, seen);
+         }
+      } 
+      else {
+         resultado[key] = valor;
+      }
+   }
+
+   return resultado;
+}
 
 function formatName(name, lastName) {
   const fullName = `${name || ""} ${lastName || ""}`.trim();
@@ -154,6 +189,7 @@ function formatEncriptedName(name, lastName) {
 module.exports = {
    getActor,
    encryptObject,
+   decryptObject,
    formatName,
    formatActor,
    formatEncriptedName,
