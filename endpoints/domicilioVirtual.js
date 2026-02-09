@@ -388,7 +388,7 @@ router.post("/", async (req, res) => {
                 userToSave.empresa = responses[companyNameKey];
             }
 
-            // Insertar ticket en soporte
+            // Insertar ticket en tickets
             let statusInicial = "documento_generado"; // Por defecto
             try {
                 const config = await req.db.collection("config_tickets").findOne({ key: "domicilio_virtual" });
@@ -415,7 +415,7 @@ router.post("/", async (req, res) => {
                 }
             }
 
-            await req.db.collection("soporte").insertOne({
+            await req.db.collection("tickets").insertOne({
                 formId: formId, // Usar ID real del formulario para que aparezca en panel admin
                 user: userToSave, // Se guarda el usuario con la empresa corregida
                 responses: responses, // Se guardan las respuestas en texto plano para el ticket
@@ -540,9 +540,9 @@ router.post("/:id/adjuntos", async (req, res) => {
         }
 
         // --- SINCRONIZACIÓN CON TICKET DE SOPORTE AUTOMÁTICO ---
-        // Buscar si existe un ticket en soporte vinculado a esta solicitud
+        // Buscar si existe un ticket en tickets vinculado a esta solicitud
         try {
-            const linkedTicket = await req.db.collection("soporte").findOne({ relatedRequestId: new ObjectId(id) });
+            const linkedTicket = await req.db.collection("tickets").findOne({ relatedRequestId: new ObjectId(id) });
 
             if (linkedTicket) {
                 const ticketAdjuntos = await req.db.collection("adjuntos").findOne({ responseId: linkedTicket._id });
@@ -560,7 +560,7 @@ router.post("/:id/adjuntos", async (req, res) => {
                 }
             }
         } catch (syncError) {
-            console.error("Error sincronizando adjunto con soporte:", syncError);
+            console.error("Error sincronizando adjunto con tickets:", syncError);
         }
         // -------------------------------------------------------
 
@@ -770,7 +770,7 @@ router.delete("/:id", async (req, res) => {
             req.db.collection("adjuntos").deleteOne({ responseId: new ObjectId(responseId) })
         ]);
 
-       
+
 
         registerDomicilioVirtualRemovalEvent(req, auth, deletedDomicilioVirtual);
 

@@ -360,7 +360,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
 
     const assignedAt = assignedTo ? new Date().toISOString() : null;
 
-    const result = await req.db.collection("soporte").insertOne({
+    const result = await req.db.collection("tickets").insertOne({
       formId,
       user,
       responses,
@@ -427,7 +427,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
     // Descifrar nombre para notificaciones si está cifrado
     let nombreUsuarioDescifrado = usuario?.nombre || 'Usuario';  // ← SOLO CAMBIA ESTA LÍNEA
 
-    const message = `${nombreUsuarioDescifrado} de la empresa ${empresaDescifrada} ha levantado un ticket de soporte.`;
+    const message = `${nombreUsuarioDescifrado} de la empresa ${empresaDescifrada} ha levantado un ticket de tickets.`;
     const notifData = {
       titulo: message,
       descripcion: adjuntosFiles.length > 0 ? `Incluye ${adjuntosFiles.length} archivo(s)` : "Revisar en panel.",
@@ -446,7 +446,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
       prioridad: 2,
       icono: "CheckCircle",
       color: "#006e13ff",
-      actionUrl: `/soporte?id=${result.insertedId}`,
+      actionUrl: `/tickets?id=${result.insertedId}`,
     });
 
     try {
@@ -540,7 +540,7 @@ router.post("/:id/adjuntos", async (req, res) => {
     }
 
     // Verificar que la respuesta existe
-    const respuestaExistente = await req.db.collection("soporte").findOne({
+    const respuestaExistente = await req.db.collection("tickets").findOne({
       _id: new ObjectId(id)
     });
 
@@ -666,7 +666,7 @@ router.get("/", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
-    const answers = await req.db.collection("soporte").find().toArray();
+    const answers = await req.db.collection("tickets").find().toArray();
 
     // Descifrar datos de usuario en cada respuesta
     const answersDescifrados = answers.map(answer => {
@@ -724,7 +724,7 @@ router.get("/mail/:mail", async (req, res) => {
       matchStage.origin = req.query.origin;
     }
 
-    const answers = await req.db.collection("soporte").aggregate([
+    const answers = await req.db.collection("tickets").aggregate([
       { $match: matchStage },
       {
         $lookup: {
@@ -805,7 +805,7 @@ router.get("/mini", async (req, res) => {
     const limit = parseInt(req.query.limit) || 30;
     const skip = (page - 1) * limit;
 
-    const collection = req.db.collection("soporte");
+    const collection = req.db.collection("tickets");
 
     // Aggregation for Status Counts and 24h Changes
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -971,7 +971,7 @@ router.get("/filtros", async (req, res) => {
       }
     }
 
-    const collection = req.db.collection("soporte");
+    const collection = req.db.collection("tickets");
 
     // 3. Ejecutar Query BD (Sin paginar aún, para poder filtrar en memoria después)
     const rawTickets = await collection.find(query)
@@ -1157,7 +1157,7 @@ router.get("/:id", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
-    const form = await req.db.collection("soporte")
+    const form = await req.db.collection("tickets")
       .findOne({ _id: new ObjectId(req.params.id) });
 
     if (!form) return res.status(404).json({ error: "Respuesta no encontrado" });
@@ -1199,7 +1199,7 @@ router.put("/:id", async (req, res) => {
   try {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
-    const result = await req.db.collection("soporte").findOneAndUpdate(
+    const result = await req.db.collection("tickets").findOneAndUpdate(
       { _id: new ObjectId(req.params.id) },
       { $set: { ...req.body, updatedAt: new Date() } },
       { returnDocument: "after" }
@@ -1220,8 +1220,8 @@ router.delete("/:id", async (req, res) => {
     const responseId = req.params.id;
 
     const ticketObjectId = new ObjectId(responseId);
-    
-    const deletedTicket = await req.db.collection("soporte").findOneAndDelete({ _id: ticketObjectId });
+
+    const deletedTicket = await req.db.collection("tickets").findOneAndDelete({ _id: ticketObjectId });
 
     if (!deletedTicket) return res.status(404).json({ error: "Ticket no encontrado" });
     // Eliminar de todas las colecciones relacionadas
@@ -1291,7 +1291,7 @@ router.put("/:id/status", async (req, res) => {
       return res.status(400).json({ error: "Estado no válido (" + status + ")" });
     }
 
-    const respuesta = await req.db.collection("soporte").findOne({
+    const respuesta = await req.db.collection("tickets").findOne({
       _id: new ObjectId(id)
     });
 
@@ -1320,7 +1320,7 @@ router.put("/:id/status", async (req, res) => {
       updateData.archivedAt = new Date();
     }
 
-    const updateResult = await req.db.collection("soporte").updateOne(
+    const updateResult = await req.db.collection("tickets").updateOne(
       { _id: new ObjectId(id) },
       { $set: updateData }
     );
@@ -1329,7 +1329,7 @@ router.put("/:id/status", async (req, res) => {
       return res.status(404).json({ error: "No se pudo actualizar la respuesta" });
     }
 
-    const updatedResponse = await req.db.collection("soporte").findOne({
+    const updatedResponse = await req.db.collection("tickets").findOne({
       _id: new ObjectId(id)
     });
 

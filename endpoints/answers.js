@@ -1901,10 +1901,17 @@ router.post("/chat", async (req, res) => {
     const auth = await verifyRequest(req);
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-    const { formId, autor, mensaje, admin, sendToEmail } = req.body;
+    const { formId, autor, mensaje, admin, sendToEmail, internal } = req.body;
     if (!autor || !mensaje || !formId) return res.status(400).json({ error: "Faltan campos" });
 
-    const nuevoMensaje = { autor, mensaje, leido: false, fecha: new Date(), admin: admin || false };
+    const nuevoMensaje = { 
+      autor, 
+      mensaje, 
+      leido: false, 
+      fecha: new Date(), 
+      admin: admin || false,
+      internal: internal || false 
+    };
 
     let query = ObjectId.isValid(formId) ? { $or: [{ _id: new ObjectId(formId) }, { formId }] } : { formId };
     const respuesta = await req.db.collection("respuestas").findOne(query);
@@ -1927,7 +1934,7 @@ router.post("/chat", async (req, res) => {
     // --- DETERMINAR QUÉ FECHA ACTUALIZAR ---
     let updateField = {};
     if (isSenderStaff) {
-      if (!req.body.internal) {
+      if (!internal) {
         updateField = { updateAdmin: new Date() };
       }
     } else {
@@ -1975,8 +1982,8 @@ router.post("/chat", async (req, res) => {
       formName = respuesta.formTitle;
     }
 
-    // --- ENVIAR CORREO (ESTRUCTURA ORIGINAL INTACTA) ---
-    if (sendToEmail === true && admin !== true) {
+    // --- ENVIAR CORREO (Solo si no es interno y es para el cliente) ---
+    if (sendToEmail === true && admin !== true && !internal) {
       try {
         let respuestaId = respuesta._id.toString();
         if (userEmail) {
@@ -1994,62 +2001,26 @@ router.post("/chat", async (req, res) => {
           .header { background-color: #4f46e5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
           .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; }
           .button { 
-              display: inline-block; 
-              background-color: #4f46e5; 
-              color: white !important; 
-              padding: 12px 24px; 
-              text-decoration: none; 
-              border-radius: 6px; 
-              font-weight: bold; 
-              margin-top: 20px; 
-              border: none;
-              cursor: pointer;
-              text-align: center;
-          }
-          .button:hover { 
-              background-color: #4338ca; 
-              color: white !important;
+              display: inline-block; background-color: #4f46e5; color: white !important; 
+              padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 20px; text-align: center;
           }
           .message-box { background-color: #f0f9ff; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #4f46e5; }
           .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }
-          .title { color: #1f2937; font-size: 20px; font-weight: bold; margin-bottom: 20px; }
-          .hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
       </style>
   </head>
   <body>
       <div class="container">
-          <div class="header">
-              <h1>Acciona Centro de Negocios</h1>
-          </div>
+          <div class="header"><h1>Acciona Centro de Negocios</h1></div>
           <div class="content">
-              <h2 class="title">Tienes un nuevo mensaje en la plataforma de Recursos Humanos</h2>
+              <h2 class="title">Tienes un nuevo mensaje en la plataforma</h2>
               <p>Estimado/a <strong>${userName}</strong>,</p>
               <div class="message-box">
                   <p><strong>Formulario:</strong> ${formName}</p>
-                  <p><strong>Fecha y hora:</strong> ${new Date().toLocaleDateString('es-CL', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          })}</p>
               </div>
-              <p>Para ver los detalles de la solicitud y responder al mensaje, haz clic en el siguiente botón:</p>
               <div style="text-align: center; margin: 30px 0;">
-                  <a href="${responseUrl}" class="button" style="color: white !important; text-decoration: none;">
-                      Ver detalles de la solicitud
-                  </a>
+                  <a href="${responseUrl}" class="button">Ver detalles</a>
               </div>
-              <div class="hr"></div>
-              <p style="font-size: 14px; color: #6b7280;">
-                  Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
-                  <a href="${responseUrl}" style="color: #4f46e5; word-break: break-all;">${responseUrl}</a>
-              </p>
               <div class="footer">
-                  <p>Este es un mensaje automático de la plataforma de Recursos Humanos de Acciona Centro de Negocios.</p>
-                  <p>Una vez en la plataforma, puedes acceder a los mensajes desde la sección de chat.</p>
-                  <p>Por favor, no responder a este correo.</p>
                   <p>© ${new Date().getFullYear()} Acciona Centro de Negocios Spa.</p>
               </div>
           </div>
@@ -2069,10 +2040,9 @@ router.post("/chat", async (req, res) => {
       }
     }
 
-    // --- LÓGICA DE NOTIFICACIONES (BÚSQUEDA MULTI-CAMPO) ---
+    // --- LÓGICA DE NOTIFICACIONES ---
     const formTitleNoti = (formName && formName.includes(':')) ? decrypt(formName) : formName;
     
-    // Consideramos ambas variantes de capitalización y fallback
     const rawTrabajador = respuesta.responses?.['NOMBRE DEL TRABAJADOR'] || 
                           respuesta.responses?.['Nombre del trabajador'] || 
                           respuesta.trabajador || 
@@ -2080,47 +2050,50 @@ router.post("/chat", async (req, res) => {
 
     let trabajadorNombre = "Usuario";
     if (rawTrabajador) {
-      trabajadorNombre = rawTrabajador.includes(':') 
-        ? decrypt(rawTrabajador) 
-        : rawTrabajador;
+      trabajadorNombre = rawTrabajador.includes(':') ? decrypt(rawTrabajador) : rawTrabajador;
     }
 
     const notifBase = {
-      titulo: isSenderStaff ? "Nuevo mensaje recibido" : "Nuevo mensaje en formulario",
+      titulo: internal ? "Nueva nota interna" : (isSenderStaff ? "Nuevo mensaje recibido" : "Nuevo mensaje en formulario"),
       descripcion: `En: ${formTitleNoti} (${trabajadorNombre}) - ${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? '...' : ''}`,
       icono: "MessageCircle", 
-      color: "#45577eff",
+      color: internal ? "#f59e0b" : "#45577eff", // Ámbar si es interno
       actionUrl: isSenderStaff ? `/?id=${respuesta._id}` : `/RespuestasForms?id=${respuesta._id}`,
     };
 
-    if (isSenderStaff) {
-      // 1. Notificar al Autor (UID descifrado)
-      let ownerIdRaw = respuesta.user?.uid;
-      let ownerIdLimpio = null;
-
-      if (ownerIdRaw) {
-        ownerIdLimpio = ownerIdRaw.includes(':') ? decrypt(ownerIdRaw) : ownerIdRaw;
-        await addNotification(req.db, { userId: ownerIdLimpio, ...notifBase });
-      }
-
-      // 2. Notificar a los Compartidos
-      if (respuesta.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
-        for (const compartidoId of respuesta.user.compartidos) {
-          if (compartidoId && compartidoId !== ownerIdLimpio) {
-            await addNotification(req.db, { userId: compartidoId, ...notifBase });
-          }
-        }
-      }
-    } else {
-      // 3. Notificar al Staff (Roles literales)
+    if (internal) {
+      // --- CASO INTERNO: Solo notifica al Staff (RRHH y Administrador) ---
       await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifBase });
       await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifBase });
+    } else {
+      // --- CASO NORMAL: Bando Espejo ---
+      if (isSenderStaff) {
+        // Notificar al Autor
+        let ownerIdRaw = respuesta.user?.uid;
+        let ownerIdLimpio = null;
+        if (ownerIdRaw) {
+          ownerIdLimpio = ownerIdRaw.includes(':') ? decrypt(ownerIdRaw) : ownerIdRaw;
+          await addNotification(req.db, { userId: ownerIdLimpio, ...notifBase });
+        }
+        // Notificar a Compartidos
+        if (respuesta.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
+          for (const compartidoId of respuesta.user.compartidos) {
+            if (compartidoId && compartidoId !== ownerIdLimpio) {
+              await addNotification(req.db, { userId: compartidoId, ...notifBase });
+            }
+          }
+        }
+      } else {
+        // Notificar al Staff
+        await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifBase });
+        await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifBase });
+      }
     }
 
     res.json({
       message: "Mensaje enviado",
       data: nuevoMensaje,
-      emailSent: sendToEmail === true && admin !== true && !!userEmail
+      emailSent: sendToEmail === true && !internal && !!userEmail
     });
 
   } catch (err) {
