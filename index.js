@@ -94,7 +94,7 @@ tenantRouter.use("/domicilio-virtual", domicilioVirtualRoutes);
 tenantRouter.use("/config-tickets", configTicketsRoutes);
 tenantRouter.use("/dashboard", dashboardRoutes);
 tenantRouter.use("/registro", registroRoutes);
-const roles = require("./endpoints/roles");
+tenantRouter.use("/roles", roles); 
 tenantRouter.use("/sas", sasRoutes);
 
 // Montaje final: todas las rutas ahora requieren un prefijo (ej: /acciona/auth)
