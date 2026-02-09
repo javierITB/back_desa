@@ -141,7 +141,7 @@ async function registerUserUpdateEvent(req, auth, profileData = {}) {
    const metadata = { Usuario: { nombre, apellido, mail, empresa, cargo, rol, estado } };
 
    const descriptionBuilder = (actor) => {
-      const actorMail = decrypt(actor?.mail)?.toLowerCase().trim();
+      const actorMail = decrypt(actor?.email)?.toLowerCase().trim();
       const myMail = mail?.toLowerCase().trim();
       const itsMyProfile = actorMail && myMail && actorMail === myMail;
 
