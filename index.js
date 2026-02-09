@@ -18,63 +18,97 @@ const configTicketsRoutes = require("./endpoints/configTickets");
 const dashboardRoutes = require("./endpoints/dashboard");
 const registroRoutes = require("./endpoints/registro");
 const roles = require("./endpoints/roles");
+
 const app = express();
 
 // Configuración CORS
 app.use(cors());
 
-// CONFIGURACIÓN ACTUALIZADA PARA PLAN GRATUITO DE VERCEL
-// Límites reducidos para evitar PayloadTooLargeError
-app.use(express.json({ limit: '4mb' })); // 4MB máximo (por debajo del límite de 4.5MB de Vercel)
+// CONFIGURACIÓN PARA VERCEL (Límites de carga)
+app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ limit: '4mb', extended: true }));
 
 app.set('trust proxy', true);
 
-// Configurar conexión a MongoDB (desde variable de entorno)
-const client = new MongoClient(process.env.MONGO_URI);
-let db;
+// --- CONFIGURACIÓN DE CONEXIÓN DINÁMICA A MONGODB ---
 
-async function connectDB() {
-  if (!db) {
+const client = new MongoClient(process.env.MONGO_URI);
+const dbCache = {}; // Almacena instancias de DB para reutilizarlas
+
+/**
+ * Función para obtener o crear la instancia de DB basada en el tenant
+ */
+async function getTenantDB(tenantName) {
+  // Asegurar que el cliente de MongoDB está conectado
+  if (!client.topology || !client.topology.isConnected()) {
     await client.connect();
-    db = client.db("formsdb");
-    console.log("Conectado a MongoDB");
   }
-  return db;
+
+  // Mapeo: si es "api" usamos la DB por defecto, de lo contrario usamos el nombre del tenant
+  const dbName = (tenantName === "api" || !tenantName) ? "formsdb" : tenantName;
+
+  // Retornar de caché si ya existe para ahorrar recursos
+  if (dbCache[dbName]) {
+    return dbCache[dbName];
+  }
+
+  // Si no existe, creamos la instancia y la guardamos
+  const dbInstance = client.db(dbName);
+  dbCache[dbName] = dbInstance;
+  
+  console.log(`Base de datos activa: ${dbName}`);
+  return dbInstance;
 }
 
-// 
-app.use(async (req, res, next) => {
+// --- ESTRUCTURA DE RUTAS DINÁMICAS ---
+
+// Creamos un Router con mergeParams para que los hijos vean el parámetro :company
+const tenantRouter = express.Router({ mergeParams: true });
+
+// Middleware Multi-tenant: se ejecuta en cada petición antes de las rutas
+tenantRouter.use(async (req, res, next) => {
   try {
-    req.db = await connectDB();
+    const { company } = req.params;
+    // Inyectamos la base de datos específica en el objeto request
+    req.db = await getTenantDB(company);
     next();
   } catch (err) {
-    console.error("Error al conectar con MongoDB:", err);
-    res.status(500).json({ error: "Error con base de datos" });
+    console.error("Error crítico de conexión Multi-tenant:", err);
+    res.status(500).json({ error: "Error interno con la base de datos de la empresa" });
   }
 });
 
-// Rutas
-app.use("/api/auth", authRoutes);
-app.use("/api/forms", formRoutes);
-app.use("/api/respuestas", answersRoutes);
-app.use("/api/mail", mailRoutes);
-app.use("/api/generador", gen);
-app.use("/api/noti", noti);
-app.use("/api/menu", menu);
-app.use("/api/plantillas", plantillas);
-app.use("/api/anuncios", anunciosRouter);
-app.use("/api/soporte", soporteRoutes);
-app.use("/api/domicilio-virtual", domicilioVirtualRoutes);
-app.use("/api/config-tickets", configTicketsRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/registro", registroRoutes);
-app.use("/api/roles", roles);
+// Definición de todos los endpoints bajo el control del tenantRouter
+tenantRouter.use("/auth", authRoutes);
+tenantRouter.use("/forms", formRoutes);
+tenantRouter.use("/respuestas", answersRoutes);
+tenantRouter.use("/mail", mailRoutes);
+tenantRouter.use("/generador", gen);
+tenantRouter.use("/noti", noti);
+tenantRouter.use("/menu", menu);
+tenantRouter.use("/plantillas", plantillas);
+tenantRouter.use("/anuncios", anunciosRouter);
+tenantRouter.use("/soporte", soporteRoutes);
+tenantRouter.use("/domicilio-virtual", domicilioVirtualRoutes);
+tenantRouter.use("/config-tickets", configTicketsRoutes);
+tenantRouter.use("/dashboard", dashboardRoutes);
+tenantRouter.use("/registro", registroRoutes);
+tenantRouter.use("/roles", roles);
 
-// Ruta base
+// Montaje final: todas las rutas ahora requieren un prefijo (ej: /acciona/auth)
+app.use("/:company", tenantRouter);
+
+// Ruta raíz para verificación simple
 app.get("/", (req, res) => {
-  res.json({ message: "API funcionando" });
+  res.json({ 
+    message: "API Multi-tenant de Solunex funcionando",
+    status: "online" 
+  });
 });
 
-// Exportar la app para que Vercel la maneje como serverless function
+// Manejo de errores global para rutas no encontradas
+app.use((req, res) => {
+  res.status(404).json({ error: "Ruta no encontrada o empresa no especificada correctamente" });
+});
+
 module.exports = app;
