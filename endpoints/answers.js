@@ -1885,7 +1885,12 @@ router.get("/:formId/chat/", async (req, res) => {
 
     const todosLosMensajes = respuesta.mensajes || [];
 
-    const mensajesGenerales = todosLosMensajes.filter(msg => !msg.admin);
+    // --- CORRECCIÓN AQUÍ ---
+    // Filtramos para que el cliente vea todo lo que NO sea interno.
+    // Esto incluye sus mensajes y tus respuestas de la pestaña General.
+    const mensajesGenerales = todosLosMensajes.filter(msg => 
+      msg.internal !== true && msg.internal !== "true"
+    );
 
     res.json(mensajesGenerales);
 
