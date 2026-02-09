@@ -53,25 +53,14 @@ router.post("/", async (req, res) => {
         return res.status(403).json({ error: "No se puede modificar el rol raíz de administrador" });
       }
 
-      try {
-        const result = await req.db.collection("roles").findOneAndUpdate(
-          { _id: new ObjectId(id) },
-          { $set: roleData },
-          { returnDocument: "after" }
-        );
+      const result = await req.db.collection("roles").findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: roleData },
+        { returnDocument: "after" }
+      );
 
-        if (!result || !result.value) {
-          return res.status(404).json({ error: "Rol no encontrado. No se pudo actualizar." });
-        }
-
-        res.status(200).json(result.value);
-      } catch (error) {
-        console.error("Error updating role:", error);
-        if (error.message.includes("ObjectId")) {
-          return res.status(400).json({ error: "ID de rol inválido" });
-        }
-        throw error;
-      }
+      if (!result) return res.status(404).json({ error: "Rol no encontrado" });
+      res.status(200).json(result.value || result);
     }
   } catch (err) {
     console.error("Error en POST /roles:", err);
