@@ -17,8 +17,6 @@ const domicilioVirtualRoutes = require("./endpoints/domicilioVirtual");
 const configTicketsRoutes = require("./endpoints/configTickets");
 const dashboardRoutes = require("./endpoints/dashboard");
 const registroRoutes = require("./endpoints/registro");
-const dashboardRoutes = require("./endpoints/dashboard");
-const registroRoutes = require("./endpoints/registro");
 const roles = require("./endpoints/roles");
 const sasRoutes = require("./endpoints/SAS");
 
