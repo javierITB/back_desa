@@ -812,7 +812,13 @@ router.get("/mail/:mail", async (req, res) => {
           "No especificado";
       }
 
-      const esCompartida = answerDescifrada.user?.uid !== userIdString;
+      // --- CAMBIO PARA ETIQUETA RECIBIDA ---
+      // Es compartida SOLO si el ID del usuario actual está en el array de compartidos
+      const esCompartida = answerDescifrada.user?.compartidos && 
+                           Array.isArray(answerDescifrada.user.compartidos) && 
+                           answerDescifrada.user.compartidos.includes(userIdString);
+      
+      const esPropia = answerDescifrada.user?.uid === userIdString;
 
       return {
         _id: answerDescifrada._id,
@@ -828,8 +834,8 @@ router.get("/mail/:mail", async (req, res) => {
         compartida: esCompartida,
         isShared: esCompartida,
         metadata: {
-          esPropia: !esCompartida,
-          scope: isJefatura && !esCompartida ? "empresa" : esCompartida ? "compartida" : "propia"
+          esPropia: esPropia,
+          scope: isJefatura && !esPropia && !esCompartida ? "empresa" : esCompartida ? "compartida" : "propia"
         },
         form: null
       };
@@ -1904,33 +1910,31 @@ router.post("/chat", async (req, res) => {
     const respuesta = await req.db.collection("respuestas").findOne(query);
     if (!respuesta) return res.status(404).json({ error: "Respuesta no encontrada" });
 
-    // --- RECUPERADO: Validar rol del remitente desde el token ---
+    // --- VALIDAR ROL DEL REMITENTE ---
     const token = req.headers['authorization']?.split(' ')[1];
-    let isSenderAdmin = false;
+    let isSenderStaff = false;
 
     if (token) {
       const authData = await validarToken(req.db, token);
       if (authData.ok) {
-        const rol = authData.data.rol?.toLowerCase();
-        if (rol === 'admin' || rol === 'root') {
-          isSenderAdmin = true;
+        const rolActual = authData.data.rol; 
+        if (rolActual === 'Administrador' || rolActual === 'RRHH' || rolActual === 'root') {
+          isSenderStaff = true;
         }
       }
     }
 
-    // --- RECUPERADO: Determinar qué fecha actualizar ---
+    // --- DETERMINAR FECHA A ACTUALIZAR ---
     let updateField = {};
-    if (isSenderAdmin) {
-      // Si es ADMIN, solo actualizamos updateAdmin si NO es un mensaje interno
+    if (isSenderStaff) {
       if (!req.body.internal) {
         updateField = { updateAdmin: new Date() };
       }
     } else {
-      // Si es CLIENTE, siempre actualizamos updateClient
       updateField = { updateClient: new Date() };
     }
 
-    // --- ACTUALIZACIÓN EN BD (Mantiene toda la estructura original) ---
+    // --- ACTUALIZACIÓN EN BD ---
     await req.db.collection("respuestas").updateOne(
       { _id: respuesta._id },
       {
@@ -1942,7 +1946,7 @@ router.post("/chat", async (req, res) => {
       }
     );
 
-    // --- DESCIFRADO DE DATOS (Necesario para que el resto funcione) ---
+    // --- DESCIFRADO DE DATOS (Para correos) ---
     let userEmail = null;
     let userName = autor;
 
@@ -1956,7 +1960,7 @@ router.post("/chat", async (req, res) => {
         : respuesta.user.nombre || autor;
     }
 
-    // --- ENVIAR CORREO (Estructura y estilos recuperados al 100%) ---
+    // --- ENVIAR CORREO (CON TU PLANTILLA ORIGINAL INTEGRA) ---
     if (sendToEmail === true && admin !== true) {
       try {
         let formName = "el formulario";
@@ -1966,9 +1970,7 @@ router.post("/chat", async (req, res) => {
           const form = await req.db.collection("forms").findOne({
             _id: new ObjectId(respuesta.formId)
           });
-          if (form && form.title) {
-            formName = form.title;
-          }
+          if (form && form.title) formName = form.title;
         } else if (respuesta._contexto && respuesta._contexto.formTitle) {
           formName = respuesta._contexto.formTitle;
         }
@@ -2063,31 +2065,41 @@ router.post("/chat", async (req, res) => {
       }
     }
 
-    // --- NOTIFICACIONES (Comparando con nombre descifrado) ---
-    if (userName === autor) {
-      const notifChat = {
-        filtro: { cargo: "RRHH" },
-        titulo: "Nuevo mensaje en formulario",
-        descripcion: `${autor} ha enviado un mensaje.`,
-        icono: "MessageCircle", color: "#45577eff",
-        actionUrl: `/RespuestasForms?id=${respuesta._id}`,
-      };
-      await addNotification(req.db, notifChat);
-      await addNotification(req.db, { ...notifChat, filtro: { cargo: "admin" } });
-    } else {
-      await addNotification(req.db, {
-        userId: respuesta.user.uid,
-        titulo: "Nuevo mensaje recibido",
-        descripcion: `${autor} le ha enviado un mensaje.`,
-        icono: "MessageCircle", color: "#45577eff",
-        actionUrl: `/?id=${respuesta._id}`,
+    // --- LÓGICA DE NOTIFICACIONES (BIDIRECCIONAL CON ESPEJO) ---
+    const notifBase = {
+      titulo: isSenderStaff ? "Nuevo mensaje de Administración" : "Nuevo mensaje de cliente",
+      descripcion: `${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? '...' : ''}`,
+      icono: "MessageCircle", 
+      color: "#45577eff",
+      actionUrl: isSenderStaff ? `/?id=${respuesta._id}` : `/RespuestasForms?id=${respuesta._id}`,
+    };
+
+    if (isSenderStaff) {
+      // 1. Escribe Staff -> Notificar al Dueño
+      await addNotification(req.db, { 
+        userId: respuesta.user?.uid, 
+        ...notifBase 
       });
+
+      // 2. Notificar a todos los Compartidos
+      if (respuesta.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
+        for (const compartidoId of respuesta.user.compartidos) {
+          if (compartidoId) {
+            await addNotification(req.db, { userId: compartidoId, ...notifBase });
+          }
+        }
+      }
+    } else {
+      // 3. Escribe Cliente (Dueño o Compartido) -> Notificar Staff
+      await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifBase });
+      await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifBase });
     }
 
     res.json({
+      success: true,
       message: "Mensaje enviado",
       data: nuevoMensaje,
-      emailSent: sendToEmail === true && admin !== true && !!userEmail
+      emailSent: sendToEmail === true && isSenderStaff && !!userEmail
     });
 
   } catch (err) {
