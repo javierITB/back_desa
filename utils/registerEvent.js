@@ -38,9 +38,25 @@ async function registerSolicitudCreationEvent(req, auth, description = "", metad
    await registerEvent(req, auth, payload, metadata);
 }
 
-async function registerSolicitudRemovedEvent(req, auth, metadata = {}) {
+async function registerSolicitudRemovedEvent(req, auth, deletedRespuesta = {}) {
+   const titleDecripted = deletedRespuesta?.formTitle ? decrypt(deletedRespuesta?.formTitle) : deletedRespuesta?.formTitle;
+   const nameDecripted = deletedRespuesta?.user?.nombre ? decrypt(deletedRespuesta?.user?.nombre) : deletedRespuesta?.user?.nombre;
+   const empresaDecripted = deletedRespuesta?.user?.empresa ? decrypt(deletedRespuesta?.user?.empresa) : deletedRespuesta?.user?.empresa;
+   const emailDecripted = deletedRespuesta?.user?.mail ? decrypt(deletedRespuesta?.user?.mail) : deletedRespuesta?.user?.mail;
+
+   const metadata = {
+      respuesta_eliminada: {
+         titulo: titleDecripted,
+         usuario: {
+            nombre: nameDecripted,
+            empresa: empresaDecripted,
+            email: emailDecripted,
+         }
+      }
+   }
+
    const descriptionBuilder = (actor) =>
-      `${decrypt(actor?.name) || "desconocido"} ${decrypt(actor?.last_name) || ""} eliminó una solicitud`;
+      `${formatActor(actor)} eliminó la solicitud ${titleDecripted} respondida por ${nameDecripted} de la empresa ${empresaDecripted}`;
 
    const payload = {
       code: CODES.SOLICITUD_ELIMINACION,
@@ -109,7 +125,7 @@ async function registerUserCreationEvent(req, auth, profileData = {}) {
    const metadata = { Usuario: { nombre, apellido, mail, empresa, cargo, rol, estado } };
 
    const descriptionBuilder = (actor) =>
-      `${formatActor(actor)} creó el usuario ${formatName(nombre, apellido)}`;
+      `${formatActor(actor)} creó el usuario de ${formatName(nombre, apellido)}`;
 
    const payload = {
       code: CODES.USUARIO_CREACION,

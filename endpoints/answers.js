@@ -1781,11 +1781,14 @@ router.delete("/:id", async (req, res) => {
     if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     const responseId = req.params.id;
+    const responseObjectId = new ObjectId(responseId);
+
+    const deletedRespuesta = await req.db.collection("respuestas").findOneAndDelete({ _id: responseObjectId });
+
+    if (!deletedRespuesta) return res.status(404).json({ error: "Respuesta no encontrada" });
 
     // Eliminar de todas las colecciones relacionadas
-    const [resultRespuestas, resultDocxs, resultAprobados, resultFirmados, resultAdjuntos] = await Promise.all([
-      // Eliminar de respuestas
-      req.db.collection("respuestas").deleteOne({ _id: new ObjectId(responseId) }),
+    const [resultDocxs, resultAprobados, resultFirmados, resultAdjuntos] = await Promise.all([
 
       // Eliminar de docxs (si existe)
       req.db.collection("docxs").deleteOne({ responseId: responseId }),
@@ -1800,12 +1803,8 @@ router.delete("/:id", async (req, res) => {
       req.db.collection("adjuntos").deleteOne({ responseId: new ObjectId(responseId) })
     ]);
 
-    // Verificar si al menos se eliminó la respuesta principal
-    if (resultRespuestas.deletedCount === 0) {
-      return res.status(404).json({ error: "Respuesta no encontrada" });
-    }
 
-    registerSolicitudRemovedEvent(req, auth)
+    registerSolicitudRemovedEvent(req, auth, deletedRespuesta)
 
     res.status(200).json({
       message: "Formulario y todos los datos relacionados eliminados",
