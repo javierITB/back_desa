@@ -637,10 +637,9 @@ router.post("/borrarpass", async (req, res) => {
       }
 
       if (recoveryRecord.expiresAt < now) {
-         await req.db.collection("recovery_codes").updateOne(
-            { _id: recoveryRecord._id },
-            { $set: { active: false, revokedAt: now, reason: "expired" } }
-         );
+         await req.db
+            .collection("recovery_codes")
+            .updateOne({ _id: recoveryRecord._id }, { $set: { active: false, revokedAt: now, reason: "expired" } });
 
          return res.status(401).json({
             message: "Código expirado. Solicita uno nuevo.",
@@ -665,7 +664,7 @@ router.post("/borrarpass", async (req, res) => {
                pass: hashedPassword,
                updatedAt: now.toISOString(),
             },
-         }
+         },
       );
 
       if (updateUserResult.matchedCount === 0) {
@@ -682,12 +681,12 @@ router.post("/borrarpass", async (req, res) => {
                revokedAt: now,
                reason: "consumed",
             },
-         }
+         },
       );
 
       return res.json({
          success: true,
-         uid: userId, 
+         uid: userId,
       });
    } catch (err) {
       console.error("Error en /borrarpass:", err);
@@ -696,7 +695,6 @@ router.post("/borrarpass", async (req, res) => {
       });
    }
 });
-
 
 router.post("/send-2fa-code", async (req, res) => {
    try {
@@ -1296,23 +1294,18 @@ router.delete("/users/:id", async (req, res) => {
       }
 
       const userId = req?.params?.id;
-      
+
       if (!ObjectId.isValid(userId)) {
          return res.status(400).json({ error: "ID inválido" });
       }
-      const result = await req.db.collection("usuarios").findOneAndDelete({
+      const deletedUser = await req.db.collection("usuarios").findOneAndDelete({
          _id: new ObjectId(userId),
       });
 
-      // Si no se encontró el usuario
-      if (!result) {
-         return res.status(404).json({ error: "Usuario no encontrado", result });
+      if (!deletedUser) {
+         return res.status(404).json({ error: "Usuario no encontrado" });
       }
 
-      // 🔹 Acá tienes el documento completo eliminado
-      const deletedUser = result;
-
-      // Puedes pasar el usuario eliminado
       registerUserRemovedEvent(req, auth, deletedUser);
 
       res.json({
