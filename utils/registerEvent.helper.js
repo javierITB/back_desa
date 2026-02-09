@@ -186,6 +186,45 @@ function formatEncriptedName(name, lastName) {
    return fullNameDecrypted;
 }
 
+
+function buildCargoChangesMetadata(before, after) {
+  const changes = {};
+
+  // Nombre
+  if (before.name !== after.name) {
+    changes.Nombre = {
+      antes: before.name,
+      despues: after.name
+    };
+  }
+
+  // Descripción
+  if (before.description !== after.description) {
+    changes.Descripcion = {
+      antes: before.description,
+      despues: after.description
+    };
+  }
+
+  // Permisos
+  const beforeSet = new Set(before.permissions || []);
+  const afterSet = new Set(after.permissions || []);
+
+  const agregados = [...afterSet].filter(p => !beforeSet.has(p));
+  const removidos = [...beforeSet].filter(p => !afterSet.has(p));
+
+  if (agregados.length || removidos.length) {
+    changes.Permisos = {};
+    if (agregados.length) changes.Permisos.agregados = agregados;
+    if (removidos.length) changes.Permisos.removidos = removidos;
+  }
+
+  return Object.keys(changes).length
+    ? { Cargo: changes }
+    : null;
+}
+
+
 module.exports = {
    getActor,
    encryptObject,
@@ -193,4 +232,5 @@ module.exports = {
    formatName,
    formatActor,
    formatEncriptedName,
+   buildCargoChangesMetadata
 };

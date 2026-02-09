@@ -5,6 +5,7 @@ const {
    formatActor,
    formatEncriptedName,
    formatName,
+   buildCargoChangesMetadata
 } = require("./registerEvent.helper.js");
 const { encrypt, decrypt } = require("../utils/seguridad.helper");
 
@@ -307,6 +308,25 @@ async function registerCargoCreationEvent(req, auth, cargoData) {
    await registerEvent(req, auth, payload, metadata, descriptionBuilder);
 }
 
+async function registerCargoUpdateEvent(req, auth, currentCargoState = {}, newCargoState = {}) {
+
+   let metadata = buildCargoChangesMetadata(currentCargoState, newCargoState);
+
+   if (!metadata) metadata = {}
+
+   const descriptionBuilder = (actor) => `${formatActor(actor)} actualizó el cargo "${currentCargoState.name}"`;
+
+   const payload = {
+      code: CODES.CARGO_ACTUALIZACION,
+      target: {
+         type: TARGET_TYPES.CARGO,
+      },
+   };
+
+   await registerEvent(req, auth, payload, metadata, descriptionBuilder);
+
+}
+
 // codes
 const CODES = {
    SOLICITUD_CREACION: "SOLICITUD_CREACION",
@@ -348,4 +368,5 @@ module.exports = {
    registerEmpresaRemovedEvent,
    registerUserPasswordChange,
    registerCargoCreationEvent,
+   registerCargoUpdateEvent,
 };

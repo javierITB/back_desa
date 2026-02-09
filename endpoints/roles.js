@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { ObjectId } = require("mongodb");
 const { validarToken } = require("../utils/validarToken.js");
-const { registerCargoCreationEvent } = require("../utils/registerEvent");
+const { registerCargoCreationEvent, registerCargoUpdateEvent } = require("../utils/registerEvent");
 
 // Helper para verificar token (Consistente con tu estructura)
 const verifyRequest = async (req) => {
@@ -53,14 +53,19 @@ router.post("/", async (req, res) => {
         return res.status(403).json({ error: "No se puede modificar el rol raíz de administrador" });
       }
 
-      const result = await req.db.collection("roles").findOneAndUpdate(
+      const currentCargoState = await req.db.collection("roles").findOne({ _id: new ObjectId(id) });
+      if (!currentCargoState) return res.status(404).json({ error: "Rol no encontrado" });
+
+      const newCargoState = await req.db.collection("roles").findOneAndUpdate(
         { _id: new ObjectId(id) },
         { $set: roleData },
         { returnDocument: "after" }
       );
 
-      if (!result) return res.status(404).json({ error: "Rol no encontrado" });
-      res.status(200).json(result.value || result);
+      if (!newCargoState) return res.status(404).json({ error: "Rol no encontrado" });
+
+      registerCargoUpdateEvent(req, tokenCheck, currentCargoState, newCargoState);
+      res.status(200).json(newCargoState);
     }
   } catch (err) {
     console.error("Error en POST /roles:", err);
