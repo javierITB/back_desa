@@ -1918,7 +1918,6 @@ router.post("/chat", async (req, res) => {
       const authData = await validarToken(req.db, token);
       if (authData.ok) {
         const rolActual = authData.data.rol;
-        // Validamos si es Staff (Administrador, RRHH o root)
         if (rolActual === 'Administrador' || rolActual === 'RRHH' || rolActual === 'root') {
           isSenderStaff = true;
         }
@@ -2070,13 +2069,18 @@ router.post("/chat", async (req, res) => {
       }
     }
 
-    // --- LÓGICA DE NOTIFICACIONES (BIDIRECCIONAL Y CON ESPEJO) ---
+    // --- LÓGICA DE NOTIFICACIONES (CORREGIDA CON DESCIFRADO DE UID) ---
     const formTitleNoti = (formName && formName.includes(':')) ? decrypt(formName) : formName;
-    const trabajadorNombre = respuesta.trabajador || "Usuario";
+    
+    let trabajadorNombre = "Usuario";
+    if (respuesta.trabajador) {
+      trabajadorNombre = respuesta.trabajador.includes(':') 
+        ? decrypt(respuesta.trabajador) 
+        : respuesta.trabajador;
+    }
 
     const notifBase = {
       titulo: isSenderStaff ? "Nuevo mensaje recibido" : "Nuevo mensaje en formulario",
-      // DESCRIPCIÓN: Formulario (Trabajador) - Autor: Mensaje
       descripcion: `En: ${formTitleNoti} (${trabajadorNombre}) - ${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? '...' : ''}`,
       icono: "MessageCircle", 
       color: "#45577eff",
@@ -2084,22 +2088,25 @@ router.post("/chat", async (req, res) => {
     };
 
     if (isSenderStaff) {
-      // 1. Notificar al Autor (Dueño)
-      const ownerId = respuesta.user?.uid || respuesta.userId;
-      if (ownerId) {
-        await addNotification(req.db, { userId: ownerId, ...notifBase });
+      // 1. Notificar al Autor (Dueño) con UID descifrado
+      let ownerIdRaw = respuesta.user?.uid;
+      let ownerIdLimpio = null;
+
+      if (ownerIdRaw) {
+        ownerIdLimpio = ownerIdRaw.includes(':') ? decrypt(ownerIdRaw) : ownerIdRaw;
+        await addNotification(req.db, { userId: ownerIdLimpio, ...notifBase });
       }
 
       // 2. Notificar a los Compartidos
       if (respuesta.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
         for (const compartidoId of respuesta.user.compartidos) {
-          if (compartidoId && compartidoId !== ownerId) {
+          if (compartidoId && compartidoId !== ownerIdLimpio) {
             await addNotification(req.db, { userId: compartidoId, ...notifBase });
           }
         }
       }
     } else {
-      // 3. Notificar al Staff (Roles literales)
+      // 3. Notificar al Staff
       await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifBase });
       await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifBase });
     }
