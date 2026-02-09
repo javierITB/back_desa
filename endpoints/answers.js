@@ -217,8 +217,8 @@ router.post("/", async (req, res) => {
     };
 
     await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifData });
-    await addNotification(req.db, { filtro: { rol: "admin" }, ...notifData });
-    console.log("✓ Notificaciones a RRHH y Admin enviadas");
+    await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifData });
+    console.log("✓ Notificaciones a RRHH y Admin enviadas ");
 
     // Notificación al usuario
     await addNotification(req.db, {
@@ -1395,7 +1395,7 @@ router.post("/compartir/", async (req, res) => {
         descripcion: `Ahora tienes acceso a: ${solicitud.formTitle || 'Solicitud'} - ${nombreLimpio}`,
         icono: "MessageCircle",
         color: "#4f46e5",
-        
+        actionUrl: `/?id=${solicitud._id}`,
       };
 
       // Notificar a cada uno de los usuarios nuevos en el array
@@ -2864,7 +2864,6 @@ router.post("/:id/approve", async (req, res) => {
       });
     }
 
-
     const existingSignature = await req.db.collection("firmados").findOne({
       responseId: responseId
     });
@@ -2903,16 +2902,34 @@ router.post("/:id/approve", async (req, res) => {
       }
     );
 
-    // Enviar notificación al usuario
-    await addNotification(req.db, {
-      userId: respuesta.user?.uid,
+    // --- BLOQUE DE NOTIFICACIONES EN ESPEJO ---
+    const notifData = {
       titulo: "Documento Aprobado",
       descripcion: `Se ha aprobado el documento asociado al formulario ${respuesta.formTitle} con ${approvedDoc.correctedFiles.length} archivo(s)`,
       prioridad: 2,
       icono: 'FileText',
       color: '#47db34ff',
       actionUrl: `/?id=${responseId}`,
+    };
+
+    // 1. Notificar al autor (Dueño)
+    await addNotification(req.db, {
+      userId: respuesta.user?.uid,
+      ...notifData
     });
+
+    // 2. Notificar a los compartidos del array (si existen)
+    if (respuesta?.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
+      for (const compartidoId of respuesta.user.compartidos) {
+        if (compartidoId) {
+          await addNotification(req.db, {
+            userId: compartidoId,
+            ...notifData
+          });
+        }
+      }
+    }
+    // --- FIN BLOQUE DE NOTIFICACIONES ---
 
     res.json({
       message: existingSignature
@@ -3127,14 +3144,11 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
 
     // --- LÓGICA DE EXTRACCIÓN Y DESCIFRADO ---
     const resps = respuesta.responses || {};
-    // Busca el valor en cualquiera de las dos variantes de la llave
     const valorOriginal = resps['NOMBRE DEL TRABAJADOR'] || resps['Nombre del trabajador'];
 
-    // Si el valor existe y contiene ':', se descifra; si no, se usa tal cual
     const nombreTrabajador = (typeof valorOriginal === 'string' && valorOriginal.includes(':'))
       ? decrypt(valorOriginal)
       : (valorOriginal || "Trabajador");
-    // -----------------------------------------
 
     const existingSignature = await req.db.collection("firmados").findOne({
       responseId: responseId
@@ -3174,14 +3188,26 @@ router.post("/:responseId/upload-client-signature", upload.single('signedPdf'), 
       { $set: { status: "firmado", signedAt: new Date(), updateClient: new Date() } }
     );
 
-    await addNotification(req.db, {
-      filtro: { cargo: "RRHH" },
+    // --- BLOQUE DE NOTIFICACIONES AL STAFF ---
+    const notifStaff = {
       titulo: `Documento ${respuesta.formTitle} Firmado`,
       descripcion: `se ha recibido el Documento Firmado asociado al Formulario ${respuesta.formTitle} de ${nombreTrabajador}`,
       prioridad: 2,
       icono: 'Pen',
       color: '#dbca34ff',
       actionUrl: `/RespuestasForms?id=${respuesta._id}`,
+    };
+
+    // Notificar a RRHH (Como ya estaba)
+    await addNotification(req.db, {
+      filtro: { rol: "RRHH" },
+      ...notifStaff
+    });
+
+    // AGREGADO: Notificar al rol Administrador
+    await addNotification(req.db, {
+      filtro: { rol: "Administrador" }, // He usado "admin" que es el valor común en tus otros filtros
+      ...notifStaff
     });
 
     res.json({
@@ -3559,25 +3585,47 @@ router.put("/:id/status", async (req, res) => {
       }
     }
 
-    // Enviar notificación al usuario si aplica
-    if (status === 'en_revision') {
-      await addNotification(req.db, {
-        userId: respuesta?.user?.uid, // Usar el original 'respuesta' que puede tener uid sin descifrar, pero uid suele no estar cifrado en user.uid si es root? 
-        // Nota: Si respuesta.user.uid estaba cifrado, necesitamos usar el descifrado.
-        // Pero respuesta original (antes del update) tenía los datos raw.
-        // Mejor usamos updatedResponse.user.uid que ya intentamos descifrar.
-        userId: updatedResponse?.user?.uid || respuesta?.user?.uid,
-        titulo: "Respuestas En Revisión",
-        descripcion: `Formulario ${updatedResponse.formTitle} ha cambiado su estado a En Revisión.`,
+    // --- BLOQUE DE NOTIFICACIONES MULTI-ESTADO ---
+    const estadosNotificables = ['pendiente', 'en_revision', 'aprobado', 'firmado', 'finalizado'];
+    
+    if (estadosNotificables.includes(status)) {
+      // Mapeo simple de nombres para el mensaje
+      const nombresEstados = {
+        'pendiente': 'Pendiente',
+        'en_revision': 'En Revisión',
+        'aprobado': 'Aprobado',
+        'firmado': 'Firmado',
+        'finalizado': 'Finalizado'
+      };
+
+      const notifData = {
+        titulo: `Solicitud ${nombresEstados[status]}`,
+        descripcion: `Formulario ${updatedResponse.formTitle} ha cambiado su estado a ${nombresEstados[status]}.`,
         prioridad: 2,
         icono: 'FileText',
-        color: '#00c6f8ff',
+        color: status === 'aprobado' ? '#006e13ff' : '#00c6f8ff',
         actionUrl: `/?id=${id}`,
+      };
+
+      // 1. Notificar al autor
+      await addNotification(req.db, {
+        userId: updatedResponse?.user?.uid || respuesta?.user?.uid,
+        ...notifData
       });
+
+      // 2. Notificar a los compartidos del array
+      if (respuesta?.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
+        for (const compartidoId of respuesta.user.compartidos) {
+          if (compartidoId) {
+            await addNotification(req.db, {
+              userId: compartidoId,
+              ...notifData
+            });
+          }
+        }
+      }
     }
-
-
-
+    // --- FIN BLOQUE DE NOTIFICACIONES ---
 
     res.json({
       success: true,
@@ -3587,12 +3635,8 @@ router.put("/:id/status", async (req, res) => {
 
   } catch (err) {
     console.error("Error cambiando estado:", err);
-
     res.status(500).json({ error: "Error cambiando estado: " + err.message });
-
   }
-
-
 });
 
 // MANTENIMIENTO: Migrar respuestas existentes para cifrado PQC
