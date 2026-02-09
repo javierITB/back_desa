@@ -213,6 +213,10 @@ router.get("/companies", async (req, res) => {
         const tokenCheck = await verifyRequest(req);
         if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
 
+        if (!req.mongoClient) {
+            throw new Error("MongoClient no inyectado en la petición");
+        }
+
         // Acceder al admin de Mongo para listar DBs
         // req.mongoClient es inyectado desde index.js
         const adminDb = req.mongoClient.db("admin").admin();
@@ -231,7 +235,8 @@ router.get("/companies", async (req, res) => {
         res.json(companies);
     } catch (err) {
         console.error("Error en GET /sas/companies:", err);
-        res.status(500).json({ error: "Internal server error" });
+        // Retornar mensaje de error específico para debugging
+        res.status(500).json({ error: err.message || "Internal server error" });
     }
 });
 
