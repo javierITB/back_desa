@@ -149,17 +149,7 @@ async function registerUserUpdateEvent(req, auth, profileData = {}) {
          return `${formatActor(actor)} actualizó su perfil de usuario`;
       }
 
-      return `
-      actorMail: ${actorMail} |
-
-
-      myMail: ${myMail} | 
-
-
-      itsMyProfile: ${itsMyProfile}
-      `
-
-      // return `${formatActor(actor)} actualizó el perfil de usuario de ${formatName(nombre, apellido)}`;
+      return `${formatActor(actor)} actualizó el perfil de usuario de ${formatName(nombre, apellido)}`;
    };
 
    const payload = {
