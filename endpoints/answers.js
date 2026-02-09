@@ -2069,14 +2069,20 @@ router.post("/chat", async (req, res) => {
       }
     }
 
-    // --- LÓGICA DE NOTIFICACIONES (CORREGIDA CON DESCIFRADO DE UID) ---
+    // --- LÓGICA DE NOTIFICACIONES (BÚSQUEDA MULTI-CAMPO) ---
     const formTitleNoti = (formName && formName.includes(':')) ? decrypt(formName) : formName;
     
+    // Consideramos ambas variantes de capitalización y fallback
+    const rawTrabajador = respuesta.responses?.['NOMBRE DEL TRABAJADOR'] || 
+                          respuesta.responses?.['Nombre del trabajador'] || 
+                          respuesta.trabajador || 
+                          respuesta.user?.nombre;
+
     let trabajadorNombre = "Usuario";
-    if (respuesta.trabajador) {
-      trabajadorNombre = respuesta.trabajador.includes(':') 
-        ? decrypt(respuesta.trabajador) 
-        : respuesta.trabajador;
+    if (rawTrabajador) {
+      trabajadorNombre = rawTrabajador.includes(':') 
+        ? decrypt(rawTrabajador) 
+        : rawTrabajador;
     }
 
     const notifBase = {
@@ -2088,7 +2094,7 @@ router.post("/chat", async (req, res) => {
     };
 
     if (isSenderStaff) {
-      // 1. Notificar al Autor (Dueño) con UID descifrado
+      // 1. Notificar al Autor (UID descifrado)
       let ownerIdRaw = respuesta.user?.uid;
       let ownerIdLimpio = null;
 
@@ -2106,7 +2112,7 @@ router.post("/chat", async (req, res) => {
         }
       }
     } else {
-      // 3. Notificar al Staff
+      // 3. Notificar al Staff (Roles literales)
       await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifBase });
       await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifBase });
     }
