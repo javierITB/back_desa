@@ -72,6 +72,7 @@ tenantRouter.use(async (req, res, next) => {
     const { company } = req.params;
     // Inyectamos la base de datos específica en el objeto request
     req.db = await getTenantDB(company);
+    req.mongoClient = client;
     next();
   } catch (err) {
     console.error("Error crítico de conexión Multi-tenant:", err);
@@ -94,7 +95,7 @@ tenantRouter.use("/domicilio-virtual", domicilioVirtualRoutes);
 tenantRouter.use("/config-tickets", configTicketsRoutes);
 tenantRouter.use("/dashboard", dashboardRoutes);
 tenantRouter.use("/registro", registroRoutes);
-tenantRouter.use("/roles", roles); 
+tenantRouter.use("/roles", roles);
 tenantRouter.use("/sas", sasRoutes);
 
 // Montaje final: todas las rutas ahora requieren un prefijo (ej: /acciona/auth)

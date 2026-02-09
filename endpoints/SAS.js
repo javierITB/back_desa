@@ -214,8 +214,8 @@ router.get("/companies", async (req, res) => {
         if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
 
         // Acceder al admin de Mongo para listar DBs
-        // req.db es una instancia de Db. req.db.client es el MongoClient.
-        const adminDb = req.db.client.db("admin").admin();
+        // req.mongoClient es inyectado desde index.js
+        const adminDb = req.mongoClient.db("admin").admin();
         const list = await adminDb.listDatabases();
 
         // Filtrar DBs de sistema
@@ -252,7 +252,7 @@ router.post("/companies", async (req, res) => {
         const dbName = name.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase();
         if (!dbName) return res.status(400).json({ error: "Nombre de base de datos inválido" });
 
-        const newDb = req.db.client.db(dbName);
+        const newDb = req.mongoClient.db(dbName);
 
         // Crear colecciones vacías según funcionalidades activas
         if (Array.isArray(features)) {
@@ -297,7 +297,7 @@ router.delete("/companies/:name", async (req, res) => {
             return res.status(403).json({ error: "No se puede eliminar una base de datos de sistema" });
         }
 
-        await req.db.client.db(dbName).dropDatabase();
+        await req.mongoClient.db(dbName).dropDatabase();
 
         res.json({ message: `Base de datos ${dbName} eliminada` });
 
