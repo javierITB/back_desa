@@ -1917,14 +1917,15 @@ router.post("/chat", async (req, res) => {
     if (token) {
       const authData = await validarToken(req.db, token);
       if (authData.ok) {
-        const rolActual = authData.data.rol; 
+        const rolActual = authData.data.rol;
+        // Validamos si es Staff (Administrador, RRHH o root)
         if (rolActual === 'Administrador' || rolActual === 'RRHH' || rolActual === 'root') {
           isSenderStaff = true;
         }
       }
     }
 
-    // --- DETERMINAR FECHA A ACTUALIZAR ---
+    // --- DETERMINAR QUÉ FECHA ACTUALIZAR ---
     let updateField = {};
     if (isSenderStaff) {
       if (!req.body.internal) {
@@ -1960,21 +1961,25 @@ router.post("/chat", async (req, res) => {
         : respuesta.user.nombre || autor;
     }
 
-    // --- ENVIAR CORREO (CON TU PLANTILLA ORIGINAL INTEGRA) ---
+    // --- OBTENER NOMBRE DEL FORMULARIO ---
+    let formName = "el formulario";
+    if (respuesta.formId) {
+      const form = await req.db.collection("forms").findOne({
+        _id: new ObjectId(respuesta.formId)
+      });
+      if (form && form.title) {
+        formName = form.title;
+      }
+    } else if (respuesta._contexto && respuesta._contexto.formTitle) {
+      formName = respuesta._contexto.formTitle;
+    } else if (respuesta.formTitle) {
+      formName = respuesta.formTitle;
+    }
+
+    // --- ENVIAR CORREO (ESTRUCTURA ORIGINAL INTACTA) ---
     if (sendToEmail === true && admin !== true) {
       try {
-        let formName = "el formulario";
         let respuestaId = respuesta._id.toString();
-
-        if (respuesta.formId) {
-          const form = await req.db.collection("forms").findOne({
-            _id: new ObjectId(respuesta.formId)
-          });
-          if (form && form.title) formName = form.title;
-        } else if (respuesta._contexto && respuesta._contexto.formTitle) {
-          formName = respuesta._contexto.formTitle;
-        }
-
         if (userEmail) {
           const baseUrl = process.env.PORTAL_URL;
           const responseUrl = `${baseUrl}/preview?type=messages&id=${respuestaId}`;
@@ -2065,41 +2070,44 @@ router.post("/chat", async (req, res) => {
       }
     }
 
-    // --- LÓGICA DE NOTIFICACIONES (BIDIRECCIONAL CON ESPEJO) ---
+    // --- LÓGICA DE NOTIFICACIONES (BIDIRECCIONAL Y CON ESPEJO) ---
+    const formTitleNoti = (formName && formName.includes(':')) ? decrypt(formName) : formName;
+    const trabajadorNombre = respuesta.trabajador || "Usuario";
+
     const notifBase = {
-      titulo: isSenderStaff ? "Nuevo mensaje de Administración" : "Nuevo mensaje de cliente",
-      descripcion: `${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? '...' : ''}`,
+      titulo: isSenderStaff ? "Nuevo mensaje recibido" : "Nuevo mensaje en formulario",
+      // DESCRIPCIÓN: Formulario (Trabajador) - Autor: Mensaje
+      descripcion: `En: ${formTitleNoti} (${trabajadorNombre}) - ${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? '...' : ''}`,
       icono: "MessageCircle", 
       color: "#45577eff",
       actionUrl: isSenderStaff ? `/?id=${respuesta._id}` : `/RespuestasForms?id=${respuesta._id}`,
     };
 
     if (isSenderStaff) {
-      // 1. Escribe Staff -> Notificar al Dueño
-      await addNotification(req.db, { 
-        userId: respuesta.user?.uid, 
-        ...notifBase 
-      });
+      // 1. Notificar al Autor (Dueño)
+      const ownerId = respuesta.user?.uid || respuesta.userId;
+      if (ownerId) {
+        await addNotification(req.db, { userId: ownerId, ...notifBase });
+      }
 
-      // 2. Notificar a todos los Compartidos
+      // 2. Notificar a los Compartidos
       if (respuesta.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
         for (const compartidoId of respuesta.user.compartidos) {
-          if (compartidoId) {
+          if (compartidoId && compartidoId !== ownerId) {
             await addNotification(req.db, { userId: compartidoId, ...notifBase });
           }
         }
       }
     } else {
-      // 3. Escribe Cliente (Dueño o Compartido) -> Notificar Staff
+      // 3. Notificar al Staff (Roles literales)
       await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifBase });
       await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifBase });
     }
 
     res.json({
-      success: true,
       message: "Mensaje enviado",
       data: nuevoMensaje,
-      emailSent: sendToEmail === true && isSenderStaff && !!userEmail
+      emailSent: sendToEmail === true && admin !== true && !!userEmail
     });
 
   } catch (err) {
