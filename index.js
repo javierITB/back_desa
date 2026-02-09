@@ -17,7 +17,10 @@ const domicilioVirtualRoutes = require("./endpoints/domicilioVirtual");
 const configTicketsRoutes = require("./endpoints/configTickets");
 const dashboardRoutes = require("./endpoints/dashboard");
 const registroRoutes = require("./endpoints/registro");
+const dashboardRoutes = require("./endpoints/dashboard");
+const registroRoutes = require("./endpoints/registro");
 const roles = require("./endpoints/roles");
+const sasRoutes = require("./endpoints/SAS");
 
 const app = express();
 
@@ -55,7 +58,7 @@ async function getTenantDB(tenantName) {
   // Si no existe, creamos la instancia y la guardamos
   const dbInstance = client.db(dbName);
   dbCache[dbName] = dbInstance;
-  
+
   console.log(`Base de datos activa: ${dbName}`);
   return dbInstance;
 }
@@ -93,16 +96,17 @@ tenantRouter.use("/domicilio-virtual", domicilioVirtualRoutes);
 tenantRouter.use("/config-tickets", configTicketsRoutes);
 tenantRouter.use("/dashboard", dashboardRoutes);
 tenantRouter.use("/registro", registroRoutes);
-tenantRouter.use("/roles", roles);
+const roles = require("./endpoints/roles");
+tenantRouter.use("/sas", sasRoutes);
 
 // Montaje final: todas las rutas ahora requieren un prefijo (ej: /acciona/auth)
 app.use("/:company", tenantRouter);
 
 // Ruta raíz para verificación simple
 app.get("/", (req, res) => {
-  res.json({ 
+  res.json({
     message: "API Multi-tenant de Solunex funcionando",
-    status: "online" 
+    status: "online"
   });
 });
 
