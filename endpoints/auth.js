@@ -1294,20 +1294,34 @@ router.delete("/users/:id", async (req, res) => {
       if (!auth.ok) {
          return res.status(403).json({ error: auth.error });
       }
-      const result = await req.db.collection("usuarios").deleteOne({
-         _id: new ObjectId(req.params.id),
+
+      const userId = req?.params?.id;
+      
+      if (!ObjectId.isValid(userId)) {
+         return res.status(400).json({ error: "ID inválido" });
+      }
+      const result = await req.db.collection("usuarios").findOneAndDelete({
+         _id: new ObjectId(userId),
       });
 
-      if (result.deletedCount === 0) {
-         return res.status(404).json({ error: "Usuario no encontrado" });
+      // Si no se encontró el usuario
+      if (!result) {
+         return res.status(404).json({ error: "Usuario no encontrado", result });
       }
 
-      registerUserRemovedEvent(req, auth);
+      // 🔹 Acá tienes el documento completo eliminado
+      const deletedUser = result;
 
-      res.json({ message: "Usuario eliminado exitosamente" });
+      // Puedes pasar el usuario eliminado
+      registerUserRemovedEvent(req, auth, deletedUser);
+
+      res.json({
+         message: "Usuario eliminado exitosamente",
+         deletedUser,
+      });
    } catch (err) {
       console.error("Error eliminando usuario:", err);
-      res.status(500).json({ error: "Error al eliminar usuario" });
+      res.status(500).json({ error: "Error al eliminar usuario: " + err.message });
    }
 });
 
