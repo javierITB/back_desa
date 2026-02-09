@@ -1371,15 +1371,31 @@ router.post("/compartir/", async (req, res) => {
       });
     }
 
-    // --- AGREGADO: NOTIFICACIÓN DE SOLICITUD COMPARTIDA -
+    // --- AGREGADO: NOTIFICACIÓN DE SOLICITUD COMPARTIDA CON DESCIFRADO ---
     try {
-      
+
+      // Lógica de descifrado para el nombre del trabajador
+      let nombreLimpio = "";
+      const nombreCifrado = solicitud.responses?.["NOMBRE DEL TRABAJADOR"];
+
+      if (nombreCifrado) {
+        try {
+          // Descifrar si contiene el separador ':' de tu sistema PQC
+          nombreLimpio = (typeof nombreCifrado === 'string' && nombreCifrado.includes(':'))
+            ? decrypt(nombreCifrado)
+            : nombreCifrado;
+        } catch (decErr) {
+          console.error("Error decodificando nombre para noti:", decErr);
+          nombreLimpio = "Trabajador"; // Fallback
+        }
+      }
+
       const notifData = {
         titulo: "Se ha compartido una solicitud contigo",
-        descripcion: `Ahora tienes acceso a: ${solicitud.formTitle || 'una nueva solicitud'}`,
+        descripcion: `Ahora tienes acceso a: ${solicitud.formTitle || 'Solicitud'} - ${nombreLimpio}`,
         icono: "MessageCircle",
         color: "#4f46e5",
-        actionUrl: `/?id=${solicitud._id}`, // Redirección para el cliente
+        
       };
 
       // Notificar a cada uno de los usuarios nuevos en el array
@@ -1403,9 +1419,7 @@ router.post("/compartir/", async (req, res) => {
 
   } catch (err) {
     console.error("Error en endpoint compartir:", err);
-    // Si verifyRequest lanza un error con status, lo capturamos aquí
     if (err.status) return res.status(err.status).json({ message: err.message });
-
     res.status(500).json({
       success: false,
       error: "Error interno al procesar la acción de compartir."
