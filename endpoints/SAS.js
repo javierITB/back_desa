@@ -256,41 +256,4 @@ router.delete("/companies/:id", async (req, res) => {
     }
 });
 
-
-// POST /fix-roles: Endpoint utilitario para arreglar roles de DB existente (ej: domiciliovirtual)
-router.post("/fix-roles", async (req, res) => {
-    try {
-        const { dbName } = req.body;
-        if (!dbName) return res.status(400).json({ error: "dbName requerido" });
-
-        const targetDb = req.mongoClient.db(dbName);
-
-        // Limpiamos config_roles actual
-        await targetDb.collection("config_roles").deleteMany({});
-
-        // Regeneramos con TODOS los permisos (o lógica específica)
-        // Para domiciliovirtual, asumiremos que tiene TODAS las features activas para que funcione todo.
-        const rolesConfig = [];
-
-        Object.entries(PERMISSION_GROUPS).forEach(([key, group]) => {
-            rolesConfig.push({
-                key: key,
-                label: group.label,
-                tagg: group.tagg,
-                permissions: group.permissions
-            });
-        });
-
-        if (rolesConfig.length > 0) {
-            await targetDb.collection("config_roles").insertMany(rolesConfig);
-        }
-
-        res.json({ message: `Roles regenerados para ${dbName}`, count: rolesConfig.length });
-
-    } catch (error) {
-        console.error("Error fixing roles:", error);
-        res.status(500).json({ error: "Error fixing roles" });
-    }
-});
-
 module.exports = router;
