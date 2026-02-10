@@ -1467,6 +1467,47 @@ router.get("/empresas/todas", async (req, res) => {
    }
 });
 
+router.get("/empresas/logo", async (req, res) => {
+   try {
+      const auth = await verifyRequest(req);
+      if (!auth.ok) {
+         return res.status(403).json({ error: auth.error });
+      }
+
+      const empresaName = auth?.data?.empresa;
+
+      if (!empresaName) {
+         return res.status(404).json({ error: "Empresa no encontrada" });
+      }
+      const empresaNameDecrypted = decrypt(empresaName);
+
+      const empresa = await req.db.collection("empresas").findOne(
+         { nombre_index: createBlindIndex(empresaNameDecrypted) },
+         {
+            projection: {
+               "logo.fileData": 1,
+               "logo.mimeType": 1,
+            },
+         },
+      );
+
+      if (!empresa?.logo?.fileData) {
+         return res.status(404).json({ error: "Logo no encontrado" });
+      }
+
+      const logoBase64 = decrypt(empresa?.logo?.fileData);
+
+      res.json({
+         logo: logoBase64,
+         mimeType: empresa?.logo?.mimeType || "image/png",
+      });
+   } catch (err) {
+      console.error("Error obteniendo logo empresa:", err);
+      res.status(500).json({ error: "Error obteniendo logo" });
+
+   }
+});
+
 router.get("/empresas/:id", async (req, res) => {
    try {
       await verifyRequest(req);
@@ -1602,7 +1643,7 @@ router.delete("/empresas/:id", async (req, res) => {
       if (!deletedEmpresa) return res.status(404).json({ error: "Empresa no encontrada" });
 
       registerEmpresaRemovedEvent(req, auth, deletedEmpresa);
-      
+
       res.json({ message: "Empresa eliminada exitosamente" });
    } catch (err) {
       if (err.status) return res.status(err.status).json({ message: err.message });
