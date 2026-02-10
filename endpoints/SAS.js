@@ -17,9 +17,9 @@ router.get("/companies", async (req, res) => {
         }
 
         const db = getFormsDB(req);
-        console.log(`[SAS] Connected to formsdb, query config-empresas...`);
+        console.log(`[SAS] Connected to formsdb, query config_empresas...`);
 
-        const companies = await db.collection("config-empresas").find().toArray();
+        const companies = await db.collection("config_empresas").find().toArray();
         console.log(`[SAS] Found ${companies.length} companies`);
 
         res.json(companies);
@@ -39,13 +39,13 @@ router.post("/companies", async (req, res) => {
         const dbForms = getFormsDB(req);
 
         // 1. Verificar si ya existe
-        const existing = await dbForms.collection("config-empresas").findOne({ name });
+        const existing = await dbForms.collection("config_empresas").findOne({ name });
         if (existing) {
             console.warn(`[SAS] Company ${name} already exists`);
             return res.status(400).json({ error: "La empresa ya existe" });
         }
 
-        // 2. Crear entrada en formsdb.config-empresas
+        // 2. Crear entrada en formsdb.config_empresas
         // Normalizamos el nombre de la DB: minúsculas y sin caracteres especiales
         const dbName = name.toLowerCase().replace(/[^a-z0-9_]/g, "");
         console.log(`[SAS] Creating company: ${name}, DB: ${dbName}`);
@@ -58,13 +58,13 @@ router.post("/companies", async (req, res) => {
             active: true
         };
 
-        await dbForms.collection("config-empresas").insertOne(newCompany);
+        await dbForms.collection("config_empresas").insertOne(newCompany);
 
         // 3. Inicializar la nueva Base de Datos
         console.log(`[SAS] Initializing database: ${dbName}`);
         const newDb = req.mongoClient.db(dbName);
 
-        // 3.1 Crear colecciones base (excluyendo config-empresas)
+        // 3.1 Crear colecciones base (excluyendo config_empresas)
         const collectionsToCreate = [
             "usuarios",
             "roles",
@@ -148,13 +148,13 @@ router.put("/companies/:id", async (req, res) => {
             query = { name: id };
         }
 
-        const company = await dbForms.collection("config-empresas").findOne(query);
+        const company = await dbForms.collection("config_empresas").findOne(query);
         if (!company) {
             return res.status(404).json({ error: "Empresa no encontrada" });
         }
 
-        // 1. Actualizar config-empresas
-        await dbForms.collection("config-empresas").updateOne(query, {
+        // 1. Actualizar config_empresas
+        await dbForms.collection("config_empresas").updateOne(query, {
             $set: { permissions: permissions || [] }
         });
 
@@ -199,7 +199,7 @@ router.put("/companies/:id", async (req, res) => {
 router.delete("/companies/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        // id es el _id de la colección config-empresas. 
+        // id es el _id de la colección config_empresas. 
         // Pero necesitamos el nombre para borrar la DB.
 
         const dbForms = getFormsDB(req);
@@ -212,14 +212,14 @@ router.delete("/companies/:id", async (req, res) => {
             query = { _id: id }; // Fallback si es string custom
         }
 
-        const company = await dbForms.collection("config-empresas").findOne(query);
+        const company = await dbForms.collection("config_empresas").findOne(query);
 
         if (!company) {
             return res.status(404).json({ error: "Empresa no encontrada" });
         }
 
-        // 1. Eliminar de config-empresas
-        await dbForms.collection("config-empresas").deleteOne(query);
+        // 1. Eliminar de config_empresas
+        await dbForms.collection("config_empresas").deleteOne(query);
 
         // 2. Eliminar la base de datos física
         if (company.dbName) {
