@@ -20,6 +20,28 @@ router.get("/companies", async (req, res) => {
         console.log(`[SAS] Connected to formsdb, query config_empresas...`);
 
         const companies = await db.collection("config_empresas").find().toArray();
+
+        // Inyectar formsdb (principal)
+        const hasFormsDb = companies.some(c => c.dbName === "formsdb");
+        if (!hasFormsDb) {
+            companies.unshift({
+                _id: "formsdb_system", // ID virtual
+                name: "FormsDB (Principal)",
+                dbName: "formsdb",
+                permissions: [],
+                createdAt: new Date(),
+                active: true,
+                isSystem: true
+            });
+        }
+
+        // Ordenar: formsdb primero, luego alfabético
+        companies.sort((a, b) => {
+            if (a.dbName === "formsdb" || a.isSystem) return -1;
+            if (b.dbName === "formsdb" || b.isSystem) return 1;
+            return (a.name || "").localeCompare(b.name || "");
+        });
+
         console.log(`[SAS] Found ${companies.length} companies`);
 
         // Enriquecer con el tamaño de la DB
@@ -237,6 +259,11 @@ router.delete("/companies/:id", async (req, res) => {
 
         if (!company) {
             return res.status(404).json({ error: "Empresa no encontrada" });
+        }
+
+        // PROTECCIÓN: No permitir borrar formsdb
+        if (company.dbName === "formsdb" || company.isSystem) {
+            return res.status(403).json({ error: "No se puede eliminar la base de datos principal del sistema." });
         }
 
         // 1. Eliminar de config_empresas
