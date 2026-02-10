@@ -278,6 +278,17 @@ const PERMISSION_GROUPS = {
             { id: 'create_empresas', label: 'Crear Empresas', dependency: 'view_empresas' },
         ]
     },
+
+    gestor_empresas: {
+        label: 'Vista: Gestor de Empresas',
+        tagg: 'admin',
+        permissions: [
+            { id: 'view_gestor_empresas', label: 'Acceso a la vista' },
+            { id: 'create_gestor_empresas', label: 'Crear empresas', dependency: 'view_gestor_empresas' },
+            { id: 'edit_gestor_empresas', label: 'Editar empresas', dependency: 'view_gestor_empresas' },
+            { id: 'delete_gestor_empresas', label: 'Eliminar empresas', dependency: 'view_gestor_empresas' },
+        ]
+    },
     //check
     gestor_roles: {
         label: 'Vista: Gestor de Roles',
