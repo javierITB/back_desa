@@ -85,7 +85,7 @@ app.use((req, res, next) => {
 });
 
 const sasRoutes = require("./endpoints/SAS");
-app.use(["/sas", "/api/sas"], sasRoutes);
+app.use(["/sas", "/api/sas", "/:company/sas"], sasRoutes);
 
 // Definición de todos los endpoints bajo el control del tenantRouter
 tenantRouter.use("/auth", authRoutes);
