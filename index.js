@@ -40,13 +40,22 @@ const dbCache = {}; // Almacena instancias de DB para reutilizarlas
  * Función para obtener o crear la instancia de DB basada en el tenant
  */
 async function getTenantDB(tenantName) {
-  // Asegurar que el cliente de MongoDB está conectado
+  // Asegurar que el cliente  // Conectar si no estamos conectados
   if (!client.topology || !client.topology.isConnected()) {
     await client.connect();
   }
 
-  // Mapeo: si es "api" usamos la DB por defecto, de lo contrario usamos el nombre del tenant
-  const dbName = (tenantName === "api" || tenantName === "infodesa" || !tenantName) ? "formsdb" : tenantName;
+  // Sanitizar el nombre del tenant para usarlo como nombre de base de datos
+  // MongoDB no permite: . / \ " $ * < > : | ?
+  // Reemplazamos caracteres inválidos con guion bajo
+  const sanitizedTenant = tenantName
+    ? tenantName.replace(/[.\\/\s"$*<>:|?]/g, '_')
+    : tenantName;
+
+  // Mapeo: si es "api" usamos la DB por defecto, de lo contrario usamos el nombre sanitizado
+  const dbName = (sanitizedTenant === "api" || sanitizedTenant === "infodesa" || !sanitizedTenant)
+    ? "formsdb"
+    : sanitizedTenant;
 
   // Retornar de caché si ya existe para ahorrar recursos
   if (dbCache[dbName]) {
@@ -57,7 +66,7 @@ async function getTenantDB(tenantName) {
   const dbInstance = client.db(dbName);
   dbCache[dbName] = dbInstance;
 
-  console.log(`Base de datos activa: ${dbName}`);
+  console.log(`Base de datos activa: ${dbName} (tenant original: ${tenantName})`);
   return dbInstance;
 }
 
