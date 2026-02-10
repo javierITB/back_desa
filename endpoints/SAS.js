@@ -22,7 +22,22 @@ router.get("/companies", async (req, res) => {
         const companies = await db.collection("config_empresas").find().toArray();
         console.log(`[SAS] Found ${companies.length} companies`);
 
-        res.json(companies);
+        // Enriquecer con el tamaño de la DB
+        const companiesWithStats = await Promise.all(companies.map(async (company) => {
+            if (company.dbName) {
+                try {
+                    const companyDb = req.mongoClient.db(company.dbName);
+                    const stats = await companyDb.stats();
+                    return { ...company, sizeOnDisk: stats.storageSize || 0 }; // storageSize es más preciso para el espacio ocupado
+                } catch (e) {
+                    console.error(`Error fetching stats for ${company.dbName}:`, e.message);
+                    return { ...company, sizeOnDisk: 0 };
+                }
+            }
+            return { ...company, sizeOnDisk: 0 };
+        }));
+
+        res.json(companiesWithStats);
     } catch (error) {
         console.error("[SAS] Error al obtener empresas:", error);
         res.status(500).json({ error: "Error al obtener empresas", details: error.message });
