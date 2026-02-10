@@ -18,7 +18,6 @@ const configTicketsRoutes = require("./endpoints/configTickets");
 const dashboardRoutes = require("./endpoints/dashboard");
 const registroRoutes = require("./endpoints/registro");
 const roles = require("./endpoints/roles");
-const sasRoutes = require("./endpoints/SAS");
 
 const app = express();
 
@@ -40,22 +39,13 @@ const dbCache = {}; // Almacena instancias de DB para reutilizarlas
  * Función para obtener o crear la instancia de DB basada en el tenant
  */
 async function getTenantDB(tenantName) {
-  // Asegurar que el cliente  // Conectar si no estamos conectados
+  // Asegurar que el cliente de MongoDB está conectado
   if (!client.topology || !client.topology.isConnected()) {
     await client.connect();
   }
 
-  // Sanitizar el nombre del tenant para usarlo como nombre de base de datos
-  // MongoDB no permite: . / \ " $ * < > : | ?
-  // Reemplazamos caracteres inválidos con guion bajo
-  const sanitizedTenant = tenantName
-    ? tenantName.replace(/[.\\/\s"$*<>:|?]/g, '_')
-    : tenantName;
-
-  // Mapeo: si es "api" usamos la DB por defecto, de lo contrario usamos el nombre sanitizado
-  const dbName = (sanitizedTenant === "api" || sanitizedTenant === "infodesa" || !sanitizedTenant)
-    ? "formsdb"
-    : sanitizedTenant;
+  // Mapeo: si es "api" usamos la DB por defecto, de lo contrario usamos el nombre del tenant
+  const dbName = (tenantName === "api" || tenantName === "infodesa" || !tenantName) ? "formsdb" : tenantName;
 
   // Retornar de caché si ya existe para ahorrar recursos
   if (dbCache[dbName]) {
@@ -66,7 +56,7 @@ async function getTenantDB(tenantName) {
   const dbInstance = client.db(dbName);
   dbCache[dbName] = dbInstance;
 
-  console.log(`Base de datos activa: ${dbName} (tenant original: ${tenantName})`);
+  console.log(`Base de datos activa: ${dbName}`);
   return dbInstance;
 }
 
@@ -81,7 +71,6 @@ tenantRouter.use(async (req, res, next) => {
     const { company } = req.params;
     // Inyectamos la base de datos específica en el objeto request
     req.db = await getTenantDB(company);
-    req.mongoClient = client;
     next();
   } catch (err) {
     console.error("Error crítico de conexión Multi-tenant:", err);
@@ -105,9 +94,16 @@ tenantRouter.use("/config-tickets", configTicketsRoutes);
 tenantRouter.use("/dashboard", dashboardRoutes);
 tenantRouter.use("/registro", registroRoutes);
 tenantRouter.use("/roles", roles);
-tenantRouter.use("/sas", sasRoutes);
 
 // Montaje final: todas las rutas ahora requieren un prefijo (ej: /acciona/auth)
+app.use((req, res, next) => {
+  req.mongoClient = client;
+  next();
+});
+
+const sasRoutes = require("./endpoints/SAS");
+app.use("/sas", sasRoutes);
+
 app.use("/:company", tenantRouter);
 
 // Ruta raíz para verificación simple
@@ -119,18 +115,8 @@ app.get("/", (req, res) => {
 });
 
 // Manejo de errores global para rutas no encontradas
-app.use((req, res, next) => {
+app.use((req, res) => {
   res.status(404).json({ error: "Ruta no encontrada o empresa no especificada correctamente" });
-});
-
-// Global Error Handler
-app.use((err, req, res, next) => {
-  console.error("Unhandled Error:", err);
-  res.status(500).json({
-    error: "CRITICAL SERVER ERROR",
-    details: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-  });
 });
 
 module.exports = app;
