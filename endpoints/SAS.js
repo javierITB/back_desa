@@ -9,18 +9,29 @@ const getFormsDB = (req) => {
 
 // GET /companies: Listar todas las empresas
 router.get("/companies", async (req, res) => {
+    console.log(`[SAS] GET /companies request received`);
     try {
+        if (!req.mongoClient) {
+            console.error("[SAS] Error: req.mongoClient is undefined");
+            return res.status(500).json({ error: "Configuration Error: No mongoClient" });
+        }
+
         const db = getFormsDB(req);
+        console.log(`[SAS] Connected to formsdb, query config-empresas...`);
+
         const companies = await db.collection("config-empresas").find().toArray();
+        console.log(`[SAS] Found ${companies.length} companies`);
+
         res.json(companies);
     } catch (error) {
-        console.error("Error al obtener empresas:", error);
-        res.status(500).json({ error: "Error al obtener empresas" });
+        console.error("[SAS] Error al obtener empresas:", error);
+        res.status(500).json({ error: "Error al obtener empresas", details: error.message });
     }
 });
 
 // POST /companies: Crear nueva empresa y su base de datos
 router.post("/companies", async (req, res) => {
+    console.log(`[SAS] POST /companies request received`, req.body);
     try {
         const { name, features } = req.body;
         if (!name) return res.status(400).json({ error: "El nombre es requerido" });
@@ -30,12 +41,14 @@ router.post("/companies", async (req, res) => {
         // 1. Verificar si ya existe
         const existing = await dbForms.collection("config-empresas").findOne({ name });
         if (existing) {
+            console.warn(`[SAS] Company ${name} already exists`);
             return res.status(400).json({ error: "La empresa ya existe" });
         }
 
         // 2. Crear entrada en formsdb.config-empresas
         // Normalizamos el nombre de la DB: minúsculas y sin caracteres especiales
         const dbName = name.toLowerCase().replace(/[^a-z0-9_]/g, "");
+        console.log(`[SAS] Creating company: ${name}, DB: ${dbName}`);
 
         const newCompany = {
             name,
@@ -48,6 +61,7 @@ router.post("/companies", async (req, res) => {
         await dbForms.collection("config-empresas").insertOne(newCompany);
 
         // 3. Inicializar la nueva Base de Datos
+        console.log(`[SAS] Initializing database: ${dbName}`);
         const newDb = req.mongoClient.db(dbName);
 
         // 3.1 Crear colecciones base (excluyendo config-empresas)
@@ -103,11 +117,12 @@ router.post("/companies", async (req, res) => {
             await newDb.collection("config_roles").insertMany(rolesConfig);
         }
 
+        console.log(`[SAS] Company created successfully: ${name}`);
         res.status(201).json({ message: "Empresa creada exitosamente", company: newCompany });
 
     } catch (error) {
         console.error("Error al crear empresa:", error);
-        res.status(500).json({ error: "Error interno al crear empresa" });
+        res.status(500).json({ error: "Error interno al crear empresa", details: error.message });
     }
 });
 

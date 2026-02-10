@@ -85,7 +85,7 @@ app.use((req, res, next) => {
 });
 
 const sasRoutes = require("./endpoints/SAS");
-app.use("/sas", sasRoutes);
+app.use(["/sas", "/api/sas"], sasRoutes);
 
 // Definición de todos los endpoints bajo el control del tenantRouter
 tenantRouter.use("/auth", authRoutes);
@@ -104,11 +104,7 @@ tenantRouter.use("/dashboard", dashboardRoutes);
 tenantRouter.use("/registro", registroRoutes);
 tenantRouter.use("/roles", roles);
 
-// Montaje final: todas las rutas ahora requieren un prefijo (ej: /acciona/auth)
-app.use((req, res, next) => {
-  req.mongoClient = client;
-  next();
-});
+
 
 app.use("/:company", tenantRouter);
 
