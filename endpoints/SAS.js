@@ -18,6 +18,294 @@ const verifyRequest = async (req) => {
     return { ok: true, data: valid.data };
 };
 
+/**
+ * Helper: Obtener todas las colecciones de formsdb excepto config_empresas
+ */
+const getFormsDbCollections = async (mongoClient) => {
+    try {
+        const formsDb = mongoClient.db("formsdb");
+        const collections = await formsDb.listCollections().toArray();
+
+        // Filtrar config_empresas y colecciones de sistema
+        return collections
+            .map(c => c.name)
+            .filter(name => name !== "config_empresas" && !name.startsWith("system."));
+    } catch (err) {
+        console.error("Error al obtener colecciones de formsdb:", err);
+        return [];
+    }
+};
+
+/**
+ * Helper: Inicializar permisos en config_roles
+ * Formato: Un documento por cada grupo de permisos
+ */
+const initializeCompanyPermissions = async (db, permissionGroups) => {
+    try {
+        const configRoles = db.collection("config_roles");
+
+        // Crear un documento por cada grupo de permisos
+        const permissionDocs = Object.entries(permissionGroups).map(([key, group]) => ({
+            key: key,
+            label: group.label,
+            tagg: group.tagg,
+            permissions: group.permissions
+        }));
+
+        // Insertar todos los documentos
+        if (permissionDocs.length > 0) {
+            await configRoles.insertMany(permissionDocs);
+            console.log(`Insertados ${permissionDocs.length} documentos de permisos en config_roles`);
+        }
+    } catch (err) {
+        console.error("Error al inicializar permisos:", err);
+        throw err;
+    }
+};
+
+// Definición de grupos de permisos
+const PERMISSION_GROUPS = {
+    // --- CONTROLADORES RAÍZ ---
+    acceso_panel_cliente: {
+        label: "Panel: Cliente",
+        tagg: "root",
+        permissions: [{ id: "view_panel_cliente", label: "Habilitar Panel de Cliente" }],
+    },
+    acceso_panel_admin: {
+        label: "Panel: Administración",
+        tagg: "root",
+        permissions: [{ id: "view_panel_admin", label: "Habilitar Panel de Administración" }],
+    },
+    // --- VISTAS TAGG: ADMIN ---
+    solicitudes_clientes: {
+        label: "Vista: Solicitudes de Clientes",
+        tagg: "admin",
+        permissions: [
+            { id: "view_solicitudes_clientes", label: "Acceso a la vista" },
+            { id: "delete_solicitudes_clientes", label: "Eliminar solicitudes de clientes" },
+            { id: "view_solicitudes_clientes_details", label: "Acceso a detalles de solicitudes de clientes" },
+            { id: "view_solicitudes_clientes_answers", label: "Ver respuestas de solicitud de clientes", dependency: "view_solicitudes_clientes_details" },
+            { id: "view_solicitudes_clientes_shared", label: "Ver usuarios compartidos", dependency: "view_solicitudes_clientes_details" },
+            { id: "view_solicitudes_clientes_messages", label: "Acceso a mensajes de solicitudes de clientes" },
+            { id: "create_solicitudes_clientes_messages", label: "Crear mensajes de solicitudes de clientes", dependency: "view_solicitudes_clientes_messages" },
+            { id: "create_solicitudes_clientes_messages_mail", label: "Crear mensajes de solicitudes de clientes con mail", dependency: "view_solicitudes_clientes_messages" },
+            { id: "view_solicitudes_clientes_messages_admin", label: "Acceso a mensajes internos de solicitudes de clientes", dependency: "view_solicitudes_clientes_messages" },
+            { id: "create_solicitudes_clientes_messages_admin", label: "Crear mensajes internos en solicitudes de clientes", dependency: "view_solicitudes_clientes_messages_admin" },
+            { id: "view_solicitudes_clientes_attach", label: "Ver documento adjunto", dependency: "view_solicitudes_clientes_details" },
+            { id: "download_solicitudes_clientes_attach", label: "Descargar documento adjunto", dependency: "view_solicitudes_clientes_attach" },
+            { id: "preview_solicitudes_clientes_attach", label: "Vista previa documento adjunto", dependency: "view_solicitudes_clientes_attach" },
+            { id: "delete_solicitudes_clientes_attach", label: "Eliminar documento adjunto", dependency: "view_solicitudes_clientes_attach" },
+            { id: "view_solicitudes_clientes_generated", label: "Ver documento generado", dependency: "view_solicitudes_clientes_details" },
+            { id: "download_solicitudes_clientes_generated", label: "Descargar documento generado", dependency: "view_solicitudes_clientes_generated" },
+            { id: "preview_solicitudes_clientes_generated", label: "Vista previa documento generado", dependency: "view_solicitudes_clientes_generated" },
+            { id: "regenerate_solicitudes_clientes_generated", label: "Regenerar documento", dependency: "view_solicitudes_clientes_generated" },
+            { id: "view_solicitudes_clientes_send", label: "Ver documento enviado", dependency: "view_solicitudes_clientes_details" },
+            { id: "download_solicitudes_clientes_send", label: "Descargar documento enviado", dependency: "view_solicitudes_clientes_send" },
+            { id: "preview_solicitudes_clientes_send", label: "Vista previa documento enviado", dependency: "view_solicitudes_clientes_send" },
+            { id: "delete_solicitudes_clientes_send", label: "Eliminar documento enviado", dependency: "view_solicitudes_clientes_send" },
+            { id: "create_solicitudes_clientes_send", label: "Enviar documento a cliente", dependency: "view_solicitudes_clientes_send" },
+            { id: "view_solicitudes_clientes_signed", label: "Ver documento firmado", dependency: "view_solicitudes_clientes_details" },
+            { id: "download_solicitudes_clientes_signed", label: "Descargar documento firmado", dependency: "view_solicitudes_clientes_signed" },
+            { id: "preview_solicitudes_clientes_signed", label: "Vista previa documento firmado", dependency: "view_solicitudes_clientes_signed" },
+            { id: "delete_solicitudes_clientes_signed", label: "Eliminar documento firmado", dependency: "view_solicitudes_clientes_signed" },
+            { id: "edit_solicitudes_clientes_state", label: "Editar estado de solicitud", dependency: "view_solicitudes_clientes_details" },
+            { id: "edit_solicitudes_clientes_finalize", label: "Finalizar solicitud", dependency: "edit_solicitudes_clientes_state" },
+            { id: "edit_solicitudes_clientes_archive", label: "Archivar solicitud", dependency: "edit_solicitudes_clientes_state" },
+        ]
+    },
+    solicitudes_a_cliente: {
+        label: "Vista: Solicitudes a Cliente",
+        tagg: "admin",
+        permissions: [
+            { id: "view_solicitudes_a_cliente", label: "Acceso a la vista" },
+            { id: "create_solicitudes_a_cliente", label: "Crear solicitudes a cliente", dependency: "view_solicitudes_a_cliente" },
+        ]
+    },
+    tickets: {
+        label: "Vista: Tickets",
+        tagg: "admin",
+        permissions: [
+            { id: "view_tickets", label: "Acceso a la vista" },
+            { id: "delete_tickets", label: "Eliminar solicitudes de clientes" },
+            { id: "view_tickets_details", label: "Acceso a detalles de tickets" },
+            { id: "view_tickets_answers", label: "Ver tickets", dependency: "view_tickets_details" },
+            { id: "accept_tickets_answers", label: "Aceptar tickets", dependency: "view_tickets_details" },
+            { id: "view_tickets_attach", label: "Ver documento adjunto", dependency: "view_tickets_details" },
+            { id: "download_tickets_attach", label: "Descargar documento adjunto", dependency: "view_tickets_attach" },
+            { id: "preview_tickets_attach", label: "Vista previa documento adjunto", dependency: "view_tickets_attach" },
+            { id: "edit_tickets_state", label: "Editar estado de ticket", dependency: "view_tickets_details" },
+        ]
+    },
+    domicilio_virtual: {
+        label: "Vista: Domicilio Virtual",
+        tagg: "admin",
+        permissions: [
+            { id: "view_domicilio_virtual", label: "Acceso a la vista" },
+            { id: "delete_domicilio_virtual", label: "Eliminar solicitudes de clientes" },
+            { id: "view_domicilio_virtual_details", label: "Acceso a detalles de solicitudes de clientes" },
+            { id: "view_domicilio_virtual_answers", label: "Ver respuestas de solicitud de clientes", dependency: "view_domicilio_virtual_details" },
+            { id: "view_domicilio_virtual_attach", label: "Ver documento adjunto", dependency: "view_domicilio_virtual_details" },
+            { id: "download_domicilio_virtual_attach", label: "Descargar documento adjunto", dependency: "view_domicilio_virtual_attach" },
+            { id: "preview_domicilio_virtual_attach", label: "Vista previa documento adjunto", dependency: "view_domicilio_virtual_attach" },
+            { id: "view_domicilio_virtual_generated", label: "Ver documento generado", dependency: "view_domicilio_virtual_details" },
+            { id: "download_domicilio_virtual_generated", label: "Descargar documento generado", dependency: "view_domicilio_virtual_generated" },
+            { id: "preview_domicilio_virtual_generated", label: "Vista previa documento generado", dependency: "view_domicilio_virtual_generated" },
+            { id: "regenerate_domicilio_virtual_generated", label: "Regenerar documento", dependency: "view_domicilio_virtual_generated" },
+            { id: "edit_domicilio_virtual_state", label: "Editar estado de solicitud", dependency: "view_domicilio_virtual_details" },
+        ]
+    },
+    rendimiento: {
+        label: "Vista: Rendimiento",
+        tagg: "admin",
+        permissions: [
+            { id: "view_rendimiento", label: "Acceso a la vista" },
+            { id: "view_rendimiento_previo", label: "Visualizar estadísticas de semanas anteriores", dependency: "view_rendimiento" },
+            { id: "view_rendimiento_global", label: "Visualizar estadísticas globales", dependency: "view_rendimiento" },
+        ]
+    },
+    formularios: {
+        label: "Vista: Formularios",
+        tagg: "admin",
+        permissions: [
+            { id: "view_formularios", label: "Acceso a la vista" },
+            { id: "create_formularios", label: "Crear nuevos formularios", dependency: "view_formularios" },
+            { id: "edit_formularios", label: "Editar formularios existentes", dependency: "view_formularios" },
+            { id: "edit_formularios_propiedades", label: "Editar propiedades de formularios existentes", dependency: "edit_formularios" },
+            { id: "edit_formularios_preguntas", label: "Editar preguntas de formularios existentes", dependency: "edit_formularios" },
+            { id: "delete_formularios", label: "Eliminar formularios", dependency: "view_formularios" },
+        ]
+    },
+    plantillas: {
+        label: "Vista: Plantillas",
+        tagg: "admin",
+        permissions: [
+            { id: "view_plantillas", label: "Acceso a la vista" },
+            { id: "create_plantillas", label: "Crear nuevas plantillas", dependency: "view_plantillas" },
+            { id: "copy_plantillas", label: "Copiar plantilla existente", dependency: "create_plantillas" },
+            { id: "edit_plantillas", label: "Editar plantillas existentes", dependency: "view_plantillas" },
+            { id: "delete_plantillas", label: "Eliminar plantillas", dependency: "view_plantillas" },
+        ]
+    },
+    configuracion_tickets: {
+        label: "Vista: Configuración de Tickets",
+        tagg: "admin",
+        permissions: [
+            { id: "view_configuracion_tickets", label: "Acceso a la vista" },
+            { id: "create_categoria_ticket", label: "Crear categorías de tickets", dependency: "view_configuracion_tickets" },
+            { id: "edit_categoria_ticket", label: "Editar categorías de tickets", dependency: "view_configuracion_tickets" },
+            { id: "delete_categoria_ticket", label: "Eliminar categorías de tickets", dependency: "edit_categoria_ticket" },
+        ]
+    },
+    anuncios: {
+        label: "Vista: Anuncios",
+        tagg: "admin",
+        permissions: [
+            { id: "view_anuncios", label: "Acceso a la vista" },
+            { id: "create_anuncios", label: "Crear anuncios web", dependency: "view_anuncios" },
+            { id: "create_anuncios_web", label: "Crear anuncios web", dependency: "create_anuncios" },
+            { id: "create_anuncios_mail", label: "Crear anuncios mail", dependency: "create_anuncios" },
+            { id: "create_anuncios_for_all", label: "Crear anuncios para todos los usuarios", dependency: "create_anuncios" },
+            { id: "create_anuncios_filter", label: "Crear anuncios para usuarios filtrados", dependency: "create_anuncios" },
+            { id: "create_anuncios_manual", label: "Crear anuncios enviados manualmente", dependency: "create_anuncios" },
+        ]
+    },
+    usuarios: {
+        label: "Vista: Usuarios",
+        tagg: "admin",
+        permissions: [
+            { id: "view_usuarios", label: "Acceso a la vista" },
+            { id: "edit_usuarios", label: "Editar Usuarios", dependency: "view_usuarios" },
+            { id: "delete_usuarios", label: "Eliminar Usuarios", dependency: "view_usuarios" },
+            { id: "create_usuarios", label: "Crear Usuarios", dependency: "view_usuarios" },
+        ]
+    },
+    empresas: {
+        label: "Vista: Empresas",
+        tagg: "admin",
+        permissions: [
+            { id: "view_empresas", label: "Acceso a la vista" },
+            { id: "edit_empresas", label: "Editar Empresas", dependency: "view_empresas" },
+            { id: "delete_empresas", label: "Eliminar Empresas", dependency: "view_empresas" },
+            { id: "create_empresas", label: "Crear Empresas", dependency: "view_empresas" },
+        ]
+    },
+    gestor_roles: {
+        label: "Vista: Gestor de Roles",
+        tagg: "admin",
+        permissions: [
+            { id: "view_gestor_roles", label: "Acceso a la vista" },
+            { id: "view_gestor_roles_details", label: "Acceso a la vista detallada", dependency: "view_gestor_roles" },
+            { id: "create_gestor_roles", label: "Crear nuevos roles", dependency: "view_gestor_roles" },
+            { id: "copy_gestor_roles", label: "Duplicar roles existentes", dependency: "view_gestor_roles" },
+            { id: "edit_gestor_roles", label: "Editar roles existentes", dependency: "view_gestor_roles_details" },
+            { id: "edit_gestor_roles_by_self", label: "Editar rol propio", dependency: "view_gestor_roles_details" },
+            { id: "view_gestor_roles_details_admin", label: "Acceso a la vista detallada (admin)", dependency: "view_gestor_roles" },
+            { id: "edit_gestor_roles_admin", label: "Editar rol existente (Admin)", dependency: "view_gestor_roles_details" },
+            { id: "delete_gestor_roles", label: "Eliminar roles", dependency: "view_gestor_roles" },
+        ]
+    },
+    gestor_notificaciones: {
+        label: "Vista: Gestor de Notificaciones",
+        tagg: "admin",
+        permissions: [
+            { id: "view_gestor_notificaciones", label: "Acceso a la vista" },
+            { id: "view_gestor_notificaciones_details", label: "Acceso a la vista detallada" },
+            { id: "delete_gestor_notificaciones", label: "Eliminar notificaciones" },
+        ]
+    },
+    registro_cambios: {
+        label: "Vista: Registro de Cambios",
+        tagg: "admin",
+        permissions: [
+            { id: "view_registro_cambios", label: "Acceso a la vista" },
+            { id: "view_registro_cambios_details", label: "Acceso a la vista detallada", dependency: "view_registro_cambios" }
+        ]
+    },
+    registro_ingresos: {
+        label: "Vista: Registro de Ingresos",
+        tagg: "admin",
+        permissions: [{ id: "view_registro_ingresos", label: "Acceso a la vista" }]
+    },
+    // --- VISTAS TAGG: CLIENTE ---
+    home: {
+        label: "Vista: home",
+        tagg: "cliente",
+        permissions: [
+            { id: "view_home", label: "Acceso a la vista" }
+        ]
+    },
+    perfil: {
+        label: "Vista: Perfil",
+        tagg: "cliente",
+        permissions: [
+            { id: "view_perfil", label: "Acceso a la vista" }
+        ]
+    },
+    mis_solicitudes: {
+        label: "Vista: Mis solicitudes",
+        tagg: "cliente",
+        permissions: [
+            { id: "view_mis_solicitudes", label: "Acceso a la vista" },
+            { id: "share_mis_solicitudes", label: "Compartir solicitudes" },
+            { id: "unshare_mis_solicitudes", label: "Dejar de compartir solicitudes" },
+        ]
+    },
+    formularios_cliente: {
+        label: "Vista: Formularios",
+        tagg: "cliente",
+        permissions: [
+            { id: "view_formularios", label: "Acceso a la vista" }
+        ]
+    },
+    formulario_cliente: {
+        label: "Vista: Formulario",
+        tagg: "cliente",
+        permissions: [
+            { id: "view_formulario", label: "Acceso a la vista" }
+        ]
+    }
+};
+
 router.use(express.json({ limit: '4mb' }));
 
 /**
@@ -206,7 +494,7 @@ router.get("/check-permission/:permission", async (req, res) => {
 
 /**
  * @route   GET /sas/companies
- * @desc    Listar todas las bases de datos (Empresas) del cluster
+ * @desc    Listar todas las empresas desde config_empresas
  */
 router.get("/companies", async (req, res) => {
     try {
@@ -217,43 +505,33 @@ router.get("/companies", async (req, res) => {
             throw new Error("MongoClient no inyectado en la petición");
         }
 
-        // Acceder al admin de Mongo para listar DBs
-        // req.mongoClient es inyectado desde index.js
-        const adminDb = req.mongoClient.db("admin").admin();
-        const list = await adminDb.listDatabases();
-
-        // Filtrar DBs de sistema
-        const systemDbs = ["admin", "config", "local", "test"];
-        const companies = list.databases
-            .filter(db => !systemDbs.includes(db.name))
-            .map(db => ({
-                name: db.name,
-                sizeOnDisk: db.sizeOnDisk,
-                empty: db.empty
-            }));
+        // Obtener la lista de empresas desde formsdb.config_empresas
+        const formsDb = req.mongoClient.db("formsdb");
+        const companies = await formsDb.collection("config_empresas")
+            .find({})
+            .sort({ createdAt: -1 })
+            .toArray();
 
         res.json(companies);
     } catch (err) {
         console.error("Error en GET /sas/companies:", err);
-        // Retornar mensaje de error específico para debugging
         res.status(500).json({
             error: err.message || "Unknown SAS Error",
-            _debug_context: "SAS_GET_COMPANIES_V3",
-            _mongo_client_status: req.mongoClient ? "Present" : "Missing"
+            _debug_context: "SAS_GET_COMPANIES"
         });
     }
 });
 
 /**
  * @route   POST /sas/companies
- * @desc    Crear una nueva empresa (Base de Datos) y sus colecciones
+ * @desc    Crear una nueva empresa (Base de Datos) con colecciones y permisos
  */
 router.post("/companies", async (req, res) => {
     try {
         const tokenCheck = await verifyRequest(req);
         if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
 
-        const { name, features } = req.body; // features: ["usuarios", "tickets", ...]
+        const { name, features } = req.body;
 
         if (!name) return res.status(400).json({ error: "Nombre de empresa requerido" });
 
@@ -261,58 +539,97 @@ router.post("/companies", async (req, res) => {
         const dbName = name.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase();
         if (!dbName) return res.status(400).json({ error: "Nombre de base de datos inválido" });
 
+        // Verificar si ya existe la empresa
+        const formsDb = req.mongoClient.db("formsdb");
+        const existingCompany = await formsDb.collection("config_empresas").findOne({ dbName });
+        if (existingCompany) {
+            return res.status(400).json({ error: "Ya existe una empresa con ese nombre" });
+        }
+
+        // 1. Obtener todas las colecciones de formsdb (excepto config_empresas)
+        const collectionsToCreate = await getFormsDbCollections(req.mongoClient);
+
+        // 2. Crear la nueva base de datos y sus colecciones
         const newDb = req.mongoClient.db(dbName);
 
-        // Crear colecciones vacías según funcionalidades activas
-        if (Array.isArray(features)) {
-            for (const feature of features) {
-                // Validación simple de nombre de colección
-                if (typeof feature === 'string' && feature.length > 0) {
-                    // createCollection lanza error si ya existe, usamos try/catch o listCollections
-                    try {
-                        await newDb.createCollection(feature);
-                    } catch (e) {
-                        // Ignorar si ya existe
-                    }
-                }
+        for (const collectionName of collectionsToCreate) {
+            try {
+                await newDb.createCollection(collectionName);
+                console.log(`Colección creada: ${dbName}.${collectionName}`);
+            } catch (e) {
+                // Ignorar si ya existe
+                console.log(`Colección ${collectionName} ya existe o error:`, e.message);
             }
         }
 
-        // Siempre asegurar config_roles
-        try { await newDb.createCollection("config_roles"); } catch (e) { }
+        // 3. Inicializar permisos en config_roles usando PERMISSION_GROUPS
+        await initializeCompanyPermissions(newDb, PERMISSION_GROUPS);
 
-        res.status(201).json({ message: `Empresa ${dbName} creada/actualizada`, dbName });
+        // 4. Guardar la configuración de la empresa en formsdb.config_empresas
+        const companyConfig = {
+            name: name,
+            dbName: dbName,
+            features: features || collectionsToCreate,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        const result = await formsDb.collection("config_empresas").insertOne(companyConfig);
+
+        res.status(201).json({
+            message: `Empresa ${name} creada exitosamente`,
+            _id: result.insertedId,
+            dbName,
+            collections: collectionsToCreate.length
+        });
 
     } catch (err) {
         console.error("Error en POST /sas/companies:", err);
-        res.status(500).json({ error: "Internal server error" });
+        res.status(500).json({ error: "Internal server error", details: err.message });
     }
 });
 
 /**
- * @route   DELETE /sas/companies/:name
+ * @route   DELETE /sas/companies/:id
  * @desc    Eliminar una empresa (Base de Datos) completa
  */
-router.delete("/companies/:name", async (req, res) => {
+router.delete("/companies/:id", async (req, res) => {
     try {
         const tokenCheck = await verifyRequest(req);
         if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
 
-        const dbName = req.params.name;
+        const companyId = req.params.id;
 
-        // Protección extra contra borrado de system DBs (aunque el filtro de GET las oculta)
+        // 1. Buscar la empresa en config_empresas
+        const formsDb = req.mongoClient.db("formsdb");
+        const company = await formsDb.collection("config_empresas").findOne({
+            _id: new ObjectId(companyId)
+        });
+
+        if (!company) {
+            return res.status(404).json({ error: "Empresa no encontrada" });
+        }
+
+        const dbName = company.dbName;
+
+        // Protección extra contra borrado de system DBs
         const systemDbs = ["admin", "config", "local", "test", "formsdb", "api"];
         if (systemDbs.includes(dbName)) {
             return res.status(403).json({ error: "No se puede eliminar una base de datos de sistema" });
         }
 
+        // 2. Eliminar la base de datos
         await req.mongoClient.db(dbName).dropDatabase();
+        console.log(`Base de datos ${dbName} eliminada`);
 
-        res.json({ message: `Base de datos ${dbName} eliminada` });
+        // 3. Eliminar el documento de config_empresas
+        await formsDb.collection("config_empresas").deleteOne({ _id: new ObjectId(companyId) });
+
+        res.json({ message: `Empresa ${company.name} eliminada exitosamente` });
 
     } catch (err) {
-        console.error("Error en DELETE /sas/companies/:name:", err);
-        res.status(500).json({ error: "Internal server error" });
+        console.error("Error en DELETE /sas/companies/:id:", err);
+        res.status(500).json({ error: "Internal server error", details: err.message });
     }
 });
 
