@@ -228,6 +228,20 @@ router.put("/companies/:id", async (req, res) => {
             if (rolesConfig.length > 0) {
                 await targetDb.collection("config_roles").insertMany(rolesConfig);
             }
+
+            // 3. Sincronizar roles existentes: Eliminar permisos que la empresa ya no tiene
+            const existingRoles = await targetDb.collection("roles").find({}).toArray();
+            for (const role of existingRoles) {
+                if (role.permissions && Array.isArray(role.permissions)) {
+                    const updatedPermissions = role.permissions.filter(p => selectedPermissions.includes(p));
+                    if (updatedPermissions.length !== role.permissions.length) {
+                        await targetDb.collection("roles").updateOne(
+                            { _id: role._id },
+                            { $set: { permissions: updatedPermissions } }
+                        );
+                    }
+                }
+            }
         }
 
         res.json({ message: "Empresa actualizada exitosamente" });
