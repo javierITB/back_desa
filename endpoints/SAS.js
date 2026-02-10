@@ -123,7 +123,13 @@ router.post("/companies", async (req, res) => {
         });
 
         if (rolesConfig.length > 0) {
-            await newDb.collection("config_roles").insertMany(rolesConfig);
+            // Verificar si ya existen roles configurados para no sobrescribir/duplicar en DBs existentes
+            const existingConfigCount = await newDb.collection("config_roles").countDocuments();
+            if (existingConfigCount === 0) {
+                await newDb.collection("config_roles").insertMany(rolesConfig);
+            } else {
+                console.log(`[SAS] config_roles already has ${existingConfigCount} entries. Skipping initialization.`);
+            }
         }
 
         console.log(`[SAS] Company created successfully: ${name}`);
