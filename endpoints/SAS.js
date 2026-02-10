@@ -502,8 +502,11 @@ router.get("/companies", async (req, res) => {
         if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
 
         if (!req.mongoClient) {
+            console.error("MongoClient no disponible en req.mongoClient");
             throw new Error("MongoClient no inyectado en la petición");
         }
+
+        console.log("GET /companies - Accediendo a formsdb.config_empresas");
 
         // Obtener la lista de empresas desde formsdb.config_empresas
         const formsDb = req.mongoClient.db("formsdb");
@@ -512,12 +515,15 @@ router.get("/companies", async (req, res) => {
             .sort({ createdAt: -1 })
             .toArray();
 
+        console.log(`GET /companies - Encontradas ${companies.length} empresas`);
         res.json(companies);
     } catch (err) {
         console.error("Error en GET /sas/companies:", err);
+        console.error("Stack trace:", err.stack);
         res.status(500).json({
             error: err.message || "Unknown SAS Error",
-            _debug_context: "SAS_GET_COMPANIES"
+            _debug_context: "SAS_GET_COMPANIES",
+            _timestamp: new Date().toISOString()
         });
     }
 });
