@@ -1474,12 +1474,19 @@ router.get("/empresas/logo", async (req, res) => {
          return res.status(403).json({ error: auth.error });
       }
 
-      const empresaName = auth?.data?.empresa;
+      const empresaEmail = auth?.data?.email;
 
-      if (!empresaName) {
-         return res.status(404).json({ error: "Empresa no encontrada" });
+      if (!empresaEmail) {
+         return res.status(404).json({ error: "Email no encontrado" });
       }
-      const empresaNameDecrypted = decrypt(empresaName);
+
+      const userData = await req.db.collection("usuarios").findOne({ mail_index: createBlindIndex(empresaEmail) });
+
+      if (!userData) {
+         return res.status(404).json({ error: "Usuario no encontrado" });
+      }
+
+      const empresaNameDecrypted = decrypt(userData.empresa);
 
       const empresa = await req.db.collection("empresas").findOne(
          { nombre_index: createBlindIndex(empresaNameDecrypted) },
