@@ -1988,7 +1988,7 @@ router.post("/chat", async (req, res) => {
     }
 
     // --- ENVIAR CORREO (Solo si no es interno y es para el cliente) ---
-    if (sendToEmail === true && admin !== true && !internal) {
+    if (sendToEmail === true && !internal) {
       try {
         let respuestaId = respuesta._id.toString();
         if (userEmail) {
