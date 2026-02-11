@@ -1987,55 +1987,81 @@ router.post("/chat", async (req, res) => {
       formName = respuesta.formTitle;
     }
 
-    // --- ENVIAR CORREO (Solo si no es interno y es para el cliente) ---
+    // --- ENVIAR CORREO (Dueño + Compartidos) ---
+    // Cambio: Quitamos "admin !== true" para que funcione desde tu vista
     if (sendToEmail === true && !internal) {
       try {
         let respuestaId = respuesta._id.toString();
-        if (userEmail) {
+        let destinatarios = [];
+
+        // 1. Agregar al dueño si existe
+        if (userEmail) destinatarios.push(userEmail);
+
+        // 2. Agregar a los compartidos buscando sus correos por _id
+        if (respuesta.user?.compartidos && Array.isArray(respuesta.user.compartidos) && respuesta.user.compartidos.length > 0) {
+          const idsBusqueda = respuesta.user.compartidos
+            .filter(id => ObjectId.isValid(id))
+            .map(id => new ObjectId(id));
+
+          if (idsBusqueda.length > 0) {
+            const usuariosComp = await req.db.collection("usuarios").find({ _id: { $in: idsBusqueda } }).toArray();
+            usuariosComp.forEach(u => {
+              if (u.mail) {
+                const mDesc = u.mail.includes(':') ? decrypt(u.mail) : u.mail;
+                if (mDesc && !destinatarios.includes(mDesc)) {
+                  destinatarios.push(mDesc);
+                }
+              }
+            });
+          }
+        }
+
+        if (destinatarios.length > 0) {
           const baseUrl = process.env.PORTAL_URL;
           const responseUrl = `${baseUrl}/preview?type=messages&id=${respuestaId}`;
 
           const emailHtml = `
-  <!DOCTYPE html>
-  <html>
-  <head>
-      <meta charset="UTF-8">
-      <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #4f46e5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-          .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; }
-          .button { 
-              display: inline-block; background-color: #4f46e5; color: white !important; 
-              padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 20px; text-align: center;
-          }
-          .message-box { background-color: #f0f9ff; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #4f46e5; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }
-      </style>
-  </head>
-  <body>
-      <div class="container">
-          <div class="header"><h1>Acciona Centro de Negocios</h1></div>
-          <div class="content">
-              <h2 class="title">Tienes un nuevo mensaje en la plataforma</h2>
-              <p>Estimado/a <strong>${userName}</strong>,</p>
-              <div class="message-box">
-                  <p><strong>Formulario:</strong> ${formName}</p>
-              </div>
-              <div style="text-align: center; margin: 30px 0;">
-                  <a href="${responseUrl}" class="button">Ver detalles</a>
-              </div>
-              <div class="footer">
-                  <p>© ${new Date().getFullYear()} Acciona Centro de Negocios Spa.</p>
-              </div>
-          </div>
-      </div>
-  </body>
-  </html>`;
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                    .header { background-color: #4f46e5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                    .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; }
+                    .button { 
+                        display: inline-block; background-color: #4f46e5; color: white !important; 
+                        padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 20px; text-align: center;
+                    }
+                    .message-box { background-color: #f0f9ff; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #4f46e5; }
+                    .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header"><h1>Acciona Centro de Negocios</h1></div>
+                    <div class="content">
+                        <h2 class="title">Tienes un nuevo mensaje en la plataforma</h2>
+                        <p>Estimado/a <strong>${userName}</strong>,</p>
+                        <div class="message-box">
+                            <p><strong>Formulario:</strong> ${formName}</p>
+                            <p><strong>Mensaje:</strong> ${mensaje}</p>
+                        </div>
+                        <div style="text-align: center; margin: 30px 0;">
+                            <a href="${responseUrl}" class="button">Ver detalles</a>
+                        </div>
+                        <div class="footer">
+                            <p>© ${new Date().getFullYear()} Acciona Centro de Negocios Spa.</p>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>`;
 
           const { sendEmail } = require("../utils/mail.helper");
           await sendEmail({
-            to: userEmail,
+            to: destinatarios.join(','),
             subject: `Nuevo mensaje - Plataforma RRHH - ${formName}`,
             html: emailHtml
           });
@@ -2045,9 +2071,8 @@ router.post("/chat", async (req, res) => {
       }
     }
 
-    // --- LÓGICA DE NOTIFICACIONES ---
+    // --- LÓGICA DE NOTIFICACIONES (Se mantiene igual) ---
     const formTitleNoti = (formName && formName.includes(':')) ? decrypt(formName) : formName;
-    
     const rawTrabajador = respuesta.responses?.['NOMBRE DEL TRABAJADOR'] || 
                           respuesta.responses?.['Nombre del trabajador'] || 
                           respuesta.trabajador || 
@@ -2062,34 +2087,26 @@ router.post("/chat", async (req, res) => {
       titulo: internal ? "Nueva nota interna" : (isSenderStaff ? "Nuevo mensaje recibido" : "Nuevo mensaje en formulario"),
       descripcion: `En: ${formTitleNoti} (${trabajadorNombre}) - ${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? '...' : ''}`,
       icono: "MessageCircle", 
-      color: internal ? "#f59e0b" : "#45577eff", // Ámbar si es interno
+      color: internal ? "#f59e0b" : "#45577eff",
       actionUrl: isSenderStaff ? `/?id=${respuesta._id}` : `/RespuestasForms?id=${respuesta._id}`,
     };
 
     if (internal) {
-      // --- CASO INTERNO: Solo notifica al Staff (RRHH y Administrador) ---
       await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifBase });
       await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifBase });
     } else {
-      // --- CASO NORMAL: Bando Espejo ---
       if (isSenderStaff) {
-        // Notificar al Autor
         let ownerIdRaw = respuesta.user?.uid;
-        let ownerIdLimpio = null;
         if (ownerIdRaw) {
-          ownerIdLimpio = ownerIdRaw.includes(':') ? decrypt(ownerIdRaw) : ownerIdRaw;
+          let ownerIdLimpio = ownerIdRaw.includes(':') ? decrypt(ownerIdRaw) : ownerIdRaw;
           await addNotification(req.db, { userId: ownerIdLimpio, ...notifBase });
         }
-        // Notificar a Compartidos
         if (respuesta.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
           for (const compartidoId of respuesta.user.compartidos) {
-            if (compartidoId && compartidoId !== ownerIdLimpio) {
-              await addNotification(req.db, { userId: compartidoId, ...notifBase });
-            }
+            await addNotification(req.db, { userId: compartidoId, ...notifBase });
           }
         }
       } else {
-        // Notificar al Staff
         await addNotification(req.db, { filtro: { rol: "RRHH" }, ...notifBase });
         await addNotification(req.db, { filtro: { rol: "Administrador" }, ...notifBase });
       }
@@ -2098,7 +2115,7 @@ router.post("/chat", async (req, res) => {
     res.json({
       message: "Mensaje enviado",
       data: nuevoMensaje,
-      emailSent: sendToEmail === true && !internal && !!userEmail
+      emailSent: sendToEmail === true && !internal
     });
 
   } catch (err) {
