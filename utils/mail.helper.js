@@ -72,13 +72,25 @@ const sendEmail = async ({ to, subject, html, text, from }) => {
   if (!subject) throw { status: 400, message: "Campo 'subject' requerido." };
   if (!html && !text) throw { status: 400, message: "Debe incluir 'html' o 'text'." };
 
-  // 3. Construir opciones
+  // --- LÓGICA DE EMPRESA (Solo dentro del cuerpo del mensaje) ---
+  const tenantName = global.currentTenant || "Plataforma";
+  const empresaTexto = `Empresa: ${tenantName.toUpperCase()}`;
+
+  // Inyectamos el nombre de la empresa de forma sencilla al inicio del HTML
+  // Solo texto en negrita y un salto de línea para no romper tu diseño original
+  const htmlConEmpresa = html ? `
+    <div style="font-family: sans-serif; font-size: 16px; font-weight: bold; margin-bottom: 15px; color: #333;">
+      ${empresaTexto}
+    </div>
+    ${html}` : html;
+
+  // 3. Construir opciones (Igual a como estaba antes)
   const mailOptions = {
     from: from || MAIL_CREDENTIALS.auth.user,
     to: valid.lista.join(", "),
-    subject,
-    html,
-    text,
+    subject: subject, // Sin el prefijo [TENANT] para que sea igual que antes
+    html: htmlConEmpresa,
+    text: text ? `${empresaTexto}\n\n${text}` : text,
   };
 
   // 4. Enviar

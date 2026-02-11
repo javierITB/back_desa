@@ -71,6 +71,8 @@ tenantRouter.use(async (req, res, next) => {
     const { company } = req.params;
     // Inyectamos la base de datos específica en el objeto request
     req.db = await getTenantDB(company);
+
+    global.currentTenant = company;
     next();
   } catch (err) {
     console.error("Error crítico de conexión Multi-tenant:", err);
