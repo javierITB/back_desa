@@ -221,12 +221,16 @@ router.put("/companies/:id", async (req, res) => {
             console.log(`[SAS] Updating roles for DB: ${company.dbName}`);
             const targetDb = req.mongoClient.db(company.dbName);
 
+            // Determinar qué permisos usar: los nuevos o los que ya tenía
+            const selectedPermissions = (permissions !== undefined) ? permissions : (company.permissions || []);
+
+            console.log(`[SAS] Using permissions for sync: ${selectedPermissions.length} active permissions`);
+
             // Limpiar config_roles actual
             await targetDb.collection("config_roles").deleteMany({});
 
-            // Generar nuevo config roles basado en nuevos permisos
+            // Generar nuevo config roles basado en permisos
             const rolesConfig = [];
-            const selectedPermissions = permissions || [];
 
             Object.entries(PERMISSION_GROUPS).forEach(([key, group]) => {
                 const groupPermissionsIncluded = group.permissions.filter(p => selectedPermissions.includes(p.id));
