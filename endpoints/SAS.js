@@ -300,14 +300,15 @@ router.delete("/companies/:id", async (req, res) => {
             return res.status(403).json({ error: "No se puede eliminar la base de datos principal del sistema." });
         }
 
-        // 1. Eliminar de config_empresas
-        await dbForms.collection("config_empresas").deleteOne(query);
-
-        // 2. Eliminar la base de datos física
+        // 1. Eliminar la base de datos física primero
         if (company.dbName) {
+            console.log(`[SAS] Dropping database: ${company.dbName}`);
             const dbDrop = req.mongoClient.db(company.dbName);
             await dbDrop.dropDatabase();
         }
+
+        // 2. Eliminar de config_empresas después
+        await dbForms.collection("config_empresas").deleteOne(query);
 
         res.json({ message: "Empresa y base de datos eliminadas" });
 
