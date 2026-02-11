@@ -94,6 +94,14 @@ router.post("/", async (req, res) => {
             return res.status(403).json({ error: "Acceso denegado" });
         }
 
+        // Plan Limites
+        const { checkPlanLimits } = require("../utils/planLimits");
+        try {
+            await checkPlanLimits(req, 'configTickets', auth.user);
+        } catch (limitErr) {
+            return res.status(403).json({ error: limitErr.message });
+        }
+
         const { name, icon } = req.body;
 
         if (!name || typeof name !== 'string') {

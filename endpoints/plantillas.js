@@ -17,6 +17,14 @@ router.post("/", async (req, res) => {
 
     if (!data.id) {
       // 1. CREACIÓN: Insertar nueva plantilla
+      // Plan Limites
+      const { checkPlanLimits } = require("../utils/planLimits");
+      try {
+        await checkPlanLimits(req, 'templates');
+      } catch (limitErr) {
+        return res.status(403).json({ error: limitErr.message });
+      }
+
       result = await req.db.collection("plantillas").insertOne({
         ...req.body,
         createdAt: new Date(),
@@ -122,4 +130,4 @@ router.delete("/:id", async (req, res) => {
 
 
 
-module.exports = router;   
+module.exports = router;

@@ -41,6 +41,14 @@ router.post("/", async (req, res) => {
 
     if (!id) {
       // CREAR ROL
+      // Plan Limites
+      const { checkPlanLimits } = require("../utils/planLimits");
+      try {
+        await checkPlanLimits(req, 'roles');
+      } catch (limitErr) {
+        return res.status(403).json({ error: limitErr.message });
+      }
+
       roleData.createdAt = new Date();
       const result = await req.db.collection("roles").insertOne(roleData);
 

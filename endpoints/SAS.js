@@ -146,12 +146,6 @@ router.post("/companies", async (req, res) => {
         Object.entries(PERMISSION_GROUPS).forEach(([key, group]) => {
 
             // Filtramos los permisos de este grupo que están en la lista seleccionada
-            // OJO: 'root' permissions (como ver panel) suelen ser necesarios si se seleccionan hijos, 
-            // pero el frontend ya maneja la lógica de dependencias. Aquí confiamos en el payload.
-
-            // IMPORTANTE: También debemos incluir permisos 'root' implícitos si queremos forzarlos, 
-            // pero mejor respetar lo que manda el front.
-
             const groupPermissionsIncluded = group.permissions.filter(p => selectedPermissions.includes(p.id));
 
             if (groupPermissionsIncluded.length > 0) {
@@ -198,9 +192,6 @@ router.put("/companies/:id", async (req, res) => {
             query = { _id: new ObjectId(id) };
         } catch (e) {
             // Fallback por si usamos el nombre como ID o un string custom
-            // Pero idealmente el front manda el _id. Si el front manda nombre en modal, ajustar.
-            // El modal actual usa company._id si existe, o company.name si no.
-            // Vamos a intentar buscar por _id primero, si falla, asumimos que id es el nombre (deprecated pero safe)
             query = { name: id };
         }
 
@@ -217,8 +208,12 @@ router.put("/companies/:id", async (req, res) => {
         }
 
         // 1. Actualizar config_empresas
+        const updateData = {};
+        if (permissions) updateData.permissions = permissions;
+        if (req.body.planLimits) updateData.planLimits = req.body.planLimits;
+
         await dbForms.collection("config_empresas").updateOne(query, {
-            $set: { permissions: permissions || [] }
+            $set: updateData
         });
 
         // 2. Regenerar config_roles en la DB objetivo
@@ -315,6 +310,34 @@ router.delete("/companies/:id", async (req, res) => {
     } catch (error) {
         console.error("Error al eliminar empresa:", error);
         res.status(500).json({ error: "Error al eliminar empresa" });
+    }
+});
+
+// GET /companies/:id: Obtener detalles de una empresa (incluyendo planLimits)
+router.get("/companies/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const dbForms = getFormsDB(req);
+        const { ObjectId } = require("mongodb");
+
+        let query = {};
+        if (ObjectId.isValid(id)) {
+            query = { _id: new ObjectId(id) };
+        } else {
+            query = { name: id };
+        }
+
+        const company = await dbForms.collection("config_empresas").findOne(query);
+
+        if (!company) {
+            return res.status(404).json({ error: "Empresa no encontrada" });
+        }
+
+        res.json(company);
+
+    } catch (error) {
+        console.error("Error al obtener detalles de empresa:", error);
+        res.status(500).json({ error: "Error al obtener detalles de empresa" });
     }
 });
 

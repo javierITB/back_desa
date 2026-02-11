@@ -360,6 +360,15 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
 
     const assignedAt = assignedTo ? new Date().toISOString() : null;
 
+    // Plan Limites
+    const { checkPlanLimits } = require("../utils/planLimits");
+
+    try {
+      await checkPlanLimits(req, 'tickets', null);
+    } catch (limitErr) {
+      return res.status(403).json({ error: limitErr.message });
+    }
+
     const result = await req.db.collection("tickets").insertOne({
       formId,
       user,

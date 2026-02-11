@@ -103,9 +103,17 @@ const verifyRequest = async (req) => {
 
 router.use(express.json({ limit: '4mb' }));
 
-// En el endpoint POST principal (/) - SOLO FORMATO ESPECÍFICO
+// En el endpoint POST principal (/)
 router.post("/", async (req, res) => {
   try {
+    // Plan Limites
+    const { checkPlanLimits } = require("../utils/planLimits");
+    try {
+      await checkPlanLimits(req, 'requests', null);
+    } catch (limitErr) {
+      return res.status(403).json({ error: limitErr.message });
+    }
+
     const { formId, user, responses, formTitle, adjuntos = [], mail: correoRespaldo } = req.body;
 
     // Importar solo tus funciones existentes
@@ -284,6 +292,14 @@ router.post("/admin", async (req, res) => {
 
     const tokenValido = await validarToken(req.db, adminUser?.token);
     if (!tokenValido.ok) return res.status(401).json({ error: tokenValido.reason });
+
+    // Enforce Plan Limits for Requests
+    const { checkPlanLimits } = require("../utils/planLimits");
+    try {
+      await checkPlanLimits(req, 'requests', null);
+    } catch (limitErr) {
+      return res.status(403).json({ error: limitErr.message });
+    }
 
     // --- BÚSQUEDA PQC DEL USUARIO DESTINATARIO ---
     const userDestinatario = await req.db.collection("usuarios").findOne({
@@ -814,10 +830,10 @@ router.get("/mail/:mail", async (req, res) => {
 
       // --- CAMBIO PARA ETIQUETA RECIBIDA ---
       // Es compartida SOLO si el ID del usuario actual está en el array de compartidos
-      const esCompartida = answerDescifrada.user?.compartidos && 
-                           Array.isArray(answerDescifrada.user.compartidos) && 
-                           answerDescifrada.user.compartidos.includes(userIdString);
-      
+      const esCompartida = answerDescifrada.user?.compartidos &&
+        Array.isArray(answerDescifrada.user.compartidos) &&
+        answerDescifrada.user.compartidos.includes(userIdString);
+
       const esPropia = answerDescifrada.user?.uid === userIdString;
 
       return {
@@ -1439,7 +1455,7 @@ router.post("/compartir/", async (req, res) => {
 router.get("/public/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Validar ID
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: "ID de solicitud inválido" });
@@ -1457,7 +1473,7 @@ router.get("/public/:id", async (req, res) => {
     const procesarCampo = (valor) => {
       const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
       if (typeof valor === 'string' && encryptedRegex.test(valor)) {
-        try { return decrypt(valor); } 
+        try { return decrypt(valor); }
         catch (e) { return valor; }
       }
       return valor;
@@ -1473,7 +1489,7 @@ router.get("/public/:id", async (req, res) => {
         userProcesado[key] = procesarCampo(respuestaProcesada.user[key]);
       }
       respuestaProcesada.user = userProcesado;
-      
+
       // Omitimos datos sensibles de compartidos para la vista pública
       delete respuestaProcesada.user.compartidos;
       delete respuestaProcesada.user.token;
@@ -1483,7 +1499,7 @@ router.get("/public/:id", async (req, res) => {
     const procesarResponses = (obj) => {
       if (!obj || typeof obj !== 'object') return obj;
       if (Array.isArray(obj)) return obj.map(item => procesarCampo(item));
-      
+
       const resultado = {};
       for (const key in obj) {
         const valor = obj[key];
@@ -1501,13 +1517,13 @@ router.get("/public/:id", async (req, res) => {
     if (respuestaProcesada.responses) {
       respuestaProcesada.responses = procesarResponses(respuestaProcesada.responses);
     }
-    
+
     // Verificar si existe plantilla (opcional, igual que en endpoint principal)
     try {
-        if (respuestaProcesada.formId) {
-            const plantilla = await buscarPlantillaPorFormId(respuestaProcesada.formId, req.db);
-            respuestaProcesada.hasTemplate = !!plantilla;
-        }
+      if (respuestaProcesada.formId) {
+        const plantilla = await buscarPlantillaPorFormId(respuestaProcesada.formId, req.db);
+        respuestaProcesada.hasTemplate = !!plantilla;
+      }
     } catch (e) { }
 
     res.json(respuestaProcesada);
@@ -1524,7 +1540,7 @@ router.get("/public/:id/chat", async (req, res) => {
     const { id } = req.params;
 
     if (!ObjectId.isValid(id)) {
-        return res.status(400).json({ error: "ID inválido" });
+      return res.status(400).json({ error: "ID inválido" });
     }
 
     const respuesta = await req.db.collection("respuestas")
@@ -1537,7 +1553,7 @@ router.get("/public/:id/chat", async (req, res) => {
     const todosLosMensajes = respuesta.mensajes || [];
 
     // Filtramos mensajes internos
-    const mensajesGenerales = todosLosMensajes.filter(msg => 
+    const mensajesGenerales = todosLosMensajes.filter(msg =>
       msg.internal !== true && msg.internal !== "true"
     );
 
@@ -2004,7 +2020,7 @@ router.get("/:formId/chat/", async (req, res) => {
     // --- CORRECCIÓN AQUÍ ---
     // Filtramos para que el cliente vea todo lo que NO sea interno.
     // Esto incluye sus mensajes y tus respuestas de la pestaña General.
-    const mensajesGenerales = todosLosMensajes.filter(msg => 
+    const mensajesGenerales = todosLosMensajes.filter(msg =>
       msg.internal !== true && msg.internal !== "true"
     );
 
@@ -2025,13 +2041,13 @@ router.post("/chat", async (req, res) => {
     const { formId, autor, mensaje, admin, sendToEmail, internal } = req.body;
     if (!autor || !mensaje || !formId) return res.status(400).json({ error: "Faltan campos" });
 
-    const nuevoMensaje = { 
-      autor, 
-      mensaje, 
-      leido: false, 
-      fecha: new Date(), 
+    const nuevoMensaje = {
+      autor,
+      mensaje,
+      leido: false,
+      fecha: new Date(),
       admin: admin || false,
-      internal: internal || false 
+      internal: internal || false
     };
 
     let query = ObjectId.isValid(formId) ? { $or: [{ _id: new ObjectId(formId) }, { formId }] } : { formId };
@@ -2189,10 +2205,10 @@ router.post("/chat", async (req, res) => {
 
     // --- LÓGICA DE NOTIFICACIONES (Se mantiene igual) ---
     const formTitleNoti = (formName && formName.includes(':')) ? decrypt(formName) : formName;
-    const rawTrabajador = respuesta.responses?.['NOMBRE DEL TRABAJADOR'] || 
-                          respuesta.responses?.['Nombre del trabajador'] || 
-                          respuesta.trabajador || 
-                          respuesta.user?.nombre;
+    const rawTrabajador = respuesta.responses?.['NOMBRE DEL TRABAJADOR'] ||
+      respuesta.responses?.['Nombre del trabajador'] ||
+      respuesta.trabajador ||
+      respuesta.user?.nombre;
 
     let trabajadorNombre = "Usuario";
     if (rawTrabajador) {
@@ -2202,7 +2218,7 @@ router.post("/chat", async (req, res) => {
     const notifBase = {
       titulo: internal ? "Nueva nota interna" : (isSenderStaff ? "Nuevo mensaje recibido" : "Nuevo mensaje en formulario"),
       descripcion: `En: ${formTitleNoti} (${trabajadorNombre}) - ${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? '...' : ''}`,
-      icono: "MessageCircle", 
+      icono: "MessageCircle",
       color: internal ? "#f59e0b" : "#45577eff",
       actionUrl: isSenderStaff ? `/?id=${respuesta._id}` : `/RespuestasForms?id=${respuesta._id}`,
     };
@@ -3731,7 +3747,7 @@ router.put("/:id/status", async (req, res) => {
 
     // --- BLOQUE DE NOTIFICACIONES MULTI-ESTADO ---
     const estadosNotificables = ['pendiente', 'en_revision', 'aprobado', 'firmado', 'finalizado'];
-    
+
     if (estadosNotificables.includes(status)) {
       // Mapeo simple de nombres para el mensaje
       const nombresEstados = {

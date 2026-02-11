@@ -37,6 +37,16 @@ router.post("/", async (req, res) => {
 
     const data = req.body;
 
+    if (!data.id) {
+      // Plan Limites
+      const { checkPlanLimits } = require("../utils/planLimits");
+      try {
+        await checkPlanLimits(req, 'forms');
+      } catch (limitErr) {
+        return res.status(403).json({ error: limitErr.message });
+      }
+    }
+
     // PROCESAR PREGUNTAS para asegurar configuraciones de archivos
     const processedQuestions = (data.questions || []).map(question => {
       if (question.type === 'file') {
