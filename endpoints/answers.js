@@ -814,10 +814,10 @@ router.get("/mail/:mail", async (req, res) => {
 
       // --- CAMBIO PARA ETIQUETA RECIBIDA ---
       // Es compartida SOLO si el ID del usuario actual está en el array de compartidos
-      const esCompartida = answerDescifrada.user?.compartidos &&
-        Array.isArray(answerDescifrada.user.compartidos) &&
-        answerDescifrada.user.compartidos.includes(userIdString);
-
+      const esCompartida = answerDescifrada.user?.compartidos && 
+                           Array.isArray(answerDescifrada.user.compartidos) && 
+                           answerDescifrada.user.compartidos.includes(userIdString);
+      
       const esPropia = answerDescifrada.user?.uid === userIdString;
 
       return {
@@ -1433,12 +1433,128 @@ router.post("/compartir/", async (req, res) => {
   }
 });
 
+// --- RUTAS PÚBLICAS PARA VISTA PREVIA ---
+
+// Obtener respuesta pública por ID (Sin token, para vista de cliente/email)
+router.get("/public/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Validar ID
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: "ID de solicitud inválido" });
+    }
+
+    const respuesta = await req.db.collection("respuestas")
+      .findOne({ _id: new ObjectId(id) });
+
+    if (!respuesta) return res.status(404).json({ error: "Solicitud no encontrada" });
+
+    // Importar decrypt (asegurando que esté disponible)
+    const { decrypt } = require('../utils/seguridad.helper');
+
+    // Función simple para manejar campos cifrados
+    const procesarCampo = (valor) => {
+      const encryptedRegex = /^[a-f0-9]{24}:[a-f0-9]{32}:[a-f0-9]+$/i;
+      if (typeof valor === 'string' && encryptedRegex.test(valor)) {
+        try { return decrypt(valor); } 
+        catch (e) { return valor; }
+      }
+      return valor;
+    };
+
+    // Procesar la respuesta
+    const respuestaProcesada = { ...respuesta };
+
+    // Procesar user
+    if (respuestaProcesada.user) {
+      const userProcesado = {};
+      for (const key in respuestaProcesada.user) {
+        userProcesado[key] = procesarCampo(respuestaProcesada.user[key]);
+      }
+      respuestaProcesada.user = userProcesado;
+      
+      // Omitimos datos sensibles de compartidos para la vista pública
+      delete respuestaProcesada.user.compartidos;
+      delete respuestaProcesada.user.token;
+    }
+
+    // Procesar responses
+    const procesarResponses = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(item => procesarCampo(item));
+      
+      const resultado = {};
+      for (const key in obj) {
+        const valor = obj[key];
+        if (typeof valor === 'string') {
+          resultado[key] = procesarCampo(valor);
+        } else if (typeof valor === 'object' && valor !== null) {
+          resultado[key] = procesarResponses(valor);
+        } else {
+          resultado[key] = valor;
+        }
+      }
+      return resultado;
+    };
+
+    if (respuestaProcesada.responses) {
+      respuestaProcesada.responses = procesarResponses(respuestaProcesada.responses);
+    }
+    
+    // Verificar si existe plantilla (opcional, igual que en endpoint principal)
+    try {
+        if (respuestaProcesada.formId) {
+            const plantilla = await buscarPlantillaPorFormId(respuestaProcesada.formId, req.db);
+            respuestaProcesada.hasTemplate = !!plantilla;
+        }
+    } catch (e) { }
+
+    res.json(respuestaProcesada);
+
+  } catch (err) {
+    console.error("Error en GET /public/:id:", err);
+    res.status(500).json({ error: "Error al obtener la solicitud pública" });
+  }
+});
+
+// Obtener chat público por ID de respuesta (Sin token)
+router.get("/public/:id/chat", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ error: "ID inválido" });
+    }
+
+    const respuesta = await req.db.collection("respuestas")
+      .findOne({ _id: new ObjectId(id) }, { projection: { mensajes: 1 } });
+
+    if (!respuesta) {
+      return res.status(404).json({ error: "Solicitud no encontrada" });
+    }
+
+    const todosLosMensajes = respuesta.mensajes || [];
+
+    // Filtramos mensajes internos
+    const mensajesGenerales = todosLosMensajes.filter(msg => 
+      msg.internal !== true && msg.internal !== "true"
+    );
+
+    res.json(mensajesGenerales);
+
+  } catch (err) {
+    console.error("Error obteniendo chat público:", err);
+    res.status(500).json({ error: "Error al obtener mensajes" });
+  }
+});
+
 // Obtener respuesta por ID - Versión simplificada
 router.get("/:id", async (req, res) => {
   try {
-    // Verificar token (opcional para visualización pública)
+    // Verificar token
     const auth = await verifyRequest(req);
-    // if (!auth.ok) return res.status(401).json({ error: auth.error });
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     const respuesta = await req.db.collection("respuestas")
       .findOne({ _id: new ObjectId(req.params.id) });
@@ -1862,9 +1978,9 @@ router.get("/:formId/chat/admin", async (req, res) => {
 //solicitar de mensajes generales
 router.get("/:formId/chat/", async (req, res) => {
   try {
-    // Verificar token (opcional para visualización pública)
+    // Verificar token
     const auth = await verifyRequest(req);
-    // if (!auth.ok) return res.status(401).json({ error: auth.error });
+    if (!auth.ok) return res.status(401).json({ error: auth.error });
 
     const { formId } = req.params;
 
@@ -1888,7 +2004,7 @@ router.get("/:formId/chat/", async (req, res) => {
     // --- CORRECCIÓN AQUÍ ---
     // Filtramos para que el cliente vea todo lo que NO sea interno.
     // Esto incluye sus mensajes y tus respuestas de la pestaña General.
-    const mensajesGenerales = todosLosMensajes.filter(msg =>
+    const mensajesGenerales = todosLosMensajes.filter(msg => 
       msg.internal !== true && msg.internal !== "true"
     );
 
@@ -1909,13 +2025,13 @@ router.post("/chat", async (req, res) => {
     const { formId, autor, mensaje, admin, sendToEmail, internal } = req.body;
     if (!autor || !mensaje || !formId) return res.status(400).json({ error: "Faltan campos" });
 
-    const nuevoMensaje = {
-      autor,
-      mensaje,
-      leido: false,
-      fecha: new Date(),
+    const nuevoMensaje = { 
+      autor, 
+      mensaje, 
+      leido: false, 
+      fecha: new Date(), 
       admin: admin || false,
-      internal: internal || false
+      internal: internal || false 
     };
 
     let query = ObjectId.isValid(formId) ? { $or: [{ _id: new ObjectId(formId) }, { formId }] } : { formId };
@@ -2073,10 +2189,10 @@ router.post("/chat", async (req, res) => {
 
     // --- LÓGICA DE NOTIFICACIONES (Se mantiene igual) ---
     const formTitleNoti = (formName && formName.includes(':')) ? decrypt(formName) : formName;
-    const rawTrabajador = respuesta.responses?.['NOMBRE DEL TRABAJADOR'] ||
-      respuesta.responses?.['Nombre del trabajador'] ||
-      respuesta.trabajador ||
-      respuesta.user?.nombre;
+    const rawTrabajador = respuesta.responses?.['NOMBRE DEL TRABAJADOR'] || 
+                          respuesta.responses?.['Nombre del trabajador'] || 
+                          respuesta.trabajador || 
+                          respuesta.user?.nombre;
 
     let trabajadorNombre = "Usuario";
     if (rawTrabajador) {
@@ -2086,7 +2202,7 @@ router.post("/chat", async (req, res) => {
     const notifBase = {
       titulo: internal ? "Nueva nota interna" : (isSenderStaff ? "Nuevo mensaje recibido" : "Nuevo mensaje en formulario"),
       descripcion: `En: ${formTitleNoti} (${trabajadorNombre}) - ${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? '...' : ''}`,
-      icono: "MessageCircle",
+      icono: "MessageCircle", 
       color: internal ? "#f59e0b" : "#45577eff",
       actionUrl: isSenderStaff ? `/?id=${respuesta._id}` : `/RespuestasForms?id=${respuesta._id}`,
     };
@@ -3615,7 +3731,7 @@ router.put("/:id/status", async (req, res) => {
 
     // --- BLOQUE DE NOTIFICACIONES MULTI-ESTADO ---
     const estadosNotificables = ['pendiente', 'en_revision', 'aprobado', 'firmado', 'finalizado'];
-
+    
     if (estadosNotificables.includes(status)) {
       // Mapeo simple de nombres para el mensaje
       const nombresEstados = {
