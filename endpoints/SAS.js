@@ -97,24 +97,44 @@ router.post("/companies", async (req, res) => {
 
         await dbForms.collection("config_empresas").insertOne(newCompany);
 
-        // 3. Inicializar la nueva Base de Datos
-        console.log(`[SAS] Initializing database: ${dbName}`);
+        // 3. Inicializar la nueva Base de Datos clonando de 'desarrollo'
+        console.log(`[SAS] Initializing database: ${dbName} from template 'desarrollo'`);
         const newDb = req.mongoClient.db(dbName);
+        const templateDb = req.mongoClient.db("desarrollo");
 
-        // 3.1 Crear colecciones base (excluyendo config_empresas)
-        const collectionsToCreate = [
-            "usuarios",
+        // 3.1 Colecciones a clonar desde 'desarrollo'
+        const collectionsToClone = [
+            "forms",
+            "plantillas",
             "roles",
-            "config_roles"
+            "usuarios"
         ];
 
-        // Crear colecciones explícitamente y/o índices si fuera necesario
-        for (const col of collectionsToCreate) {
-            const cols = await newDb.listCollections({ name: col }).toArray();
-            if (cols.length === 0) {
-                await newDb.createCollection(col);
+        for (const colName of collectionsToClone) {
+            try {
+                const data = await templateDb.collection(colName).find().toArray();
+                if (data.length > 0) {
+                    console.log(`[SAS] Cloning ${data.length} documents from ${colName}...`);
+                    // Quitamos los _id para que se generen nuevos en la nueva DB
+                    const cleanData = data.map(doc => {
+                        const { _id, ...rest } = doc;
+                        return rest;
+                    });
+                    await newDb.collection(colName).insertMany(cleanData);
+                } else {
+                    console.log(`[SAS] Collection ${colName} is empty in 'desarrollo'. Creating empty collection.`);
+                    await newDb.createCollection(colName);
+                }
+            } catch (err) {
+                console.error(`[SAS] Error cloning collection ${colName}:`, err.message);
+                // Si falla la clonación, al menos creamos la colección vacía
+                try { await newDb.createCollection(colName); } catch (e) { }
             }
         }
+
+        // 3.2 Asegurar existencia de config_roles (se llena más abajo)
+        const hasConfigRoles = (await newDb.listCollections({ name: "config_roles" }).toArray()).length > 0;
+        if (!hasConfigRoles) await newDb.createCollection("config_roles");
 
         // 3.2 Generar config_roles basado en PERMISOS seleccionados
         // Iteramos sobre todos los grupos de permisos.
