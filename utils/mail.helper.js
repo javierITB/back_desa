@@ -80,8 +80,19 @@ const sendEmail = async ({ to, subject, html, text, from }) => {
 
   // Estilo que combina con 'Segoe UI' del correo original, centrado y elegante
   const empresaHtml = `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 14px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; text-align: center;">
-      ${nombreEmpresa}
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; margin-bottom: 30px;">
+      <div style="
+        font-size: 28px; 
+        font-weight: 800; 
+        color: #1f2937; /* Color oscuro original */
+        text-transform: uppercase; 
+        letter-spacing: 3px; 
+        display: inline-block;
+        border-bottom: 3px solid #1f2937; /* Subrayado del mismo color */
+        padding-bottom: 5px;
+      ">
+        ${nombreEmpresa}
+      </div>
     </div>`;
 
   // --- INYECCIÓN DENTRO DEL RECUADRO BLANCO ---
