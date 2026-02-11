@@ -73,6 +73,14 @@ tenantRouter.use(async (req, res, next) => {
     req.db = await getTenantDB(company);
 
     global.currentTenant = (company === "api") ? "ACCIONA" : company;
+
+    // Lógica de redirección global solicitada
+    // api, infoacciona y solunex redirigen a solunex.cl
+    if (company === "api" || company === "infoacciona" || company === "solunex") {
+      global.currentPortal = "https://solunex.cl";
+    } else {
+      global.currentPortal = `https://${company}.solunex.cl`;    }
+
     next();
   } catch (err) {
     console.error("Error crítico de conexión Multi-tenant:", err);

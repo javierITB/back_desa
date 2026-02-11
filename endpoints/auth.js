@@ -1090,7 +1090,7 @@ router.post("/register", async (req, res) => {
                <h2 style="color: #3B82F6;">¡Bienvenido, ${nombre}!</h2>
                <p>Has sido registrado en la plataforma. Para activar tu cuenta, haz clic en el botón:</p>
                <div style="text-align: center; margin: 30px 0;">
-                  <a href="${process.env.PORTAL_URL}/set-password?userId=${userId}" 
+                  <a href="${global.currentPortal}/set-password?userId=${userId}" 
                      style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
                      Configurar mi Contraseña
                   </a>
