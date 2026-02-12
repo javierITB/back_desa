@@ -55,10 +55,14 @@ const upload = multer({
    },
 });
 
-const generateAndSend2FACode = async (db, user, type) => {
+const generateAndSend2FACode = async (db, user, type, req) => { // <--- Agregamos 'req' aquí
    let EXPIRATION_TIME;
    let subject;
    let contextMessage;
+
+   // Definimos las variables que faltaban para corregir el ReferenceError
+   const bgColor = "#f3f4f6"; 
+   const primaryColor = "#f97316";
 
    if (type === "2FA_SETUP") {
       EXPIRATION_TIME = 15 * 60 * 1000;
@@ -100,11 +104,11 @@ const generateAndSend2FACode = async (db, user, type) => {
    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: ${bgColor}; padding: 40px 10px; text-align: center;">
       <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
          
-         <h1 style="color: #1f2937; font-size: 24px; margin-bottom: 20px; text-align: center;">Código de Verificación</h1>
+         <h1 style="color: #1f2937; font-size: 24px; margin-bottom: 20px; text-align: center;">Código de Seguridad</h1>
          
          <p style="color: #4b5563; font-size: 16px; line-height: 1.5; margin-bottom: 25px; text-align: center;">
-            Hola ${userName}, ${contextMessage}. 
-            Usa el siguiente código de seguridad:
+            Hola <strong>${userName}</strong>,<br>
+            ${contextMessage}. Usa el siguiente código para continuar:
          </p>
 
          <div style="background-color: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; padding: 20px; margin-bottom: 25px; text-align: center;">
@@ -114,11 +118,11 @@ const generateAndSend2FACode = async (db, user, type) => {
          </div>
 
          <p style="color: #6b7280; font-size: 14px; margin-bottom: 30px; text-align: center;">
-            Este código es válido por ${minutes} minutos. Si no solicitaste esta acción, puedes ignorar este correo de forma segura.
+            Este código es válido por <strong>${minutes} minutos</strong>. Si no solicitaste esta acción, puedes ignorar este correo de forma segura.
          </p>
 
          <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center;">
-            <p style="margin: 0;">Este es un correo automático, por favor no respondas a este mensaje.</p>
+            <p style="margin: 0;">Este es un correo automático, por favor no respondas.</p>
             <p style="margin: 5px 0 0 0;">&copy; ${new Date().getFullYear()} Plataforma Acciona.</p> 
          </div>
       </div>
@@ -129,7 +133,7 @@ const generateAndSend2FACode = async (db, user, type) => {
       to: userEmail,
       subject: subject,
       html: htmlContent,
-   }, req);
+   }, req); // <--- 'req' ahora ya no dará error porque lo recibimos arriba
 };
 
 // Helper para buscar token por email (compatible con cifrado)
