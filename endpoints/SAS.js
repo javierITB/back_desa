@@ -144,7 +144,12 @@ router.post("/companies", async (req, res) => {
         const rolesConfig = [];
         const selectedPermissions = permissions || [];
 
+        const SYSTEM_ONLY_GROUPS = ['gestor_empresas', 'configuracion_planes'];
+
         Object.entries(PERMISSION_GROUPS).forEach(([key, group]) => {
+            if (dbName !== "formsdb" && SYSTEM_ONLY_GROUPS.includes(key)) {
+                return;
+            }
 
             // Filtramos los permisos de este grupo que están en la lista seleccionada
             const groupPermissionsIncluded = group.permissions.filter(p => selectedPermissions.includes(p.id));
@@ -240,9 +245,18 @@ router.put("/companies/:id", async (req, res) => {
             await targetDb.collection("config_roles").deleteMany({});
 
             // Generar nuevo config roles basado en permisos
+            // Generar nuevo config roles basado en permisos
             const rolesConfig = [];
 
+            // Define groups that should NEVER be added to client databases
+            const SYSTEM_ONLY_GROUPS = ['gestor_empresas', 'configuracion_planes', 'empresas', 'acceso_panel_admin'];
+
             Object.entries(PERMISSION_GROUPS).forEach(([key, group]) => {
+                // Skip system-only groups for non-system databases
+                if (company.dbName !== "formsdb" && SYSTEM_ONLY_GROUPS.includes(key)) {
+                    return;
+                }
+
                 const groupPermissionsIncluded = group.permissions.filter(p => selectedPermissions.includes(p.id));
                 if (groupPermissionsIncluded.length > 0) {
                     rolesConfig.push({
