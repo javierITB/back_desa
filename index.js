@@ -69,6 +69,12 @@ const tenantRouter = express.Router({ mergeParams: true });
 tenantRouter.use(async (req, res, next) => {
   try {
     const { company } = req.params;
+
+    // Evitar que archivos estáticos o rutas con punto sean tratados como tenant
+    if (company.includes(".")) {
+      return res.status(404).json({ error: "Recurso no encontrado" });
+    }
+
     // Inyectamos la base de datos específica en el objeto request
     req.db = await getTenantDB(company);
 
@@ -79,7 +85,8 @@ tenantRouter.use(async (req, res, next) => {
     if (company === "api" || company === "infoacciona" || company === "solunex") {
       global.currentPortal = "https://solunex.cl";
     } else {
-      global.currentPortal = `https://${company}.solunex.cl`;    }
+      global.currentPortal = `https://${company}.solunex.cl`;
+    }
 
     next();
   } catch (err) {
