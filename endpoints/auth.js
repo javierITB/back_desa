@@ -1499,6 +1499,41 @@ router.get("/empresas/todas", async (req, res) => {
    }
 });
 
+// ruta nueva para enviar anuncios 
+ 
+router.get("/empresas/anuncios", async (req, res) => {
+   try {
+      await verifyRequest(req);
+
+      // Proyectamos solo lo necesario (ID, nombre, cargo, rol)
+      // No traemos 'logo.fileData' para mantener la ruta rápida
+      const empresas = await req.db.collection("empresas")
+         .find()
+         .project({ nombre: 1, cargo: 1, rol: 1, _id: 1 }) 
+         .toArray();
+
+      const empresasDescifradas = empresas.map((emp) => {
+         return {
+            _id: emp._id,
+            nombre: decrypt(emp.nombre),
+            // Desciframos cargo y rol solo si existen
+            cargo: emp.cargo ? decrypt(emp.cargo) : null,
+            rol: emp.rol ? decrypt(emp.rol) : null,
+         };
+      });
+
+      // Ordenar alfabéticamente por nombre
+      empresasDescifradas.sort((a, b) => {
+         return (a.nombre || "").localeCompare(b.nombre || "", "es", { sensitivity: "base" });
+      });
+
+      res.json(empresasDescifradas);
+   } catch (err) {
+      console.error("Error al obtener empresas para anuncios:", err);
+      res.status(500).json({ error: "Error al obtener empresas" });
+   }
+});
+
 router.get("/empresas/logo", async (req, res) => {
    try {
       const auth = await verifyRequest(req);
