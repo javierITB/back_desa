@@ -210,7 +210,7 @@ router.post("/", async (req, res) => {
 
     // Enviar correo de respaldo (usamos datos descifrados del user original)
     if (correoRespaldo && correoRespaldo.trim() !== '') {
-      await enviarCorreoRespaldo(correoRespaldo, formTitle, user, responses, form.questions);
+      await enviarCorreoRespaldo(correoRespaldo, formTitle, user, responses, form.questions, req);
       console.log("✓ Correo de respaldo enviado");
     }
 
@@ -380,7 +380,7 @@ router.post("/admin", async (req, res) => {
 
     // Para el correo, usar datos DESCIFRADOS
     if (correoRespaldo) {
-      await enviarCorreoRespaldo(correoRespaldo, formTitle, destinatarioUserObject, responses, form.questions);
+      await enviarCorreoRespaldo(correoRespaldo, formTitle, destinatarioUserObject, responses, form.questions, req);
     }
 
     // Notificaciones

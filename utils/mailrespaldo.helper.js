@@ -145,7 +145,7 @@ ${contenidoRespuestas.replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;')}
 
     <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #ccc; color: #7f8c8d; font-size: 12px; text-align: center;">
       <em>Este es un respaldo automático de las respuestas enviadas.<br>
-      © ${new Date().getFullYear()} Plataforma ${req?.nombreEmpresa || 'Acciona'}</em>
+      © ${new Date().getFullYear()} Plataforma Acciona.</em>
     </div>
   </div>
 </div>
