@@ -83,9 +83,9 @@ tenantRouter.use(async (req, res, next) => {
     // Lógica de redirección global solicitada
     // api, infoacciona y solunex redirigen a solunex.cl
     if (company === "api" || company === "infoacciona" || company === "solunex") {
-      global.currentPortal = "https://solunex.cl";
+      req.urlPortal = "https://solunex.cl";
     } else {
-      global.currentPortal = `https://${company}.solunex.cl`;
+      req.urlPortal = `https://${company}.solunex.cl`;
     }
 
     next();
