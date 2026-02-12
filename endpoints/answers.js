@@ -2149,7 +2149,7 @@ router.post("/chat", async (req, res) => {
         }
 
         if (destinatarios.length > 0) {
-          const baseUrl = process.env.PORTAL_URL;
+          const baseUrl = req.urlPortal;
           const responseUrl = `${baseUrl}/preview?type=messages&id=${respuestaId}`;
 
           const emailHtml = `
@@ -2172,7 +2172,6 @@ router.post("/chat", async (req, res) => {
             </head>
             <body>
                 <div class="container">
-                    <div class="header"><h1>Acciona Centro de Negocios</h1></div>
                     <div class="content">
                         <h2 class="title">Tienes un nuevo mensaje en la plataforma</h2>
                         <p>Estimado/a <strong>${userName}</strong>,</p>
@@ -2184,7 +2183,7 @@ router.post("/chat", async (req, res) => {
                             <a href="${responseUrl}" class="button">Ver detalles</a>
                         </div>
                         <div class="footer">
-                            <p>© ${new Date().getFullYear()} Acciona Centro de Negocios Spa.</p>
+                            <p>© ${new Date().getFullYear()} Plataforma Acciona.</p>
                         </div>
                     </div>
                 </div>
@@ -2196,7 +2195,7 @@ router.post("/chat", async (req, res) => {
             to: destinatarios.join(','),
             subject: `Nuevo mensaje - Plataforma RRHH - ${formName}`,
             html: emailHtml
-          });
+          }, req);
         }
       } catch (emailError) {
         console.error("Error enviando correo:", emailError);
@@ -2322,7 +2321,7 @@ router.post("/:id/upload-correction", upload.single('correctedFile'), async (req
           </div>`;
 
       try {
-        await sendEmail({ to: userMail, subject: 'Notificación de Corrección', html: htmlContent });
+        await sendEmail({ to: userMail, subject: 'Notificación de Corrección', html: htmlContent }, req);
       } catch (e) { console.error("Error mail:", e); }
     }
 
@@ -2658,7 +2657,7 @@ router.post("/upload-corrected-files", async (req, res) => {
       if (userEmail) {
         try {
           const { sendEmail } = require("../utils/mail.helper");
-          const portalUrl = process.env.PORTAL_URL;
+          const portalUrl = req.urlPortal;
           const responseUrl = `${portalUrl}/preview?type=details&id=${responseId}`;
 
 
@@ -2679,9 +2678,6 @@ router.post("/upload-corrected-files", async (req, res) => {
             </head>
             <body>
                 <div class="container">
-                    <div class="header">
-                        <h1>Acciona Centro de Negocios</h1>
-                    </div>
                     <div class="content">
                         <h2>📄 Documentos aprobados disponibles</h2>
                         <p>Estimado/a <strong>${userName}</strong>,</p>
@@ -2704,7 +2700,7 @@ router.post("/upload-corrected-files", async (req, res) => {
                         
                         <div class="footer">
                             <p>Este es un mensaje automático. Si tienes dudas, contacta a tu ejecutivo.</p>
-                            <p>© ${new Date().getFullYear()} Acciona Centro de Negocios Spa.</p>
+                            <p>© ${new Date().getFullYear()} Plataforma Acciona.</p>
                         </div>
                     </div>
                 </div>
@@ -2717,7 +2713,7 @@ router.post("/upload-corrected-files", async (req, res) => {
             to: userEmail,
             subject: `📄 Documentos aprobados disponibles - ${formName} - Acciona`,
             html: emailHtml
-          });
+          }, req);
 
           emailSent = true;
 

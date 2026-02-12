@@ -83,7 +83,7 @@ router.post('/', async (req, res) => {
       enviarNotificacion = true
     } = req.body;
 
-    const urlNotificaciones = actionUrl || process.env.PORTAL_URL;
+    const urlNotificaciones = actionUrl || req.urlPortal;
 
     if (!titulo || !descripcion) {
       console.log('Validación fallida: título o descripción faltante');
@@ -145,16 +145,32 @@ router.post('/', async (req, res) => {
                   to: emailDecrypted,
                   subject: titulo,
                   html: `
-                    <p>${descripcion}</p>
-                    <br/>
-                    <a 
-                      href="${urlNotificaciones}" 
-                      style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;"
-                    >
-                      Ver notificación en la plataforma
-                    </a>
+                  <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; padding: 40px 10px; text-align: center;">
+                      <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
+                          
+                          <h1 style="color: #1f2937; font-size: 22px; margin-bottom: 20px; font-weight: 700;">
+                              Nueva Notificación
+                          </h1>
+
+                          <div style="color: #4b5563; font-size: 16px; line-height: 1.6; margin-bottom: 30px; text-align: left;">
+                              ${descripcion}
+                          </div>
+
+                          <div style="text-align: center; margin-bottom: 20px;">
+                              <a href="${urlNotificaciones}" 
+                                style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);">
+                                  Ver notificación en la plataforma
+                              </a>
+                          </div>
+
+                          <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center;">
+                              <p style="margin: 0;">Este es un aviso automático de la plataforma.</p>
+                              <p>© ${new Date().getFullYear()} Plataforma Acciona.</p>
+                          </div>
+                      </div>
+                  </div>
                   `
-                });
+                },req);
               }
             } catch (emailError) {
               console.error("Error enviando correo");
@@ -216,17 +232,33 @@ router.post('/', async (req, res) => {
                 await sendEmail({
                   to: emailDecrypted,
                   subject: titulo,
-                  html: `
-                    <p>${descripcion}</p>
-                    <br/>
-                    <a 
-                      href="${urlNotificaciones}" 
-                      style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;"
-                    >
-                      Ver notificación en la plataforma
-                    </a>
+                  html:`
+                  <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; padding: 40px 10px; text-align: center;">
+                      <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
+                          
+                          <h1 style="color: #1f2937; font-size: 22px; margin-bottom: 20px; font-weight: 700;">
+                              Nueva Notificación
+                          </h1>
+
+                          <div style="color: #4b5563; font-size: 16px; line-height: 1.6; margin-bottom: 30px; text-align: left;">
+                              ${descripcion}
+                          </div>
+
+                          <div style="text-align: center; margin-bottom: 20px;">
+                              <a href="${urlNotificaciones}" 
+                                style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);">
+                                  Ver notificación en la plataforma
+                              </a>
+                          </div>
+
+                          <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center;">
+                              <p style="margin: 0;">Este es un aviso automático de la plataforma.</p>
+                              <p>© ${new Date().getFullYear()} Plataforma Acciona.</p>
+                          </div>
+                      </div>
+                  </div>
                   `
-                });
+                }, req);
               }
             } catch (emailError) {
               console.error("Error enviando correo:", emailError.message);
@@ -277,17 +309,33 @@ router.post('/', async (req, res) => {
                   await sendEmail({
                     to: emailDecrypted,
                     subject: titulo,
-                    html: `
-                      <p>${descripcion}</p>
-                      <br/>
-                      <a 
-                        href="${urlNotificaciones}" 
-                        style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;"
-                      >
-                        Ver notificación en la plataforma
-                      </a>
+                    html:`
+                    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; padding: 40px 10px; text-align: center;">
+                        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
+                            
+                            <h1 style="color: #1f2937; font-size: 22px; margin-bottom: 20px; font-weight: 700;">
+                                Nueva Notificación
+                            </h1>
+
+                            <div style="color: #4b5563; font-size: 16px; line-height: 1.6; margin-bottom: 30px; text-align: left;">
+                                ${descripcion}
+                            </div>
+
+                            <div style="text-align: center; margin-bottom: 20px;">
+                                <a href="${urlNotificaciones}" 
+                                  style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);">
+                                    Ver notificación en la plataforma
+                                </a>
+                            </div>
+
+                            <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center;">
+                                <p style="margin: 0;">Este es un aviso automático de la plataforma.</p>
+                                <p>© ${new Date().getFullYear()} Plataforma Acciona.</p>
+                            </div>
+                        </div>
+                    </div>
                     `
-                  });
+                  }, req);
                 }
               } catch (emailError) {
                 console.error("Error enviando correo:", emailError.message);

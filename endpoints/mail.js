@@ -31,7 +31,7 @@ router.post("/send", async (req, res) => {
     }
 
     // 2. Delegar el envío al helper
-    const result = await sendEmail(emailData);
+    const result = await sendEmail(emailData, req);
     
     // 3. Responder éxito
     res.json(result);

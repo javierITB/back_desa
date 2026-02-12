@@ -97,22 +97,39 @@ const generateAndSend2FACode = async (db, user, type) => {
 
    const minutes = EXPIRATION_TIME / 1000 / 60;
    const htmlContent = `
-    <p>Hola ${userName},</p>
-    <p>${contextMessage}</p>
-    <p>Tu código de verificación es:</p>
-    <h2 style="color: #f97316; font-size: 24px; text-align: center; border: 1px solid #f97316; padding: 10px; border-radius: 8px;">
-      ${verificationCode}
-    </h2>
-    <p>Este código expira en ${minutes} minutos. Si no solicitaste esta acción, ignora este correo.</p>
-    <p>Saludos cordiales,</p>
-    <p>El equipo de Acciona</p>
-  `;
+   <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: ${bgColor}; padding: 40px 10px; text-align: center;">
+      <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
+         
+         <h1 style="color: #1f2937; font-size: 24px; margin-bottom: 20px; text-align: center;">Código de Verificación</h1>
+         
+         <p style="color: #4b5563; font-size: 16px; line-height: 1.5; margin-bottom: 25px; text-align: center;">
+            Hola ${userName}, ${contextMessage}. 
+            Usa el siguiente código de seguridad:
+         </p>
+
+         <div style="background-color: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; padding: 20px; margin-bottom: 25px; text-align: center;">
+            <span style="display: block; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: ${primaryColor}; text-align: center;">
+               ${verificationCode}
+            </span>
+         </div>
+
+         <p style="color: #6b7280; font-size: 14px; margin-bottom: 30px; text-align: center;">
+            Este código es válido por ${minutes} minutos. Si no solicitaste esta acción, puedes ignorar este correo de forma segura.
+         </p>
+
+         <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center;">
+            <p style="margin: 0;">Este es un correo automático, por favor no respondas a este mensaje.</p>
+            <p style="margin: 5px 0 0 0;">&copy; ${new Date().getFullYear()} Plataforma Acciona.</p> 
+         </div>
+      </div>
+   </div>
+`;
 
    await sendEmail({
       to: userEmail,
       subject: subject,
       html: htmlContent,
-   });
+   }, req);
 };
 
 // Helper para buscar token por email (compatible con cifrado)
@@ -1096,7 +1113,9 @@ router.post("/register", async (req, res) => {
                      Configurar mi Contraseña
                   </a>
                </div>
-               <p style="font-size: 12px; color: #666;">Empresa: ${empresa}</p>
+               <p style="font-size: 12px; color: #666;">Empresa: ${req.nombreEmpresa}</p>
+               <p>© ${new Date().getFullYear()} Plataforma Acciona.</p>
+
             </div>`;
 
          // Llamamos a tu helper directamente

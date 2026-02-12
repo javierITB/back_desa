@@ -155,7 +155,7 @@ ${contenidoRespuestas.replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;')}
 /**
  * Envía el correo de respaldo importando el componente de mail directamente
  */
-const enviarCorreoRespaldo = async (correoRespaldo, formTitle, usuario, responses, questions) => {
+const enviarCorreoRespaldo = async (correoRespaldo, formTitle, usuario, responses, questions, req) => {
   try {
     if (!correoRespaldo || correoRespaldo.trim() === '') {
       return { enviado: false, motivo: 'No hay correo de respaldo' };
@@ -184,7 +184,7 @@ const enviarCorreoRespaldo = async (correoRespaldo, formTitle, usuario, response
     };
 
     // Llamamos directamente a la función del componente mail
-    const result = await sendEmail(emailData);
+    const result = await sendEmail(emailData, req);
 
     return { enviado: true, result };
 

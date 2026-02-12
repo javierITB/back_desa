@@ -427,7 +427,7 @@ router.post("/", uploadMultiple.array('adjuntos'), async (req, res) => {
           html: contenido.html
         };
 
-        await sendEmail(mailPayload);
+        await sendEmail(mailPayload, req);
       } catch (e) {
         console.error("Error generando/enviando correo de respaldo:", e);
       }
