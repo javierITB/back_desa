@@ -26,8 +26,11 @@ async function checkPlanLimits(req, type, overrideUser = null) {
             }
         }
 
+        console.log(`[PlanLimits] Checking ${type} for company: ${empresaName || 'Unknown'}`);
+
         // 2. Bypass para formsdb / system
         if (!empresaName || empresaName === "formsdb" || empresaName === "FormsDB (Principal)") {
+            console.log(`[PlanLimits] Bypass triggered for system/formsdb company: ${empresaName}`);
             return true;
         }
 
@@ -39,6 +42,7 @@ async function checkPlanLimits(req, type, overrideUser = null) {
             const localConfig = await currentDb.collection("config_plan").findOne({});
             if (localConfig && localConfig.planLimits) {
                 limits = localConfig.planLimits;
+                console.log("[PlanLimits] Found limits in local config_plan");
             }
         } catch (e) {
             console.warn("[PlanLimits] Error reading local config_plan:", e.message);
@@ -49,17 +53,18 @@ async function checkPlanLimits(req, type, overrideUser = null) {
             const companyConfig = await dbForms.collection("config_empresas").findOne({ name: empresaName });
             if (companyConfig && companyConfig.planLimits) {
                 limits = companyConfig.planLimits;
+                console.log("[PlanLimits] Found limits in FormsDB config_empresas");
             }
         }
 
         if (!limits) {
+            console.log("[PlanLimits] No limits found for this company. Allowing request.");
             return true;
         }
 
         let limitValue = null;
         let currentCount = 0;
         let resourceLabel = type;
-
 
         switch (type) {
             case 'tickets':
@@ -70,8 +75,11 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 break;
 
             case 'requests':
-                limitValue = limits.requests?.maxTotal ?? limits.solicitudes?.maxTotal;
-                if (limitValue !== undefined) {
+                // Manejar tanto objeto como valor directo para mayor robustez
+                const reqLimit = limits.requests ?? limits.solicitudes;
+                limitValue = (typeof reqLimit === 'object') ? reqLimit.maxTotal : reqLimit;
+
+                if (limitValue !== undefined && limitValue !== null) {
                     currentCount = await currentDb.collection("respuestas").countDocuments();
                 }
                 break;
@@ -122,6 +130,8 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 return true;
         }
 
+        console.log(`[PlanLimits] ${type}: currentCount=${currentCount}, limitValue=${limitValue}`);
+
         // 5. Compare
         if (limitValue !== undefined && limitValue !== null && currentCount >= parseInt(limitValue)) {
             const LABELS = {
@@ -135,6 +145,7 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 companies: "Empresas"
             };
             const label = LABELS[type] || type;
+            console.warn(`[PlanLimits] Limit reached for ${label}: ${currentCount} >= ${limitValue}`);
             throw new Error(`Límite de ${label} alcanzado.`);
         }
 
