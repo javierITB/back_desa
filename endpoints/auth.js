@@ -343,7 +343,7 @@ router.post("/login", async (req, res) => {
 
       if (user.twoFactorEnabled === true) {
          try {
-            await generateAndSend2FACode(req.db, user, "2FA_LOGIN");
+            await generateAndSend2FACode(req.db, req, user, "2FA_LOGIN");
          } catch (mailError) {
             console.error("Error enviando 2FA login:", mailError);
             return res.status(500).json({
@@ -738,7 +738,7 @@ router.post("/send-2fa-code", async (req, res) => {
          });
       }
 
-      await generateAndSend2FACode(req.db, user, "2FA_SETUP");
+      await generateAndSend2FACode(req.db, req,user, "2FA_SETUP");
 
       res.status(200).json({
          success: true,

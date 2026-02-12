@@ -5,7 +5,7 @@ const { sendEmail } = require("./mail.helper");
 /**
  * Genera el contenido del correo de respaldo usando la misma lógica que los TXT
  */
-const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, questions) => {
+const generarContenidoCorreoRespaldo = (formTitle, usuario, fecha, responses, questions, req) => {
 
   /**
    * Función para procesar preguntas y respuestas en formato texto
@@ -122,29 +122,31 @@ Generado el: ${fecha}
 `;
 
   const html = `
-<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
-    RESPALDO DE RESPUESTAS - FORMULARIO: ${formTitle}
-  </h2>
-  
-  <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #3498db;">
-    <h3 style="color: #2c3e50; margin-top: 0;">INFORMACIÓN GENERAL</h3>
-    <p><strong>Trabajador:</strong> ${nombreTrabajador}</p>
-    <p><strong>Empresa:</strong> ${usuario.empresa}</p>
-    <p><strong>Respondido por:</strong> ${usuario.nombre}</p>
-    <p><strong>Fecha y hora:</strong> ${fecha}</p>
-  </div>
-
-  <div style="background: white; padding: 20px; border-radius: 5px; border: 1px solid #ddd;">
-    <h3 style="color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 10px;">RESPUESTAS DEL FORMULARIO</h3>
-    <div style="white-space: pre-line; font-family: monospace; font-size: 14px; line-height: 1.4;">
-${contenidoRespuestas.replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;')}
+<div style="background-color: #f3f4f6; padding: 40px 10px;">
+  <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-top: 0;">
+      RESPALDO DE RESPUESTAS - FORMULARIO: ${formTitle}
+    </h2>
+    
+    <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #3498db;">
+      <h3 style="color: #2c3e50; margin-top: 0;">INFORMACIÓN GENERAL</h3>
+      <p><strong>Trabajador:</strong> ${nombreTrabajador}</p>
+      <p><strong>Empresa:</strong> ${usuario.empresa}</p>
+      <p><strong>Respondido por:</strong> ${usuario.nombre}</p>
+      <p><strong>Fecha y hora:</strong> ${fecha}</p>
     </div>
-  </div>
 
-  <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #ccc; color: #7f8c8d; font-size: 12px;">
-    <em>Este es un respaldo automático de las respuestas enviadas.<br>
-    Generado el: ${fecha}</em>
+    <div style="background: white; padding: 20px; border-radius: 5px; border: 1px solid #ddd;">
+      <h3 style="color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 10px;">RESPUESTAS DEL FORMULARIO</h3>
+      <div style="white-space: pre-line; font-family: monospace; font-size: 14px; line-height: 1.4;">
+${contenidoRespuestas.replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;')}
+      </div>
+    </div>
+
+    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #ccc; color: #7f8c8d; font-size: 12px; text-align: center;">
+      <em>Este es un respaldo automático de las respuestas enviadas.<br>
+      © ${new Date().getFullYear()} Plataforma ${req?.nombreEmpresa || 'Acciona'}</em>
+    </div>
   </div>
 </div>
 `;
@@ -172,7 +174,8 @@ const enviarCorreoRespaldo = async (correoRespaldo, formTitle, usuario, response
       usuario,
       fechaHora,
       responses,
-      questions
+      questions,
+      req
     );
 
     // Definimos el objeto para la función interna (sin necesidad de accessKey)
