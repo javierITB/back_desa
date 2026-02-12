@@ -91,6 +91,7 @@ router.post("/companies", async (req, res) => {
             name,
             dbName,
             permissions: permissions || [], // Guardamos los permisos granulares
+            planLimits: req.body.planLimits || {}, // Guardamos los límites de plan si existen
             createdAt: new Date(),
             active: true
         };
@@ -166,6 +167,15 @@ router.post("/companies", async (req, res) => {
             } else {
                 console.log(`[SAS] config_roles already has ${existingConfigCount} entries. Skipping initialization.`);
             }
+        }
+
+        // 3.3 Inicializar Plan Limits en la nueva DB (Dual-Write)
+        if (req.body.planLimits) {
+            console.log(`[SAS] Initializing plan limits for ${dbName}`);
+            await newDb.collection("config_plan").insertOne({
+                planLimits: req.body.planLimits,
+                updatedAt: new Date()
+            });
         }
 
         console.log(`[SAS] Company created successfully: ${name}`);
@@ -261,6 +271,23 @@ router.put("/companies/:id", async (req, res) => {
                     }
                 }
             }
+        }
+
+        // 3. Actualizar Plan Limits en la DB Cliente (Dual-Write)
+        if (company.dbName && req.body.planLimits) {
+            console.log(`[SAS] Syncing plan limits to client DB: ${company.dbName}`);
+            const targetDb = req.mongoClient.db(company.dbName);
+
+            await targetDb.collection("config_plan").updateOne(
+                {}, // Solo debería haber un documento de config
+                {
+                    $set: {
+                        planLimits: req.body.planLimits,
+                        updatedAt: new Date()
+                    }
+                },
+                { upsert: true }
+            );
         }
 
         res.json({ message: "Empresa actualizada exitosamente" });

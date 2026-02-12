@@ -26,25 +26,40 @@ async function checkPlanLimits(req, type, overrideUser = null) {
             }
         }
 
-        // 2. Bypass for formsdb / system
+        // 2. Bypass para formsdb / system
         if (!empresaName || empresaName === "formsdb" || empresaName === "FormsDB (Principal)") {
-            return true; // No limits for main system
-        }
-
-        const companyConfig = await dbForms.collection("config_empresas").findOne({ name: empresaName });
-
-        if (!companyConfig || !companyConfig.planLimits) {
             return true;
         }
 
-        const limits = companyConfig.planLimits;
+        const currentDb = req.db;
+        let limits = null;
 
-        // Map resource type to limit configuration
+        // 3. Cambio en db local
+        try {
+            const localConfig = await currentDb.collection("config_plan").findOne({});
+            if (localConfig && localConfig.planLimits) {
+                limits = localConfig.planLimits;
+            }
+        } catch (e) {
+            console.warn("[PlanLimits] Error reading local config_plan:", e.message);
+        }
+
+        // 4. Fallback a FormsDB
+        if (!limits) {
+            const companyConfig = await dbForms.collection("config_empresas").findOne({ name: empresaName });
+            if (companyConfig && companyConfig.planLimits) {
+                limits = companyConfig.planLimits;
+            }
+        }
+
+        if (!limits) {
+            return true;
+        }
+
         let limitValue = null;
         let currentCount = 0;
         let resourceLabel = type;
 
-        const currentDb = req.db;
 
         switch (type) {
             case 'tickets':
