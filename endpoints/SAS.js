@@ -116,12 +116,7 @@ router.post("/companies", async (req, res) => {
                 const data = await templateDb.collection(colName).find().toArray();
                 if (data.length > 0) {
                     console.log(`[SAS] Cloning ${data.length} documents from ${colName}...`);
-                    // Quitamos los _id para que se generen nuevos en la nueva DB
-                    const cleanData = data.map(doc => {
-                        const { _id, ...rest } = doc;
-                        return rest;
-                    });
-                    await newDb.collection(colName).insertMany(cleanData);
+                    await newDb.collection(colName).insertMany(data);
                 } else {
                     console.log(`[SAS] Collection ${colName} is empty in 'desarrollo'. Creating empty collection.`);
                     await newDb.createCollection(colName);
@@ -184,25 +179,11 @@ router.post("/companies", async (req, res) => {
         }
 
         // 3.4 Actualizar permisos del rol 'Administrador'
-        const permissionsForAdmin = (permissions || []).filter(pId => {
-            let isRestricted = false;
-            Object.entries(PERMISSION_GROUPS).forEach(([groupKey, groupDef]) => {
-                if (SYSTEM_ONLY_GROUPS.includes(groupKey)) {
-                    if (groupDef.permissions.some(p => p.id === pId)) {
-                        isRestricted = true;
-                    }
-                }
-            });
-            return !isRestricted;
-        });
-
-        if (permissionsForAdmin.length > 0) {
-            console.log(`[SAS] Auto-assigning ${permissionsForAdmin.length} permissions to 'Administrador' role`);
-            await newDb.collection("roles").updateOne(
-                { name: "Administrador" },
-                { $set: { permissions: permissionsForAdmin } }
-            );
-        }
+        // REVERTIDO: No auto-asignamos. El usuario debe hacerlo manualmente desde el gestor de roles.
+        /*
+        const permissionsForAdmin = (permissions || []).filter(pId => { ... });
+        if (permissionsForAdmin.length > 0) { ... }
+        */
 
         console.log(`[SAS] Company created successfully: ${name}`);
         res.status(201).json({ message: "Empresa creada exitosamente", company: newCompany });
