@@ -141,7 +141,7 @@ async function checkPlanLimits(req, type, overrideUser = null) {
         return true;
 
     } catch (error) {
-        if (error.message.startsWith("Plan limit reached")) {
+        if (error.message.startsWith("Plan limit reached") || error.message.startsWith("Límite de")) {
             throw error;
         }
         console.error(`Error checking plan limits for ${type}:`, error);
