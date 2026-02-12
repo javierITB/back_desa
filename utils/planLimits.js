@@ -9,32 +9,17 @@ const { decrypt } = require("./seguridad.helper");
  */
 async function checkPlanLimits(req, type, overrideUser = null) {
     try {
-        const dbForms = req.mongoClient.db("formsdb");
-        const user = overrideUser || (req.body.user ? req.body.user : req.user);
+        const currentDb = req.db;
+        const dbName = currentDb.databaseName;
 
-        // 1. Identify Company/DB
-        let empresaName = null;
-
-        if (user && user.empresa) {
-            empresaName = user.empresa;
-            if (empresaName.includes(":")) {
-                try {
-                    empresaName = decrypt(empresaName);
-                } catch (e) {
-                    console.error("Error decrypting company in checkPlanLimits:", e);
-                }
-            }
-        }
-
-        // 2. Bypass para formsdb / system
-        if (!empresaName || empresaName === "formsdb" || empresaName === "FormsDB (Principal)") {
+        // 2. Bypass para formsdb (sistema global)
+        if (dbName === "formsdb") {
             return true;
         }
 
-        const currentDb = req.db;
         let limits = null;
 
-        // 3. Cambio en db local
+        // 3. Prioridad: Buscar límites en la DB local (config_plan)
         try {
             const localConfig = await currentDb.collection("config_plan").findOne({});
             if (localConfig && localConfig.planLimits) {
@@ -44,11 +29,21 @@ async function checkPlanLimits(req, type, overrideUser = null) {
             console.warn("[PlanLimits] Error reading local config_plan:", e.message);
         }
 
-        // 4. Fallback a FormsDB
+        // 4. Fallback: Buscar en la configuración de empresa en FormsDB
         if (!limits) {
-            const companyConfig = await dbForms.collection("config_empresas").findOne({ name: empresaName });
-            if (companyConfig && companyConfig.planLimits) {
-                limits = companyConfig.planLimits;
+            const user = overrideUser || (req.body.user ? req.body.user : req.user);
+            let empresaName = user?.empresa;
+
+            if (empresaName && empresaName.includes(":")) {
+                try { empresaName = decrypt(empresaName); } catch (e) { }
+            }
+
+            if (empresaName) {
+                const dbForms = req.mongoClient.db("formsdb");
+                const companyConfig = await dbForms.collection("config_empresas").findOne({ name: empresaName });
+                if (companyConfig && companyConfig.planLimits) {
+                    limits = companyConfig.planLimits;
+                }
             }
         }
 
@@ -58,8 +53,6 @@ async function checkPlanLimits(req, type, overrideUser = null) {
 
         let limitValue = null;
         let currentCount = 0;
-        let resourceLabel = type;
-
 
         switch (type) {
             case 'tickets':
@@ -70,8 +63,10 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 break;
 
             case 'requests':
-                limitValue = limits.requests?.maxTotal ?? limits.solicitudes?.maxTotal;
-                if (limitValue !== undefined) {
+                // Soporte para ambos nombres y estructuras (objeto o valor directo)
+                const reqLimit = limits.requests ?? limits.solicitudes;
+                if (reqLimit !== undefined && reqLimit !== null) {
+                    limitValue = (typeof reqLimit === 'object') ? reqLimit.maxTotal : reqLimit;
                     currentCount = await currentDb.collection("respuestas").countDocuments();
                 }
                 break;
@@ -104,14 +99,14 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 }
                 break;
 
-            case 'configTickets': // Categories
+            case 'configTickets':
                 limitValue = limits.configTickets?.maxCategories;
                 if (limitValue !== undefined) {
                     currentCount = await currentDb.collection("config_tickets").countDocuments();
                 }
                 break;
 
-            case 'companies': // Client Companies
+            case 'companies':
                 limitValue = limits.companies?.maxQuantity;
                 if (limitValue !== undefined) {
                     currentCount = await currentDb.collection("empresas").countDocuments();
@@ -122,7 +117,7 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 return true;
         }
 
-        // 5. Compare
+        // 5. Comparar límite
         if (limitValue !== undefined && limitValue !== null && currentCount >= parseInt(limitValue)) {
             const LABELS = {
                 tickets: "Tickets",
