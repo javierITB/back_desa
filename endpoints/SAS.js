@@ -183,6 +183,27 @@ router.post("/companies", async (req, res) => {
             });
         }
 
+        // 3.4 Actualizar permisos del rol 'Administrador'
+        const permissionsForAdmin = (permissions || []).filter(pId => {
+            let isRestricted = false;
+            Object.entries(PERMISSION_GROUPS).forEach(([groupKey, groupDef]) => {
+                if (SYSTEM_ONLY_GROUPS.includes(groupKey)) {
+                    if (groupDef.permissions.some(p => p.id === pId)) {
+                        isRestricted = true;
+                    }
+                }
+            });
+            return !isRestricted;
+        });
+
+        if (permissionsForAdmin.length > 0) {
+            console.log(`[SAS] Auto-assigning ${permissionsForAdmin.length} permissions to 'Administrador' role`);
+            await newDb.collection("roles").updateOne(
+                { name: "Administrador" },
+                { $set: { permissions: permissionsForAdmin } }
+            );
+        }
+
         console.log(`[SAS] Company created successfully: ${name}`);
         res.status(201).json({ message: "Empresa creada exitosamente", company: newCompany });
 
