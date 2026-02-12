@@ -70,7 +70,7 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 break;
 
             case 'requests':
-                limitValue = limits.requests?.maxTotal;
+                limitValue = limits.requests?.maxTotal ?? limits.solicitudes?.maxTotal;
                 if (limitValue !== undefined) {
                     currentCount = await currentDb.collection("respuestas").countDocuments();
                 }
