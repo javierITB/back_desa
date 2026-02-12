@@ -63,7 +63,7 @@ function validarDestinatarios(raw) {
  */
 // --- FUNCIÓN PRINCIPAL EXPORTADA ---
 // --- FUNCIÓN PRINCIPAL EXPORTADA ---
-const sendEmail = async ({ to, subject, html, text, from }) => {
+const sendEmail = async ({ to, subject, html, text, from }, req) => {
   // 1. Validar destinatarios
   const valid = validarDestinatarios(to);
   if (valid.error) throw { status: 400, message: valid.error };
@@ -74,9 +74,8 @@ const sendEmail = async ({ to, subject, html, text, from }) => {
 
   // --- LÓGICA DE NOMBRE DE EMPRESA ---
   // Si recibimos "api", lo cambiamos a "ACCIONA". Si no, usamos el global.
-  const tenantRaw = global.currentTenant || "Plataforma";
-  const tenantName = (tenantRaw === "api") ? "ACCIONA" : tenantRaw;
-  const nombreEmpresa = tenantName.toUpperCase();
+  const tenantRaw = req?.nombreEmpresa || "Plataforma";
+  const nombreEmpresa = tenantRaw.toUpperCase();
 
   // Estilo que combina con 'Segoe UI' del correo original, centrado y elegante
   const empresaHtml = `

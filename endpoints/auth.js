@@ -573,6 +573,7 @@ router.post("/recuperacion", async (req, res) => {
       const primaryColor = "#2563eb"; // Azul elegante
       const bgColor = "#f3f4f6"; // Gris claro de fondo
 
+      // CAMBIO AQUÍ: Llamamos a sendEmail pasando 'req' al final
       await sendEmail({
          to: userEmail,
          subject: "Restablecer Contraseña",
@@ -599,12 +600,12 @@ router.post("/recuperacion", async (req, res) => {
 
                   <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center;">
                      <p style="margin: 0;">Este es un correo automático, por favor no respondas a este mensaje.</p>
-                     <p style="margin: 5px 0 0 0;">&copy; ${new Date().getFullYear()} Soporte Plataforma</p>
+                     <p style="margin: 5px 0 0 0;">&copy; ${new Date().getFullYear()} Plataforma Acciona</p> 
                   </div>
                </div>
             </div>
          `,
-      });
+      }, req);
 
       res.json({ success: true, message: "Enviado." });
    } catch (err) {

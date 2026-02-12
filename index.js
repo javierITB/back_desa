@@ -78,7 +78,7 @@ tenantRouter.use(async (req, res, next) => {
     // Inyectamos la base de datos específica en el objeto request
     req.db = await getTenantDB(company);
 
-    global.currentTenant = (company === "api") ? "ACCIONA" : company;
+    req.nombreEmpresa = (company === "api") ? "ACCIONA" : company;
 
     // Lógica de redirección global solicitada
     // api, infoacciona y solunex redirigen a solunex.cl
