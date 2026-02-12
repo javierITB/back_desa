@@ -124,7 +124,18 @@ async function checkPlanLimits(req, type, overrideUser = null) {
 
         // 5. Compare
         if (limitValue !== undefined && limitValue !== null && currentCount >= parseInt(limitValue)) {
-            throw new Error(`Plan limit reached for ${resourceLabel}. Limit: ${limitValue}, Current: ${currentCount}`);
+            const LABELS = {
+                tickets: "Tickets",
+                requests: "Solicitudes",
+                forms: "Formularios",
+                templates: "Plantillas",
+                users: "Usuarios",
+                roles: "Roles",
+                configTickets: "Categorías",
+                companies: "Empresas"
+            };
+            const label = LABELS[type] || type;
+            throw new Error(`Límite de ${label} alcanzado.`);
         }
 
         return true;
