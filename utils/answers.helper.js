@@ -1,8 +1,7 @@
-const { encrypt, decrypt } = require("../utils/seguridad.helper");
 const { getActor } = require("./registerEvent.helper");
 const { formatActor } = require("./registerEvent.helper");
 
-async function getRequestSentMetadata() {
+function getRequestSentMetadata() {
    return [
       {
          id: 1,
