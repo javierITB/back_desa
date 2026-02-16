@@ -14,7 +14,7 @@ const {
    getChangeStatusMetadata,
    getApprovedMetadata,
    getFirmadoMetadata,
-   getFirmaEliminadaMetadata
+   getFirmaEliminadaMetadata,
 } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
@@ -3018,6 +3018,166 @@ router.delete("/delete-corrected-file/:responseId", async (req, res) => {
    }
 });
 
+// ELIMINAR VARIOS ARCHIVOS CORREGIDOS
+router.delete("/delete-corrected-files/:responseId", async (req, res) => {
+   try {
+      const { responseId } = req.params;
+      const { fileNames } = req.body;
+
+      const auth = await verifyRequest(req);
+      if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+      if (!Array.isArray(fileNames) || fileNames.length === 0) {
+         return res.status(400).json({
+            error: "fileNames debe ser un array",
+         });
+      }
+
+      const respuestaActual = await req.db.collection("respuestas").findOne({
+         _id: new ObjectId(responseId),
+      });
+
+      if (!respuestaActual) {
+         return res.status(404).json({
+            error: "Respuesta no encontrada",
+         });
+      }
+
+      if (respuestaActual.status === "archivado") {
+         return res.status(403).json({
+            error: "No se pueden eliminar archivos de una solicitud archivada",
+         });
+      }
+
+      const approvedDoc = await req.db.collection("aprobados").findOne({
+         responseId,
+      });
+
+      if (!approvedDoc || !approvedDoc.correctedFiles) {
+         return res.status(404).json({
+            error: "No hay archivos corregidos",
+         });
+      }
+
+      // verificar cuáles existen realmente
+      const existingFileNames = approvedDoc.correctedFiles.map((f) => f.fileName);
+
+      const validFileNames = fileNames.filter((name) => existingFileNames.includes(name));
+
+      if (validFileNames.length === 0) {
+         return res.status(404).json({
+            error: "Ningún archivo válido para eliminar",
+         });
+      }
+
+      const estadoActual = respuestaActual.status;
+
+      const tieneFirma = await req.db.collection("firmados").findOne({
+         responseId,
+      });
+
+      // eliminar múltiples archivos
+      await req.db.collection("aprobados").updateOne(
+         { responseId },
+         {
+            $pull: {
+               correctedFiles: {
+                  fileName: { $in: validFileNames },
+               },
+            },
+            $set: {
+               updatedAt: new Date(),
+            },
+         },
+      );
+
+      // obtener estado actualizado
+      const updatedDoc = await req.db.collection("aprobados").findOne({
+         responseId,
+      });
+
+      let nuevoEstado = estadoActual;
+      let statusChanged = false;
+      let deletedDocument = false;
+
+      if (!updatedDoc || updatedDoc.correctedFiles.length === 0) {
+         deletedDocument = true;
+
+         await req.db.collection("aprobados").deleteOne({
+            responseId,
+         });
+
+         if ((estadoActual === "aprobado" || estadoActual === "firmado") && !tieneFirma) {
+            nuevoEstado = "en_revision";
+         } else if (estadoActual === "firmado" && tieneFirma) {
+            nuevoEstado = "firmado";
+         } else if (estadoActual === "finalizado" || estadoActual === "archivado") {
+            nuevoEstado = estadoActual;
+         }
+
+         statusChanged = nuevoEstado !== estadoActual;
+
+         await req.db.collection("respuestas").updateOne(
+            { _id: new ObjectId(responseId) },
+            {
+               $set: {
+                  hasCorrection: false,
+                  status: nuevoEstado,
+                  updatedAt: new Date(),
+               },
+            },
+         );
+
+         if (statusChanged && nuevoEstado === "en_revision") {
+            await addNotification(req.db, {
+               filtro: { cargo: "RRHH" },
+               titulo: "Correcciones eliminadas - Volviendo a revisión",
+               descripcion: `Se eliminaron todas las correcciones del formulario ${respuestaActual?.formTitle}`,
+               prioridad: 2,
+               icono: "RefreshCw",
+               color: "#ff9800",
+               actionUrl: `/RespuestasForms?id=${responseId}`,
+            });
+
+            await addNotification(req.db, {
+               userId: respuestaActual?.user?.uid,
+               titulo: "Documento vuelve a revisión",
+               descripcion: `Las correcciones han sido eliminadas`,
+               prioridad: 2,
+               icono: "RefreshCw",
+               color: "#ff9800",
+               actionUrl: `/?id=${responseId}`,
+            });
+         }
+      } else {
+         await req.db.collection("respuestas").updateOne(
+            { _id: new ObjectId(responseId) },
+            {
+               $set: {
+                  updatedAt: new Date(),
+               },
+            },
+         );
+      }
+
+      res.json({
+         success: true,
+         deletedCount: validFileNames.length,
+         deletedFiles: validFileNames,
+         remainingFiles: updatedDoc?.correctedFiles?.length || 0,
+         statusChanged,
+         newStatus: nuevoEstado,
+         deletedDocument,
+      });
+   } catch (err) {
+      console.error(err);
+
+      res.status(500).json({
+         error: err.message,
+      });
+   }
+});
+
 // APROBAR FORMULARIO CON MÚLTIPLES ARCHIVOS (MODIFICADO)
 router.post("/:id/approve", async (req, res) => {
    try {
@@ -3527,30 +3687,25 @@ router.delete("/:responseId/client-signature", async (req, res) => {
       }
 
       // Crear metadata timeline
-      const firmaEliminadaMetadata = await getFirmaEliminadaMetadata(
-         req,
-         auth,
-         currentDate
-      );
+      const firmaEliminadaMetadata = await getFirmaEliminadaMetadata(req, auth, currentDate);
 
       // Actualizar respuesta y timeline
-      const updatedResponse =
-         await req.db.collection("respuestas").findOneAndUpdate(
-            { _id: objectId },
-            {
-               $set: {
-                  status: "aprobado",
-                  updatedAt: currentDate,
-                  updateAdmin: currentDate,
-               },
-               $push: {
-                  cambios: firmaEliminadaMetadata,
-               },
+      const updatedResponse = await req.db.collection("respuestas").findOneAndUpdate(
+         { _id: objectId },
+         {
+            $set: {
+               status: "aprobado",
+               updatedAt: currentDate,
+               updateAdmin: currentDate,
             },
-            {
-               returnDocument: "after",
-            }
-         );
+            $push: {
+               cambios: firmaEliminadaMetadata,
+            },
+         },
+         {
+            returnDocument: "after",
+         },
+      );
 
       res.json({
          success: true,
@@ -3565,7 +3720,6 @@ router.delete("/:responseId/client-signature", async (req, res) => {
       });
    }
 });
-
 
 // Verificar si existe PDF firmado para una respuesta específica
 router.get("/:responseId/has-client-signature", async (req, res) => {
