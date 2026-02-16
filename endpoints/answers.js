@@ -3671,7 +3671,7 @@ router.put("/:id/status", async (req, res) => {
          try {
             await checkPlanLimits(req, "requests_archived", null);
          } catch (limitErr) {
-            return res.status(403).json({ error: limitErr.message });
+            return res.status(400).json({ error: limitErr.message });
          }
 
          // Eliminar archivos si está configurado
