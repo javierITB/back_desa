@@ -56,7 +56,7 @@ async function getApprovedMetadata(req, auth, approvedDoc) {
    return { filesUploadedMetadata, approvedMetadata };
 }
 
-async function getFirmadoMetadata(currentDate) {
+async function getFirmadoMetadata(req, auth, currentDate) {
    const actor = await getActor(req, auth);
 
    return {
