@@ -130,6 +130,23 @@ async function getCorrectionsClearedMetadata(req, auth, date) {
    };
 }
 
+async function getFinalizedMetadata(req, auth, date) {
+
+   const actor = await getActor(req, auth);
+   const formattedActor = formatActor(actor);
+
+   return {
+      title: "Solicitud Finalizada",
+      description:
+         "La solicitud ha sido finalizada y el proceso ha concluido.",
+      status: "completed",
+      completedAt: date,
+      assignedTo: formattedActor,
+   };
+
+}
+
+
 
 
 
@@ -185,5 +202,6 @@ module.exports = {
    getFirmaEliminadaMetadata,
    getFilesUploadedMetadata,
    getCorrectedFilesDeletedMetadata,
-   getCorrectionsClearedMetadata
+   getCorrectionsClearedMetadata,
+   getFinalizedMetadata
 };

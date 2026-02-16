@@ -18,6 +18,7 @@ const {
    getFilesUploadedMetadata,
    getCorrectedFilesDeletedMetadata,
    getCorrectionsClearedMetadata,
+   getFinalizedMetadata
 } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
@@ -2372,37 +2373,61 @@ router.get("/:id/finalized", async (req, res) => {
    try {
       const { id } = req.params;
 
-      // Verificar token
       const auth = await verifyRequest(req);
-      if (!auth.ok) return res.status(401).json({ error: auth.error });
+      if (!auth.ok)
+         return res.status(401).json({ error: auth.error });
 
       if (!ObjectId.isValid(id)) {
-         return res.status(400).json({ error: "ID de respuesta inválido" });
+         return res.status(400).json({
+            error: "ID de respuesta inválido",
+         });
       }
 
+      const objectId = new ObjectId(id);
+      const currentDate = new Date();
+
+      // verificar existencia
       const respuesta = await req.db.collection("respuestas").findOne({
-         _id: new ObjectId(id),
+         _id: objectId,
       });
 
       if (!respuesta) {
-         return res.status(404).json({ error: "Respuesta no encontrada" });
+         return res.status(404).json({
+            error: "Respuesta no encontrada",
+         });
       }
 
-      const updateResult = await req.db.collection("respuestas").updateOne(
-         { _id: new ObjectId(id) },
-         {
-            $set: {
-               status: "finalizado",
-               finalizedAt: new Date(),
-               finalizedAt: new Date(),
-               updatedAt: new Date(),
-               updateAdmin: new Date(),
-            },
-         },
+      // crear metadata
+      const finalizedMetadata = await getFinalizedMetadata(
+         req,
+         auth,
+         currentDate
       );
 
-      if (updateResult.matchedCount === 0) {
-         return res.status(404).json({ error: "No se pudo actualizar la respuesta" });
+      // actualizar respuesta + registrar evento
+      const updatedResponse =
+         await req.db.collection("respuestas").findOneAndUpdate(
+            { _id: objectId },
+            {
+               $set: {
+                  status: "finalizado",
+                  finalizedAt: currentDate,
+                  updatedAt: currentDate,
+                  updateAdmin: currentDate,
+               },
+               $push: {
+                  cambios: finalizedMetadata,
+               },
+            },
+            {
+               returnDocument: "after",
+            }
+         );
+
+      if (!updatedResponse) {
+         return res.status(404).json({
+            error: "No se pudo actualizar la respuesta",
+         });
       }
 
       res.json({
@@ -2411,11 +2436,18 @@ router.get("/:id/finalized", async (req, res) => {
          status: "finalizado",
          responseId: id,
       });
+
    } catch (err) {
+
       console.error("Error finalizando respuesta:", err);
-      res.status(500).json({ error: "Error finalizando respuesta: " + err.message });
+
+      res.status(500).json({
+         error: "Error finalizando respuesta",
+      });
+
    }
 });
+
 
 // Endpoint de mantenimiento único para limpiar archivos de respuestas ya archivadas
 router.get("/mantenimiento/limpiar-archivos-archivados", async (req, res) => {
@@ -3116,7 +3148,7 @@ router.delete("/delete-corrected-files/:responseId", async (req, res) => {
       let statusChanged = false;
       let deletedDocument = false;
       const currentDate = new Date();
-      
+
       if (!updatedDoc || updatedDoc.correctedFiles.length === 0) {
          deletedDocument = true;
 
