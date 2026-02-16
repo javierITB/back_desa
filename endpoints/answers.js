@@ -9,7 +9,7 @@ const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
 const { registerSolicitudCreationEvent, registerSolicitudRemovedEvent } = require("../utils/registerEvent");
-const { getChangeStatusMetadata } = require("../utils/answers.helper");
+const { getRequestSentMetadata, getChangeStatusMetadata, getApprovedMetadata } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -194,17 +194,8 @@ router.post("/", async (req, res) => {
       // 2. Cifrar objeto 'responses' campo por campo
       const responsesCifrado = cifrarObjeto(responses);
       const currentDate = new Date();
-      const cambios = [
-         {
-            id: 1,
-            title: "Solicitud Enviada",
-            description: "La solicitud ha sido enviada y está pendiente de revisión inicial.",
-            status: "completed",
-            completedAt: currentDate,
-            assignedTo: "Sistema Automático",
-            notes: "Solicitud recibida correctamente.",
-         },
-      ];
+
+      const cambios = getRequestSentMetadata();
 
       // Guardar respuesta con datos CIFRADOS
       const result = await req.db.collection("respuestas").insertOne({
@@ -3026,66 +3017,78 @@ router.delete("/delete-corrected-file/:responseId", async (req, res) => {
 // APROBAR FORMULARIO CON MÚLTIPLES ARCHIVOS (MODIFICADO)
 router.post("/:id/approve", async (req, res) => {
    try {
+      const auth = await verifyRequest(req);
+      if (!auth.ok) return res.status(401).json({ error: auth.error });
+
       const responseId = req.params.id;
 
-      const respuesta = await req.db.collection("respuestas").findOne({
-         _id: new ObjectId(responseId),
-      });
+      if (!ObjectId.isValid(responseId)) {
+         return res.status(400).json({ error: "ID inválido" });
+      }
+
+      const objectId = new ObjectId(responseId);
+
+      // Ejecutar consultas independientes en paralelo
+      const [respuesta, approvedDoc, existingSignature] = await Promise.all([
+         req.db.collection("respuestas").findOne({ _id: objectId }),
+         req.db.collection("aprobados").findOne({ responseId }),
+         req.db.collection("firmados").findOne({ responseId }),
+      ]);
 
       if (!respuesta) {
          return res.status(404).json({ error: "Respuesta no encontrada" });
       }
 
-      // Verificar que existan archivos corregidos en la colección 'aprobados'
-      const approvedDoc = await req.db.collection("aprobados").findOne({
-         responseId: responseId,
-      });
-
-      if (!approvedDoc || !approvedDoc.correctedFiles || approvedDoc.correctedFiles.length === 0) {
+      if (!approvedDoc?.correctedFiles?.length) {
          return res.status(400).json({
-            error: "No hay archivos corregidos para aprobar. Debe subir al menos un archivo PDF primero.",
+            error: "No hay archivos corregidos para aprobar.",
          });
       }
 
-      const existingSignature = await req.db.collection("firmados").findOne({
-         responseId: responseId,
-      });
+      const nuevoEstado = existingSignature ? "firmado" : "aprobado";
+      const now = new Date();
 
-      let nuevoEstado = "aprobado";
-      if (existingSignature) {
-         console.log("Existe documento firmado, saltando directamente a estado 'firmado'");
-         nuevoEstado = "firmado";
-      }
+      // Registrar cambio metadata
+      const { filesUploadedMetadata, approvedMetadata } = getApprovedMetadata(req, auth, approvedDoc);
 
-      // Actualizar el documento en 'aprobados' con la información de aprobación
-      await req.db.collection("aprobados").updateOne(
-         { responseId: responseId },
-         {
-            $set: {
-               approvedAt: new Date(),
-               approvedBy: req.user?.id,
-               updatedAt: new Date(),
+      // Ejecutar updates en paralelo
+      const [updatedResponse] = await Promise.all([
+         req.db.collection("respuestas").findOneAndUpdate(
+            { _id: objectId },
+            {
+               $set: {
+                  status: nuevoEstado,
+                  approvedAt: now,
+                  updatedAt: now,
+                  updateAdmin: now,
+               },
+               $unset: {
+                  correctedFile: "",
+               },
+               $push: {
+                  cambios: {
+                     $each: [filesUploadedMetadata, approvedMetadata],
+                  },
+               },
             },
-         },
-      );
-
-      // Actualizar la respuesta principal
-      const updateResult = await req.db.collection("respuestas").updateOne(
-         { _id: new ObjectId(responseId) },
-         {
-            $set: {
-               status: nuevoEstado,
-               approvedAt: new Date(),
-               updatedAt: new Date(),
-               updateAdmin: new Date(),
+            {
+               returnDocument: "after",
             },
-            $unset: {
-               correctedFile: "",
-            },
-         },
-      );
+         ),
 
-      // --- BLOQUE DE NOTIFICACIONES EN ESPEJO ---
+         req.db.collection("aprobados").updateOne(
+            { responseId },
+            {
+               $set: {
+                  approvedAt: now,
+                  approvedBy: req.user?.id,
+                  updatedAt: now,
+               },
+            },
+         ),
+      ]);
+
+      // --- NOTIFICACIONES ---
       const notifData = {
          titulo: "Documento Aprobado",
          descripcion: `Se ha aprobado el documento asociado al formulario ${respuesta.formTitle} con ${approvedDoc.correctedFiles.length} archivo(s)`,
@@ -3095,37 +3098,32 @@ router.post("/:id/approve", async (req, res) => {
          actionUrl: `/?id=${responseId}`,
       };
 
-      // 1. Notificar al autor (Dueño)
-      await addNotification(req.db, {
-         userId: respuesta.user?.uid,
-         ...notifData,
-      });
+      const usersToNotify = [respuesta.user?.uid, ...(respuesta.user?.compartidos || [])].filter(Boolean);
 
-      // 2. Notificar a los compartidos del array (si existen)
-      if (respuesta?.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
-         for (const compartidoId of respuesta.user.compartidos) {
-            if (compartidoId) {
-               await addNotification(req.db, {
-                  userId: compartidoId,
-                  ...notifData,
-               });
-            }
-         }
-      }
-      // --- FIN BLOQUE DE NOTIFICACIONES ---
+      await Promise.all(
+         usersToNotify.map((userId) =>
+            addNotification(req.db, {
+               userId,
+               ...notifData,
+            }),
+         ),
+      );
 
       res.json({
          message: existingSignature
-            ? `Formulario aprobado y restaurado a estado firmado (existía firma previa) con ${approvedDoc.correctedFiles.length} archivo(s)`
-            : `Formulario aprobado correctamente con ${approvedDoc.correctedFiles.length} archivo(s)`,
+            ? "Formulario aprobado y restaurado a estado firmado"
+            : "Formulario aprobado correctamente",
          approved: true,
          status: nuevoEstado,
          hadExistingSignature: !!existingSignature,
          totalFiles: approvedDoc.correctedFiles.length,
+         updatedRequest: updatedResponse,
       });
    } catch (err) {
-      console.error("Error aprobando formulario:", err);
-      res.status(500).json({ error: "Error aprobando formulario: " + err.message });
+      console.error(err);
+      res.status(500).json({
+         error: "Error aprobando formulario",
+      });
    }
 });
 
