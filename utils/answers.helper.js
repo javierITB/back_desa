@@ -67,9 +67,22 @@ async function getFirmadoMetadata(req, auth, currentDate) {
       assignedTo: formatActor(actor),
       notes: "Documento recibido correctamente.",
    }
-
-
 }
+
+async function getFirmaEliminadaMetadata(req, auth, currentDate) {
+   const actor = await getActor(req, auth);
+   const formattedActor = formatActor(actor);
+
+   return {
+      title: "Firma del cliente eliminada",
+      description:
+         "La firma del cliente ha sido eliminada y la solicitud ha vuelto a estado aprobado.",
+      status: "completed",
+      completedAt: currentDate,
+      assignedTo: formattedActor,
+   };
+}
+
 
 function formatText(text) {
    const formatted = text.replace(/_/g, " ");
@@ -119,5 +132,6 @@ module.exports = {
    getChangeStatusMetadata,
    getApprovedMetadata,
    getRequestSentMetadata,
-   getFirmadoMetadata
+   getFirmadoMetadata,
+   getFirmaEliminadaMetadata
 };

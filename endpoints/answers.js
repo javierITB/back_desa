@@ -14,6 +14,7 @@ const {
    getChangeStatusMetadata,
    getApprovedMetadata,
    getFirmadoMetadata,
+   getFirmaEliminadaMetadata
 } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
@@ -3482,50 +3483,89 @@ router.delete("/:responseId/client-signature", async (req, res) => {
    try {
       const { responseId } = req.params;
 
-      // Verificar token
+      // Verificar auth
       const auth = await verifyRequest(req);
-      if (!auth.ok) return res.status(401).json({ error: auth.error });
+      if (!auth.ok) {
+         return res.status(401).json({ error: auth.error });
+      }
 
-      // --- AGREGADO: VALIDACIÓN DE ESTADO ARCHIVADO ---
+      // Validar ObjectId
+      if (!ObjectId.isValid(responseId)) {
+         return res.status(400).json({ error: "ID inválido" });
+      }
+
+      const objectId = new ObjectId(responseId);
+      const currentDate = new Date();
+
+      // Buscar respuesta primero
       const respuestaActual = await req.db.collection("respuestas").findOne({
-         _id: new ObjectId(responseId),
+         _id: objectId,
       });
 
-      if (respuestaActual && respuestaActual.status === "archivado") {
-         return res.status(403).json({
-            error: "No se puede eliminar la firma de una solicitud que ya está archivada.",
+      if (!respuestaActual) {
+         return res.status(404).json({
+            error: "Solicitud no encontrada",
          });
       }
-      // -----------------------------------------------
 
+      // No permitir eliminar si archivado
+      if (respuestaActual.status === "archivado") {
+         return res.status(403).json({
+            error: "No se puede eliminar la firma de una solicitud archivada.",
+         });
+      }
+
+      // Eliminar firma
       const deleteResult = await req.db.collection("firmados").deleteOne({
          responseId: responseId,
       });
 
       if (deleteResult.deletedCount === 0) {
-         return res.status(404).json({ error: "Documento firmado no encontrado" });
+         return res.status(404).json({
+            error: "Documento firmado no encontrado",
+         });
       }
 
-      const updateResult = await req.db.collection("respuestas").updateOne(
-         { _id: new ObjectId(responseId) },
-         {
-            $set: {
-               status: "aprobado",
-               updatedAt: new Date(),
-               updateAdmin: new Date(),
-            },
-         },
+      // Crear metadata timeline
+      const firmaEliminadaMetadata = await getFirmaEliminadaMetadata(
+         req,
+         auth,
+         currentDate
       );
+
+      // Actualizar respuesta y timeline
+      const updatedResponse =
+         await req.db.collection("respuestas").findOneAndUpdate(
+            { _id: objectId },
+            {
+               $set: {
+                  status: "aprobado",
+                  updatedAt: currentDate,
+                  updateAdmin: currentDate,
+               },
+               $push: {
+                  cambios: firmaEliminadaMetadata,
+               },
+            },
+            {
+               returnDocument: "after",
+            }
+         );
 
       res.json({
          success: true,
          message: "Documento firmado eliminado exitosamente",
+         updatedRequest: updatedResponse,
       });
    } catch (err) {
       console.error("Error eliminando firma del cliente:", err);
-      res.status(500).json({ error: "Error eliminando firma del cliente" });
+
+      res.status(500).json({
+         error: "Error eliminando firma del cliente",
+      });
    }
 });
+
 
 // Verificar si existe PDF firmado para una respuesta específica
 router.get("/:responseId/has-client-signature", async (req, res) => {
