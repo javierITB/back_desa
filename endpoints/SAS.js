@@ -120,6 +120,7 @@ router.post("/companies", async (req, res) => {
 
         // 3.1 Colecciones a clonar desde 'desarrollo'
         const collectionsToClone = [
+            "empresas",
             "forms",
             "plantillas",
             "roles",
