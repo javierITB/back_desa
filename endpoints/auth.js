@@ -1501,7 +1501,7 @@ router.get("/empresas/todas", async (req, res) => {
 
 // ruta nueva para enviar anuncios 
  
-router.get("/filtros-anuncios", async (req, res) => {
+router.get("/empresas/anuncios", async (req, res) => {
    try {
       await verifyRequest(req);
       const db = req.db;
