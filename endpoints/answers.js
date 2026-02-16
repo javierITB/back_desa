@@ -1107,9 +1107,9 @@ router.get("/mini", async (req, res) => {
             submittedAt: answer.submittedAt,
             user: answer.user
                ? {
-                    nombre: decrypt(answer.user.nombre),
-                    empresa: decrypt(answer.user.empresa),
-                 }
+                  nombre: decrypt(answer.user.nombre),
+                  empresa: decrypt(answer.user.empresa),
+               }
                : answer.user,
             status: answer.status,
             createdAt: answer.createdAt,
@@ -1252,10 +1252,10 @@ router.get("/filtros", async (req, res) => {
       const normalizeText = (str) =>
          str
             ? str
-                 .toString()
-                 .normalize("NFD")
-                 .replace(/[\u0300-\u036f]/g, "")
-                 .toLowerCase()
+               .toString()
+               .normalize("NFD")
+               .replace(/[\u0300-\u036f]/g, "")
+               .toLowerCase()
             : "";
 
       // 5.1 Filtrado en Memoria (Búsqueda por texto claro)
@@ -1553,7 +1553,7 @@ router.get("/public/:id", async (req, res) => {
             const plantilla = await buscarPlantillaPorFormId(respuestaProcesada.formId, req.db);
             respuestaProcesada.hasTemplate = !!plantilla;
          }
-      } catch (e) {}
+      } catch (e) { }
 
       res.json(respuestaProcesada);
    } catch (err) {
@@ -1659,7 +1659,7 @@ router.get("/:id", async (req, res) => {
                      if (u.nombre && u.nombre.includes(":")) {
                         try {
                            nombre = decrypt(u.nombre);
-                        } catch (e) {}
+                        } catch (e) { }
                      } else if (u.nombre) {
                         nombre = u.nombre;
                      }
@@ -1667,7 +1667,7 @@ router.get("/:id", async (req, res) => {
                      if (u.mail && u.mail.includes(":")) {
                         try {
                            email = decrypt(u.mail);
-                        } catch (e) {}
+                        } catch (e) { }
                      } else if (u.mail) {
                         email = u.mail;
                      }
@@ -2252,8 +2252,8 @@ router.post("/chat", async (req, res) => {
          titulo: internal
             ? "Nueva nota interna"
             : isSenderStaff
-              ? "Nuevo mensaje recibido"
-              : "Nuevo mensaje en formulario",
+               ? "Nuevo mensaje recibido"
+               : "Nuevo mensaje en formulario",
          descripcion: `En: ${formTitleNoti} (${trabajadorNombre}) - ${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? "..." : ""}`,
          icono: "MessageCircle",
          color: internal ? "#f59e0b" : "#45577eff",
@@ -3667,6 +3667,31 @@ router.put("/:id/status", async (req, res) => {
          return res.status(400).json({ error: "Estado no válido" });
       }
 
+      // Verificar límite de archivados
+      if (status === "archivado") {
+         const { checkPlanLimits } = require("../utils/planLimits");
+         try {
+            await checkPlanLimits(req, "requests_archived", null);
+         } catch (limitErr) {
+            return res.status(403).json({ error: limitErr.message });
+         }
+
+         // Eliminar archivos si está configurado
+         try {
+            const configPlan = await req.db.collection("config_plan").findOne({});
+            const limits = configPlan?.planLimits || {};
+            const reqLimits = limits.requests ?? limits.solicitudes;
+
+            if (reqLimits && (reqLimits.deleteArchivedFiles === true || reqLimits.deleteArchivedFiles === "true")) {
+               console.log(`[Archivado] Eliminando archivos para respuesta ${id} según configuración`);
+               await req.db.collection("adjuntos").deleteMany({ responseId: new ObjectId(id) });
+            }
+         } catch (delErr) {
+            console.error("Error eliminando archivos al archivar:", delErr);
+            // No bloqueamos el flujo principal, solo logueamos
+         }
+      }
+
       // const respuesta = await req.db.collection("respuestas").findOne({
       //    _id: new ObjectId(id),
       // });
@@ -3707,7 +3732,7 @@ router.put("/:id/status", async (req, res) => {
          },
       );
 
-      if(!updatedResponse) return res.status(404).json({ error: "Respuesta no encontrada" });
+      if (!updatedResponse) return res.status(404).json({ error: "Respuesta no encontrada" });
 
       const descifrarObjeto = (obj) => {
          if (!obj || typeof obj !== "object") return obj;
@@ -3758,7 +3783,7 @@ router.put("/:id/status", async (req, res) => {
          if (updatedResponse.mail && typeof updatedResponse.mail === "string" && updatedResponse.mail.includes(":")) {
             try {
                updatedResponse.mail = decrypt(updatedResponse.mail);
-            } catch (e) {}
+            } catch (e) { }
          }
       }
 

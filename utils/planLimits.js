@@ -65,9 +65,43 @@ async function checkPlanLimits(req, type, overrideUser = null) {
             case 'requests':
                 // Soporte para ambos nombres y estructuras (objeto o valor directo)
                 const reqLimit = limits.requests ?? limits.solicitudes;
-                if (reqLimit !== undefined && reqLimit !== null) {
-                    limitValue = (typeof reqLimit === 'object') ? reqLimit.maxTotal : reqLimit;
-                    currentCount = await currentDb.collection("respuestas").countDocuments();
+
+                if (reqLimit) {
+                    // 1. Límite Total
+                    const maxTotal = (typeof reqLimit === 'object') ? reqLimit.maxTotal : reqLimit;
+                    if (maxTotal !== undefined && maxTotal !== null && maxTotal !== "") {
+                        const currentTotal = await currentDb.collection("respuestas").countDocuments();
+                        if (currentTotal >= parseInt(maxTotal)) {
+                            throw new Error(`Límite de Solicitudes Totales alcanzado (${maxTotal}).`);
+                        }
+                    }
+
+                    // Si es objeto, verificar límites de tiempo
+                    if (typeof reqLimit === 'object') {
+                        const now = new Date();
+
+                        // 2. Límite Mensual
+                        if (reqLimit.maxMonthly && reqLimit.maxMonthly !== "") {
+                            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                            const currentMonthly = await currentDb.collection("respuestas").countDocuments({
+                                createdAt: { $gte: startOfMonth }
+                            });
+                            if (currentMonthly >= parseInt(reqLimit.maxMonthly)) {
+                                throw new Error(`Límite de Solicitudes Mensuales alcanzado (${reqLimit.maxMonthly}).`);
+                            }
+                        }
+
+                        // 3. Límite Anual
+                        if (reqLimit.maxYearly && reqLimit.maxYearly !== "") {
+                            const startOfYear = new Date(now.getFullYear(), 0, 1);
+                            const currentYearly = await currentDb.collection("respuestas").countDocuments({
+                                createdAt: { $gte: startOfYear }
+                            });
+                            if (currentYearly >= parseInt(reqLimit.maxYearly)) {
+                                throw new Error(`Límite de Solicitudes Anuales alcanzado (${reqLimit.maxYearly}).`);
+                            }
+                        }
+                    }
                 }
                 break;
 
@@ -103,6 +137,16 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 limitValue = limits.configTickets?.maxCategories;
                 if (limitValue !== undefined) {
                     currentCount = await currentDb.collection("config_tickets").countDocuments();
+                }
+                break;
+
+            case 'requests_archived':
+                const reqArchivedLimit = limits.requests ?? limits.solicitudes;
+                if (reqArchivedLimit && typeof reqArchivedLimit === 'object' && reqArchivedLimit.maxArchived && reqArchivedLimit.maxArchived !== "") {
+                    const currentArchived = await currentDb.collection("respuestas").countDocuments({ status: "archivado" });
+                    if (currentArchived >= parseInt(reqArchivedLimit.maxArchived)) {
+                        throw new Error(`Límite de Solicitudes Archivadas alcanzado (${reqArchivedLimit.maxArchived}).`);
+                    }
                 }
                 break;
 
