@@ -3707,6 +3707,8 @@ router.put("/:id/status", async (req, res) => {
          },
       );
 
+      if(!updatedResponse) return res.status(404).json({ error: "Respuesta no encontrada" });
+
       const descifrarObjeto = (obj) => {
          if (!obj || typeof obj !== "object") return obj;
 

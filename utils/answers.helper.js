@@ -5,17 +5,24 @@ const { formatActor } = require("./registerEvent.helper");
 async function getChangeStatusMetadata(req, auth, status) {
    if (!status) return {};
 
+   const formatedStatus = formatText(status);
+
    const actor = await getActor(req, auth);
 
    const statusMetadata = {
-      title: `Cambio de estado a "${status}"`,
-      description: `Se ha cambiado el estado a "${status}".`,
+      title: `Cambio de estado a "${formatedStatus}"`,
+      description: `Se ha cambiado el estado de la solicitud a "${formatedStatus}".`,
       status: "completed",
       completedAt: new Date(),
       assignedTo: formatActor(actor),
    };
 
    return statusMetadata || {};
+}
+
+function formatText(text) {
+   const formatted = text.replace(/_/g, " ");
+   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
 const mockTimeline = [
