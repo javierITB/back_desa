@@ -101,11 +101,11 @@ app.use((req, res, next) => {
   next();
 });
 
+const plansRouter = require("./endpoints/plans");
+app.use(["/sas/plans", "/api/sas/plans", "/:company/sas/plans"], plansRouter);
+
 const sasRoutes = require("./endpoints/SAS");
 app.use(["/sas", "/api/sas", "/:company/sas"], sasRoutes);
-
-const plansRouter = require("./endpoints/plans");
-app.use("/sas/plans", plansRouter);
 
 // Definición de todos los endpoints bajo el control del tenantRouter
 tenantRouter.use("/auth", authRoutes);
