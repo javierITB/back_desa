@@ -290,6 +290,11 @@ router.get("/empresas/anuncios", async (req, res) => {
    }
 });
 
+// TEST: Ruta sin verifyRequest ni nada, para probar conexión
+router.get("/test-anuncios", (req, res) => {
+   res.status(200).send("Funcionando correctamente");
+});
+
 router.get("/:mail", async (req, res) => {
    try {
       await verifyRequest(req);
