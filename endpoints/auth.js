@@ -235,66 +235,61 @@ router.get("/solicitud", async (req, res) => {
    }
 });
 
-// ruta nueva para enviar anuncios 
+// ruta para listar cargos y empresas.  
  
 router.get("/empresas/anuncios", async (req, res) => {
    try {
       await verifyRequest(req);
       const db = req.db;
 
-      // 1. OBTENER EMPRESAS (Basado en tu ruta vieja /empresas/todas)
+      // 1. OBTENER EMPRESAS (Descifradas)
       const empresasRaw = await db.collection("empresas").find().toArray();
       const empresas = empresasRaw.map((emp) => {
          try {
             return {
                _id: emp._id,
                nombre: (emp.nombre && emp.nombre.includes(':')) ? decrypt(emp.nombre) : emp.nombre,
-               // No incluimos logos aquí para que la ruta cargue rápido en anuncios
             };
          } catch (e) {
             return { _id: emp._id, nombre: "Error al descifrar" };
          }
       }).sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
 
-      // 2. OBTENER USUARIOS (Con todos los campos para la vista manual)
-      const usuariosRaw = await db.collection("usuarios").find().toArray();
-      
-      const cargosSet = new Set();
+      // 2. OBTENER CARGOS (Desde colección roles campo "name")
+      const rolesRaw = await db.collection("roles").find().toArray();
+      const listaCargos = rolesRaw
+         .map(r => r.name)
+         .filter(Boolean)
+         .sort((a, b) => a.localeCompare(b, "es"));
+
+      // 3. OBTENER USUARIOS (Para match y vista manual)
+      const usuariosRaw = await db.collection("usuarios").find({ estado: "activo" }).toArray();
       const usuariosProcesados = usuariosRaw.map((u) => {
          try {
-            const cargoDesc = (u.cargo && u.cargo.includes(':')) ? decrypt(u.cargo) : u.cargo;
-            const mailDesc = (u.mail && u.mail.includes(':')) ? decrypt(u.mail) : u.mail;
-            const nombreDesc = (u.nombre && u.nombre.includes(':')) ? decrypt(u.nombre) : u.nombre;
-            const apellidoDesc = (u.apellido && u.apellido.includes(':')) ? decrypt(u.apellido) : u.apellido;
-            const empresaDesc = (u.empresa && u.empresa.includes(':')) ? decrypt(u.empresa) : u.empresa;
-
-            if (cargoDesc) cargosSet.add(cargoDesc);
-
             return {
                _id: u._id,
-               nombre: nombreDesc,
-               apellido: apellidoDesc,
-               mail: mailDesc,    // <--- Felipe volverá a tener su mail aquí
-               cargo: cargoDesc,
-               empresa: empresaDesc,
-               estado: u.estado
+               nombre: (u.nombre && u.nombre.includes(':')) ? decrypt(u.nombre) : u.nombre,
+               apellido: (u.apellido && u.apellido.includes(':')) ? decrypt(u.apellido) : u.apellido,
+               mail: (u.mail && u.mail.includes(':')) ? decrypt(u.mail) : u.mail,
+               cargo: (u.cargo && u.cargo.includes(':')) ? decrypt(u.cargo) : u.cargo,
+               empresa: (u.empresa && u.empresa.includes(':')) ? decrypt(u.empresa) : u.empresa,
             };
          } catch (err) {
-            return { _id: u._id, nombre: "Error datos", mail: "Error" };
+            return null;
          }
-      });
+      }).filter(Boolean);
 
-      // 3. RESPUESTA FINAL
+      // RESPUESTA FINAL
       res.json({
          success: true,
          empresas,
-         cargos: Array.from(cargosSet).sort(),
+         cargos: listaCargos, // Ahora vienen de la colección roles
          usuarios: usuariosProcesados
       });
 
    } catch (err) {
       console.error("Error en filtros-anuncios:", err);
-      res.status(500).json({ success: false, error: "Error interno del servidor" });
+      res.status(500).json({ success: false, error: "Error interno" });
    }
 });
 
