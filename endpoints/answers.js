@@ -9,6 +9,7 @@ const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
 const { registerSolicitudCreationEvent, registerSolicitudRemovedEvent } = require("../utils/registerEvent");
+const { getChangeStatusMetadata } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -3666,14 +3667,15 @@ router.put("/:id/status", async (req, res) => {
          return res.status(400).json({ error: "Estado no válido" });
       }
 
-      const respuesta = await req.db.collection("respuestas").findOne({
-         _id: new ObjectId(id),
-      });
+      // const respuesta = await req.db.collection("respuestas").findOne({
+      //    _id: new ObjectId(id),
+      // });
 
-      if (!respuesta) {
-         return res.status(404).json({ error: "Respuesta no encontrada" });
-      }
+      // if (!respuesta) {
+      //    return res.status(404).json({ error: "Respuesta no encontrada" });
+      // }
 
+      const cambios = await getChangeStatusMetadata(req, auth, status);
       // Configurar campos según el estado
       const updateData = {
          status: status,
@@ -3694,17 +3696,16 @@ router.put("/:id/status", async (req, res) => {
          updateData.archivedAt = new Date();
       }
 
-      const updateResult = await req.db
-         .collection("respuestas")
-         .updateOne({ _id: new ObjectId(id) }, { $set: updateData });
-
-      if (updateResult.matchedCount === 0) {
-         return res.status(404).json({ error: "No se pudo actualizar la respuesta" });
-      }
-
-      updatedResponse = await req.db.collection("respuestas").findOne({
-         _id: new ObjectId(id),
-      });
+      updatedResponse = await req.db.collection("respuestas").findOneAndUpdate(
+         { _id: new ObjectId(id) },
+         {
+            $set: updateData,
+            $push: { cambios },
+         },
+         {
+            returnDocument: "after",
+         },
+      );
 
       const descifrarObjeto = (obj) => {
          if (!obj || typeof obj !== "object") return obj;
