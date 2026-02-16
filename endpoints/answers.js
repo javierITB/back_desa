@@ -3423,7 +3423,7 @@ router.post("/:responseId/upload-client-signature", upload.single("signedPdf"), 
       });
    } catch (err) {
       console.error("Error subiendo firma del cliente:", err);
-      res.status(500).json({ error: "Error subiendo firma del cliente" });
+      res.status(500).json({ error: "Error subiendo firma del cliente", message: err.message });
    }
 });
 

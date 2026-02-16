@@ -184,88 +184,63 @@ router.post('/', async (req, res) => {
     } else if (destinatarios.tipo === 'filtro') {
 
       const filtro = destinatarios.filtro || {};
-      const condicionesFiltro = { estado: 'activo' };
+      
+      // CAMBIO PERTINENTE: Filtrado en memoria para compatibilidad con datos cifrados
+      const usuariosActivos = await db.collection("usuarios").find({ estado: 'activo' }).toArray();
+      const empsF = (filtro.empresas || []).map(e => e.trim().toLowerCase());
+      const cargsF = (filtro.cargos || []).map(c => c.trim().toLowerCase());
+      const rolsF = (filtro.roles || []).map(r => r.trim().toLowerCase());
 
-      const andConditions = [];
+      const usuariosDestinatarios = usuariosActivos.filter(u => {
+        try {
+          let empD = (u.empresa && u.empresa.includes(':')) ? decrypt(u.empresa) : u.empresa;
+          let carD = (u.cargo && u.cargo.includes(':')) ? decrypt(u.cargo) : u.cargo;
+          let rolD = (u.rol || "").trim().toLowerCase();
 
-      if (filtro.empresas && filtro.empresas.length > 0) {
-        andConditions.push({ empresa: { $in: filtro.empresas } });
-      }
+          empD = (empD || "").trim().toLowerCase();
+          carD = (carD || "").trim().toLowerCase();
 
-      if (filtro.cargos && filtro.cargos.length > 0) {
-        andConditions.push({ cargo: { $in: filtro.cargos } });
-      }
+          const matchEmp = empsF.length === 0 || empsF.includes(empD);
+          const matchCar = cargsF.length === 0 || cargsF.includes(carD);
+          const matchRol = rolsF.length === 0 || rolsF.includes(rolD);
 
-      if (filtro.roles && filtro.roles.length > 0) {
-        andConditions.push({ rol: { $in: filtro.roles } });
-      }
-
-      if (andConditions.length > 0) {
-        condicionesFiltro.$and = andConditions;
-      }
-
-
-      resultadoEnvio = await addNotification(db, {
-        filtro: condicionesFiltro,
-        titulo,
-        descripcion,
-        prioridad,
-        color,
-        icono,
-        actionUrl
+          return matchEmp && matchCar && matchRol;
+        } catch (e) { return false; }
       });
 
-      if (enviarCorreo) {
-        const usuarios = await db
-          .collection("usuarios")
-          .find(condicionesFiltro)
-          .project({ mail: 1 })
-          .toArray();
-
-
-        for (const usuarioItem of usuarios) {
-          if (usuarioItem.mail) {
-            try {
-              const emailDecrypted = decrypt(usuarioItem.mail);
-
-              if (emailDecrypted && emailDecrypted.includes('@')) {
-                await sendEmail({
-                  to: emailDecrypted,
-                  subject: titulo,
-                  html:`
-                  <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; padding: 40px 10px; text-align: center;">
-                      <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
-                          
-                          <h1 style="color: #1f2937; font-size: 22px; margin-bottom: 20px; font-weight: 700;">
-                              Nueva Notificación
-                          </h1>
-
-                          <div style="color: #4b5563; font-size: 16px; line-height: 1.6; margin-bottom: 30px; text-align: left;">
-                              ${descripcion}
-                          </div>
-
-                          <div style="text-align: center; margin-bottom: 20px;">
-                              <a href="${urlNotificaciones}" 
-                                style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);">
-                                  Ver notificación en la plataforma
-                              </a>
-                          </div>
-
-                          <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center;">
-                              <p style="margin: 0;">Este es un aviso automático de la plataforma.</p>
-                              <p>© ${new Date().getFullYear()} Plataforma Acciona.</p>
-                          </div>
-                      </div>
-                  </div>
-                  `
-                }, req);
-              }
-            } catch (emailError) {
-              console.error("Error enviando correo:", emailError.message);
-            }
-          }
+      let countFiltro = 0;
+      for (const u of usuariosDestinatarios) {
+        if (enviarNotificacion) {
+          await addNotification(db, {
+            userId: u._id.toString(),
+            titulo, descripcion, prioridad, color, icono, actionUrl
+          });
         }
+
+        if (enviarCorreo && u.mail) {
+          try {
+            const emailDec = decrypt(u.mail);
+            if (emailDec && emailDec.includes('@')) {
+              await sendEmail({
+                to: emailDec,
+                subject: titulo,
+                html: `
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; padding: 40px 10px; text-align: center;">
+                    <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
+                        <h1 style="color: #1f2937; font-size: 22px; margin-bottom: 20px; font-weight: 700;">Nueva Notificación</h1>
+                        <div style="color: #4b5563; font-size: 16px; line-height: 1.6; margin-bottom: 30px; text-align: left;">${descripcion}</div>
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <a href="${urlNotificaciones}" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px;">Ver notificación en la plataforma</a>
+                        </div>
+                    </div>
+                </div>`
+              }, req);
+            }
+          } catch (e) {}
+        }
+        countFiltro++;
       }
+      resultadoEnvio = { modifiedCount: countFiltro };
 
 
     } else if (destinatarios.tipo === 'manual') {
