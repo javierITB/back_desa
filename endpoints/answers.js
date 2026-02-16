@@ -3808,13 +3808,13 @@ router.put("/:id/status", async (req, res) => {
 
          // 1. Notificar al autor
          await addNotification(req.db, {
-            userId: updatedResponse?.user?.uid || respuesta?.user?.uid,
+            userId: updatedResponse?.user?.uid || "",
             ...notifData,
          });
 
          // 2. Notificar a los compartidos del array
-         if (respuesta?.user?.compartidos && Array.isArray(respuesta.user.compartidos)) {
-            for (const compartidoId of respuesta.user.compartidos) {
+         if (updatedResponse?.user?.compartidos && Array.isArray(updatedResponse?.user?.compartidos)) {
+            for (const compartidoId of updatedResponse.user.compartidos) {
                if (compartidoId) {
                   await addNotification(req.db, {
                      userId: compartidoId,
