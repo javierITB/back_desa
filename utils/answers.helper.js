@@ -74,7 +74,7 @@ async function getFirmaEliminadaMetadata(req, auth, currentDate) {
    const formattedActor = formatActor(actor);
 
    return {
-      title: "Firma del cliente eliminada",
+      title: "Cambio de estado a aprobado | Firma eliminada",
       description:
          "La firma del cliente ha sido eliminada y la solicitud ha vuelto a estado aprobado.",
       status: "completed",
@@ -82,6 +82,20 @@ async function getFirmaEliminadaMetadata(req, auth, currentDate) {
       assignedTo: formattedActor,
    };
 }
+
+async function getFilesUploadedMetadata(req, auth, filesCount, date) {
+   const actor = await getActor(req, auth);
+   const formattedActor = formatActor(actor);
+
+   return {
+      title: "Archivos corregidos subidos",
+      description: `Se han subido ${filesCount} archivo(s) corregidos a la solicitud.`,
+      status: "completed",
+      completedAt: date,
+      assignedTo: formattedActor,
+   };
+}
+
 
 
 function formatText(text) {
@@ -133,5 +147,6 @@ module.exports = {
    getApprovedMetadata,
    getRequestSentMetadata,
    getFirmadoMetadata,
-   getFirmaEliminadaMetadata
+   getFirmaEliminadaMetadata,
+   getFilesUploadedMetadata
 };

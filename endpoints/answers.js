@@ -15,6 +15,7 @@ const {
    getApprovedMetadata,
    getFirmadoMetadata,
    getFirmaEliminadaMetadata,
+   getFilesUploadedMetadata
 } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
@@ -2549,17 +2550,14 @@ router.post("/upload-corrected-files", async (req, res) => {
       // Verificar token (antes de procesar uploads si es posible, o dentro del callback)
       // Nota: Como usamos uploadMultiple.array, multer procesa primero.
       // Podríamos verificar el token dentro del callback, ya que req.body estará poblado ahí.
+      const auth = await verifyRequest(req);
+      if (!auth.ok) return res.status(401).json({ error: auth.error });
 
       uploadMultiple.array("files", 10)(req, res, async (err) => {
          if (err) {
             console.error("Error en uploadMultiple:", err);
             return res.status(400).json({ error: err.message });
          }
-
-         // Verificar token AHORA que tenemos acceso a req y body (aunque body puede estar vacío si es form-data puro sin campos de texto previos)
-         // Pero verifyRequest mira headers también.
-         const auth = await verifyRequest(req);
-         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
          const { responseId, index, total } = req.body;
          const files = req.files;
@@ -2671,9 +2669,31 @@ router.post("/upload-corrected-files", async (req, res) => {
          }
 
          // Actualizar respuesta updateAdmin
-         await req.db
-            .collection("respuestas")
-            .updateOne({ _id: new ObjectId(responseId) }, { $set: { updatedAt: new Date(), updateAdmin: new Date() } });
+         const currentDate = new Date();
+
+         const filesUploadedMetadata = await getFilesUploadedMetadata(
+            req,
+            auth,
+            files.length,
+            currentDate
+         );
+
+         await req.db.collection("respuestas").findOneAndUpdate(
+            { _id: new ObjectId(responseId) },
+            {
+               $set: {
+                  updatedAt: currentDate,
+                  updateAdmin: currentDate,
+               },
+               $push: {
+                  cambios: filesUploadedMetadata,
+               },
+            },
+            {
+               returnDocument: "after",
+            }
+         );
+
 
          // ENVIAR CORREO AL USUARIO DESPUÉS DE SUBIR A LA DB
          let emailSent = false;
