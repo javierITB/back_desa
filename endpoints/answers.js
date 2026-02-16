@@ -3115,7 +3115,8 @@ router.delete("/delete-corrected-files/:responseId", async (req, res) => {
       let nuevoEstado = estadoActual;
       let statusChanged = false;
       let deletedDocument = false;
-
+      const currentDate = new Date();
+      
       if (!updatedDoc || updatedDoc.correctedFiles.length === 0) {
          deletedDocument = true;
 
@@ -3133,7 +3134,7 @@ router.delete("/delete-corrected-files/:responseId", async (req, res) => {
 
          statusChanged = nuevoEstado !== estadoActual;
 
-         const currentDate = new Date();
+         
 
          // await req.db.collection("respuestas").updateOne(
          //    { _id: new ObjectId(responseId) },
