@@ -8,7 +8,7 @@ function getRequestSentMetadata() {
          title: "Solicitud Enviada",
          description: "La solicitud ha sido enviada y está pendiente de revisión inicial.",
          status: "completed",
-         completedAt: currentDate,
+         completedAt:  new Date(),
          assignedTo: "Sistema Automático",
          notes: "Solicitud recibida correctamente.",
       },

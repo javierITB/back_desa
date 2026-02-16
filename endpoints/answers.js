@@ -208,7 +208,7 @@ router.post("/", async (req, res) => {
          createdAt: currentDate,
          updateClient: currentDate,
          updatedAt: currentDate,
-         cambios,
+         cambios: cambios || [],
       });
 
       // Manejar adjuntos si existen
