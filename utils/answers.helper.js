@@ -1,14 +1,14 @@
 const { getActor } = require("./registerEvent.helper");
 const { formatActor } = require("./registerEvent.helper");
 
-function getRequestSentMetadata() {
+function getRequestSentMetadata(currentDate) {
    return [
       {
          id: 1,
          title: "Solicitud Enviada",
          description: "La solicitud ha sido enviada y está pendiente de revisión inicial.",
          status: "completed",
-         completedAt:  new Date(),
+         completedAt:  currentDate,
          assignedTo: "Sistema Automático",
          notes: "Solicitud recibida correctamente.",
       },

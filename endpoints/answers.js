@@ -195,8 +195,6 @@ router.post("/", async (req, res) => {
       const responsesCifrado = cifrarObjeto(responses);
       const currentDate = new Date();
 
-      const cambios = getRequestSentMetadata();
-
       // Guardar respuesta con datos CIFRADOS
       const result = await req.db.collection("respuestas").insertOne({
          formId,
@@ -208,7 +206,7 @@ router.post("/", async (req, res) => {
          createdAt: currentDate,
          updateClient: currentDate,
          updatedAt: currentDate,
-         cambios: cambios || [],
+         cambios: getRequestSentMetadata(currentDate) || [],
       });
 
       // Manejar adjuntos si existen

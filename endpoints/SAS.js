@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const { PERMISSION_GROUPS } = require("../config/permissions");
+const { syncCompanyConfiguration } = require("../utils/sas.helper");
+const { ObjectId } = require("mongodb");
 
 // Helper para obtener la DB de formsdb (donde están las empresas)
 const getFormsDB = (req) => {
@@ -70,7 +72,7 @@ router.get("/companies", async (req, res) => {
 router.post("/companies", async (req, res) => {
     console.log(`[SAS] POST /companies request received`, req.body);
     try {
-        const { name, permissions } = req.body;
+        const { name, permissions: bodyPermissions, planId } = req.body;
         if (!name) return res.status(400).json({ error: "El nombre es requerido" });
 
         const dbForms = getFormsDB(req);
@@ -82,16 +84,29 @@ router.post("/companies", async (req, res) => {
             return res.status(400).json({ error: "La empresa ya existe" });
         }
 
+        // Determinar permisos y límites (Directos vs Plan)
+        let finalPermissions = bodyPermissions || [];
+        let finalPlanLimits = req.body.planLimits || {};
+
+        if (planId) {
+            const plan = await dbForms.collection("planes").findOne({ _id: new ObjectId(planId) });
+            if (plan) {
+                finalPermissions = plan.permissions;
+                finalPlanLimits = plan.planLimits;
+                console.log(`[SAS] Layout initialized from Plan: ${plan.name}`);
+            }
+        }
+
         // 2. Crear entrada en formsdb.config_empresas
-        // Normalizamos el nombre de la DB: minúsculas y sin caracteres especiales
         const dbName = name.toLowerCase().replace(/[^a-z0-9_]/g, "");
         console.log(`[SAS] Creating company: ${name}, DB: ${dbName}`);
 
         const newCompany = {
             name,
             dbName,
-            permissions: permissions || [], // Guardamos los permisos granulares
-            planLimits: req.body.planLimits || {}, // Guardamos los límites de plan si existen
+            permissions: finalPermissions,
+            planLimits: finalPlanLimits,
+            planId: planId || null,
             createdAt: new Date(),
             active: true
         };
@@ -128,55 +143,8 @@ router.post("/companies", async (req, res) => {
             }
         }
 
-        // 3.2 Asegurar existencia de config_roles (se llena más abajo)
-        const hasConfigRoles = (await newDb.listCollections({ name: "config_roles" }).toArray()).length > 0;
-        if (!hasConfigRoles) await newDb.createCollection("config_roles");
-
-        // 3.2 Generar config_roles basado en PERMISOS seleccionados
-        // Iteramos sobre todos los grupos de permisos.
-        // Si el grupo tiene algún permiso activo, lo incluimos, pero FILTRANDO solo los permisos activos.
-
-        const rolesConfig = [];
-        const selectedPermissions = permissions || [];
-
-        const SYSTEM_ONLY_GROUPS = ['gestor_empresas', 'configuracion_planes'];
-
-        Object.entries(PERMISSION_GROUPS).forEach(([key, group]) => {
-            if (dbName !== "formsdb" && SYSTEM_ONLY_GROUPS.includes(key)) {
-                return;
-            }
-
-            // Filtramos los permisos de este grupo que están en la lista seleccionada
-            const groupPermissionsIncluded = group.permissions.filter(p => selectedPermissions.includes(p.id));
-
-            if (groupPermissionsIncluded.length > 0) {
-                rolesConfig.push({
-                    key: key,
-                    label: group.label,
-                    tagg: group.tagg,
-                    permissions: groupPermissionsIncluded // Solo guardamos los permisos activados
-                });
-            }
-        });
-
-        if (rolesConfig.length > 0) {
-            // Verificar si ya existen roles configurados para no sobrescribir/duplicar en DBs existentes
-            const existingConfigCount = await newDb.collection("config_roles").countDocuments();
-            if (existingConfigCount === 0) {
-                await newDb.collection("config_roles").insertMany(rolesConfig);
-            } else {
-                console.log(`[SAS] config_roles already has ${existingConfigCount} entries. Skipping initialization.`);
-            }
-        }
-
-        // 3.3 Inicializar Plan Limits en la nueva DB (Dual-Write)
-        if (req.body.planLimits) {
-            console.log(`[SAS] Initializing plan limits for ${dbName}`);
-            await newDb.collection("config_plan").insertOne({
-                planLimits: req.body.planLimits,
-                updatedAt: new Date()
-            });
-        }
+        // 3.2 y 3.3 Inicializar configuración usando el Helper
+        await syncCompanyConfiguration(req, newCompany, finalPermissions, finalPlanLimits);
 
         // 3.4 Actualizar permisos del rol 'Administrador'
         // REVERTIDO: No auto-asignamos. El usuario debe hacerlo manualmente desde el gestor de roles.
@@ -199,20 +167,12 @@ router.put("/companies/:id", async (req, res) => {
     console.log(`[SAS] PUT /companies/${req.params.id} request received`, req.body);
     try {
         const { id } = req.params;
-        const { permissions } = req.body;
+        const { permissions, planId, name } = req.body;
         const { ObjectId } = require("mongodb");
 
         const dbForms = getFormsDB(req);
 
         let query = {};
-        try {
-            query = { _id: new ObjectId(id) };
-        } catch (e) {
-            // Fallback por si usamos el nombre como ID o un string custom
-            query = { name: id };
-        }
-
-        // Mejor estrategia: buscar por _id si es válido, sino por name
         if (ObjectId.isValid(id)) {
             query = { _id: new ObjectId(id) };
         } else {
@@ -224,87 +184,41 @@ router.put("/companies/:id", async (req, res) => {
             return res.status(404).json({ error: "Empresa no encontrada" });
         }
 
+        // Determinar nuevos valores
+        let newPermissions = permissions;
+        let newPlanLimits = req.body.planLimits;
+        let newPlanId = planId;
+
+        // Si se asigna un Plan, sobrescribimos valores
+        if (planId && planId !== company.planId) {
+            const plan = await dbForms.collection("planes").findOne({ _id: new ObjectId(planId) });
+            if (plan) {
+                newPermissions = plan.permissions;
+                newPlanLimits = plan.planLimits;
+                console.log(`[SAS] Applying Plan '${plan.name}' to company ${company.name}`);
+            }
+        }
+
         // 1. Actualizar config_empresas
         const updateData = {};
-        if (permissions) updateData.permissions = permissions;
-        if (req.body.planLimits) updateData.planLimits = req.body.planLimits;
+        if (newPermissions !== undefined) updateData.permissions = newPermissions;
+        if (newPlanLimits !== undefined) updateData.planLimits = newPlanLimits;
+        if (newPlanId !== undefined) updateData.planId = newPlanId;
+        if (name) updateData.name = name;
 
         await dbForms.collection("config_empresas").updateOne(query, {
             $set: updateData
         });
 
-        // 2. Regenerar config_roles en la DB objetivo
-        if (company.dbName) {
-            console.log(`[SAS] Updating roles for DB: ${company.dbName}`);
-            const targetDb = req.mongoClient.db(company.dbName);
+        // 2. Sincronizar DB del cliente
+        // Si no se enviaron permisos/limits (undefined), usamos los que ya tenía la empresa para regenerar/sincronizar
+        // Esto es importante para el caso de "Solo cambiar nombre" o similar, aunque aquí asumimos que si no se envían, no se tocan.
+        // Pero el helper espera "undefined" si no queremos tocar.
 
-            // Determinar qué permisos usar: los nuevos o los que ya tenía
-            const selectedPermissions = (permissions !== undefined) ? permissions : (company.permissions || []);
+        // Si cambiamos el Plan, newPermissions y newPlanLimits TIENEN valores.
+        // Si hacemos update manual de permisos, newPermissions tiene valor.
 
-            console.log(`[SAS] Using permissions for sync: ${selectedPermissions.length} active permissions`);
-
-            // Limpiar config_roles actual
-            await targetDb.collection("config_roles").deleteMany({});
-
-            // Generar nuevo config roles basado en permisos
-            // Generar nuevo config roles basado en permisos
-            const rolesConfig = [];
-
-            // Define groups that should NEVER be added to client databases
-            const SYSTEM_ONLY_GROUPS = ['gestor_empresas', 'configuracion_planes', 'empresas', 'acceso_panel_admin'];
-
-            Object.entries(PERMISSION_GROUPS).forEach(([key, group]) => {
-                // Skip system-only groups for non-system databases
-                if (company.dbName !== "formsdb" && SYSTEM_ONLY_GROUPS.includes(key)) {
-                    return;
-                }
-
-                const groupPermissionsIncluded = group.permissions.filter(p => selectedPermissions.includes(p.id));
-                if (groupPermissionsIncluded.length > 0) {
-                    rolesConfig.push({
-                        key: key,
-                        label: group.label,
-                        tagg: group.tagg,
-                        permissions: groupPermissionsIncluded
-                    });
-                }
-            });
-
-            if (rolesConfig.length > 0) {
-                await targetDb.collection("config_roles").insertMany(rolesConfig);
-            }
-
-            // 3. Sincronizar roles existentes: Eliminar permisos que la empresa ya no tiene
-            const existingRoles = await targetDb.collection("roles").find({}).toArray();
-            for (const role of existingRoles) {
-                if (role.permissions && Array.isArray(role.permissions)) {
-                    const updatedPermissions = role.permissions.filter(p => selectedPermissions.includes(p));
-                    if (updatedPermissions.length !== role.permissions.length) {
-                        await targetDb.collection("roles").updateOne(
-                            { _id: role._id },
-                            { $set: { permissions: updatedPermissions } }
-                        );
-                    }
-                }
-            }
-        }
-
-        // 3. Actualizar Plan Limits en la DB Cliente (Dual-Write)
-        if (company.dbName && req.body.planLimits) {
-            console.log(`[SAS] Syncing plan limits to client DB: ${company.dbName}`);
-            const targetDb = req.mongoClient.db(company.dbName);
-
-            await targetDb.collection("config_plan").updateOne(
-                {}, // Solo debería haber un documento de config
-                {
-                    $set: {
-                        planLimits: req.body.planLimits,
-                        updatedAt: new Date()
-                    }
-                },
-                { upsert: true }
-            );
-        }
+        await syncCompanyConfiguration(req, company, newPermissions, newPlanLimits);
 
         res.json({ message: "Empresa actualizada exitosamente" });
 
