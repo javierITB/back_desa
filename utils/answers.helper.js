@@ -96,6 +96,41 @@ async function getFilesUploadedMetadata(req, auth, filesCount, date) {
    };
 }
 
+async function getCorrectedFilesDeletedMetadata(req, auth, fileNames, date) {
+   const actor = await getActor(req, auth);
+   const formattedActor = formatActor(actor);
+
+   const count = fileNames.length;
+
+   return {
+      title: "Archivos corregidos eliminados",
+      description:
+         count === 1
+            ? `Se eliminó 1 archivo corregido de la solicitud.`
+            : `Se eliminaron ${count} archivos corregidos de la solicitud.`,
+      status: "completed",
+      completedAt: date,
+      assignedTo: formattedActor,
+      files: fileNames,
+   };
+}
+
+
+async function getCorrectionsClearedMetadata(req, auth, date) {
+   const actor = await getActor(req, auth);
+   const formattedActor = formatActor(actor);
+
+   return {
+      title: "Correcciones eliminadas completamente",
+      description:
+         "Se eliminaron todas las correcciones. La solicitud vuelve a revisión.",
+      status: "completed",
+      completedAt: date,
+      assignedTo: formattedActor,
+   };
+}
+
+
 
 
 function formatText(text) {
@@ -148,5 +183,7 @@ module.exports = {
    getRequestSentMetadata,
    getFirmadoMetadata,
    getFirmaEliminadaMetadata,
-   getFilesUploadedMetadata
+   getFilesUploadedMetadata,
+   getCorrectedFilesDeletedMetadata,
+   getCorrectionsClearedMetadata
 };

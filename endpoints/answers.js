@@ -15,7 +15,9 @@ const {
    getApprovedMetadata,
    getFirmadoMetadata,
    getFirmaEliminadaMetadata,
-   getFilesUploadedMetadata
+   getFilesUploadedMetadata,
+   getCorrectedFilesDeletedMetadata,
+   getCorrectionsClearedMetadata,
 } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
@@ -2671,12 +2673,7 @@ router.post("/upload-corrected-files", async (req, res) => {
          // Actualizar respuesta updateAdmin
          const currentDate = new Date();
 
-         const filesUploadedMetadata = await getFilesUploadedMetadata(
-            req,
-            auth,
-            files.length,
-            currentDate
-         );
+         const filesUploadedMetadata = await getFilesUploadedMetadata(req, auth, files.length, currentDate);
 
          await req.db.collection("respuestas").findOneAndUpdate(
             { _id: new ObjectId(responseId) },
@@ -2691,9 +2688,8 @@ router.post("/upload-corrected-files", async (req, res) => {
             },
             {
                returnDocument: "after",
-            }
+            },
          );
-
 
          // ENVIAR CORREO AL USUARIO DESPUÉS DE SUBIR A LA DB
          let emailSent = false;
@@ -3137,15 +3133,38 @@ router.delete("/delete-corrected-files/:responseId", async (req, res) => {
 
          statusChanged = nuevoEstado !== estadoActual;
 
-         await req.db.collection("respuestas").updateOne(
+         const currentDate = new Date();
+
+         // await req.db.collection("respuestas").updateOne(
+         //    { _id: new ObjectId(responseId) },
+         //    {
+         //       $set: {
+         //          hasCorrection: false,
+         //          status: nuevoEstado,
+         //          updatedAt: new Date(),
+         //       },
+         //    },
+         // );
+
+         const deletedMetadata = await getCorrectedFilesDeletedMetadata(req, auth, validFileNames, currentDate);
+
+         const clearedMetadata = await getCorrectionsClearedMetadata(req, auth, currentDate);
+
+         await req.db.collection("respuestas").findOneAndUpdate(
             { _id: new ObjectId(responseId) },
             {
                $set: {
                   hasCorrection: false,
                   status: nuevoEstado,
-                  updatedAt: new Date(),
+                  updatedAt: currentDate,
+               },
+               $push: {
+                  cambios: {
+                     $each: [deletedMetadata, clearedMetadata],
+                  },
                },
             },
+            { returnDocument: "after" },
          );
 
          if (statusChanged && nuevoEstado === "en_revision") {
@@ -3170,13 +3189,19 @@ router.delete("/delete-corrected-files/:responseId", async (req, res) => {
             });
          }
       } else {
-         await req.db.collection("respuestas").updateOne(
+         const deletedMetadata = await getCorrectedFilesDeletedMetadata(req, auth, validFileNames, currentDate);
+
+         await req.db.collection("respuestas").findOneAndUpdate(
             { _id: new ObjectId(responseId) },
             {
                $set: {
-                  updatedAt: new Date(),
+                  updatedAt: currentDate,
+               },
+               $push: {
+                  cambios: deletedMetadata,
                },
             },
+            { returnDocument: "after" },
          );
       }
 
