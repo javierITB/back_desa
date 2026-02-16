@@ -280,13 +280,22 @@ const PERMISSION_GROUPS = {
     },
 
     gestor_empresas: {
-        label: 'Vista: Gestor de Empresas',
+        label: 'Vista: Dashboard Empresas',
         tagg: 'admin',
         permissions: [
             { id: 'view_gestor_empresas', label: 'Acceso a la vista' },
             { id: 'create_gestor_empresas', label: 'Crear empresas', dependency: 'view_gestor_empresas' },
             { id: 'edit_gestor_empresas', label: 'Editar empresas', dependency: 'view_gestor_empresas' },
             { id: 'delete_gestor_empresas', label: 'Eliminar empresas', dependency: 'view_gestor_empresas' },
+            { id: 'view_empresas_permissions_list', label: 'Ver lista de permisos', dependency: 'view_gestor_empresas' },
+        ]
+    },
+    configuracion_planes: {
+        label: 'Vista: Configuración de Planes',
+        tagg: 'admin',
+        permissions: [
+            { id: 'view_configuracion_planes', label: 'Acceso a la vista' },
+            { id: 'edit_configuracion_planes', label: 'Editar planes y límites', dependency: 'view_configuracion_planes' },
         ]
     },
     //check
