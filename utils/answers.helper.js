@@ -56,6 +56,21 @@ async function getApprovedMetadata(req, auth, approvedDoc) {
    return { filesUploadedMetadata, approvedMetadata };
 }
 
+async function getFirmadoMetadata(currentDate) {
+   const actor = await getActor(req, auth);
+
+   return {
+      title: "Solicitud Firmada",
+      description: "La solicitud ha sido firmada por el cliente.",
+      status: "completed",
+      completedAt: currentDate,
+      assignedTo: formatActor(actor),
+      notes: "Documento recibido correctamente.",
+   }
+
+
+}
+
 function formatText(text) {
    const formatted = text.replace(/_/g, " ");
    return formatted.charAt(0).toUpperCase() + formatted.slice(1);
@@ -104,4 +119,5 @@ module.exports = {
    getChangeStatusMetadata,
    getApprovedMetadata,
    getRequestSentMetadata,
+   getFirmadoMetadata
 };

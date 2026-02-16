@@ -9,7 +9,12 @@ const { validarToken } = require("../utils/validarToken.js");
 const { createBlindIndex, verifyPassword, encrypt, decrypt } = require("../utils/seguridad.helper");
 const { sendEmail } = require("../utils/mail.helper");
 const { registerSolicitudCreationEvent, registerSolicitudRemovedEvent } = require("../utils/registerEvent");
-const { getRequestSentMetadata, getChangeStatusMetadata, getApprovedMetadata } = require("../utils/answers.helper");
+const {
+   getRequestSentMetadata,
+   getChangeStatusMetadata,
+   getApprovedMetadata,
+   getFirmadoMetadata,
+} = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
 const normalizeFilename = (filename) => {
@@ -1096,9 +1101,9 @@ router.get("/mini", async (req, res) => {
             submittedAt: answer.submittedAt,
             user: answer.user
                ? {
-                  nombre: decrypt(answer.user.nombre),
-                  empresa: decrypt(answer.user.empresa),
-               }
+                    nombre: decrypt(answer.user.nombre),
+                    empresa: decrypt(answer.user.empresa),
+                 }
                : answer.user,
             status: answer.status,
             createdAt: answer.createdAt,
@@ -1241,10 +1246,10 @@ router.get("/filtros", async (req, res) => {
       const normalizeText = (str) =>
          str
             ? str
-               .toString()
-               .normalize("NFD")
-               .replace(/[\u0300-\u036f]/g, "")
-               .toLowerCase()
+                 .toString()
+                 .normalize("NFD")
+                 .replace(/[\u0300-\u036f]/g, "")
+                 .toLowerCase()
             : "";
 
       // 5.1 Filtrado en Memoria (Búsqueda por texto claro)
@@ -1542,7 +1547,7 @@ router.get("/public/:id", async (req, res) => {
             const plantilla = await buscarPlantillaPorFormId(respuestaProcesada.formId, req.db);
             respuestaProcesada.hasTemplate = !!plantilla;
          }
-      } catch (e) { }
+      } catch (e) {}
 
       res.json(respuestaProcesada);
    } catch (err) {
@@ -1648,7 +1653,7 @@ router.get("/:id", async (req, res) => {
                      if (u.nombre && u.nombre.includes(":")) {
                         try {
                            nombre = decrypt(u.nombre);
-                        } catch (e) { }
+                        } catch (e) {}
                      } else if (u.nombre) {
                         nombre = u.nombre;
                      }
@@ -1656,7 +1661,7 @@ router.get("/:id", async (req, res) => {
                      if (u.mail && u.mail.includes(":")) {
                         try {
                            email = decrypt(u.mail);
-                        } catch (e) { }
+                        } catch (e) {}
                      } else if (u.mail) {
                         email = u.mail;
                      }
@@ -2241,8 +2246,8 @@ router.post("/chat", async (req, res) => {
          titulo: internal
             ? "Nueva nota interna"
             : isSenderStaff
-               ? "Nuevo mensaje recibido"
-               : "Nuevo mensaje en formulario",
+              ? "Nuevo mensaje recibido"
+              : "Nuevo mensaje en formulario",
          descripcion: `En: ${formTitleNoti} (${trabajadorNombre}) - ${autor}: ${mensaje.substring(0, 40)}${mensaje.length > 40 ? "..." : ""}`,
          icono: "MessageCircle",
          color: internal ? "#f59e0b" : "#45577eff",
@@ -3086,7 +3091,6 @@ router.post("/:id/approve", async (req, res) => {
          ),
       ]);
 
-
       // --- NOTIFICACIONES ---
       const notifData = {
          titulo: "Documento Aprobado",
@@ -3302,19 +3306,34 @@ router.post("/:responseId/upload-client-signature", upload.single("signedPdf"), 
       const auth = await verifyRequest(req);
       if (!auth.ok) return res.status(401).json({ error: auth.error });
 
+      if (!ObjectId.isValid(responseId)) {
+         return res.status(400).json({ error: "ID inválido" });
+      }
+
       if (!req.file) {
          return res.status(400).json({ error: "No se subió ningún archivo" });
       }
 
-      const respuesta = await req.db.collection("respuestas").findOne({
-         _id: new ObjectId(responseId),
-      });
+      const objectId = new ObjectId(responseId);
+      const currentDate = new Date();
+
+      // Buscar respuesta y verificar firma existente en paralelo
+      const [respuesta, existingSignature] = await Promise.all([
+         req.db.collection("respuestas").findOne({ _id: objectId }),
+         req.db.collection("firmados").findOne({ responseId }),
+      ]);
 
       if (!respuesta) {
          return res.status(404).json({ error: "Formulario no encontrado" });
       }
 
-      // --- LÓGICA DE EXTRACCIÓN Y DESCIFRADO ---
+      if (existingSignature) {
+         return res.status(400).json({
+            error: "Ya existe un documento firmado para este formulario",
+         });
+      }
+
+      // --- DESCIFRADO DEL NOMBRE ---
       const resps = respuesta.responses || {};
       const valorOriginal = resps["NOMBRE DEL TRABAJADOR"] || resps["Nombre del trabajador"];
 
@@ -3322,14 +3341,6 @@ router.post("/:responseId/upload-client-signature", upload.single("signedPdf"), 
          typeof valorOriginal === "string" && valorOriginal.includes(":")
             ? decrypt(valorOriginal)
             : valorOriginal || "Trabajador";
-
-      const existingSignature = await req.db.collection("firmados").findOne({
-         responseId: responseId,
-      });
-
-      if (existingSignature) {
-         return res.status(400).json({ error: "Ya existe un documento firmado para este formulario" });
-      }
 
       const normalizedFileName = normalizeFilename(req.file.originalname);
 
@@ -3356,12 +3367,33 @@ router.post("/:responseId/upload-client-signature", upload.single("signedPdf"), 
          company: respuesta.company,
       });
 
-      await req.db
-         .collection("respuestas")
-         .updateOne(
-            { _id: new ObjectId(responseId) },
-            { $set: { status: "firmado", signedAt: new Date(), updateClient: new Date() } },
-         );
+      const firmadoMetadata = await getFirmadoMetadata(req, auth, currentDate);
+
+      const updatedResponse = await req.db.collection("respuestas").findOneAndUpdate(
+         { _id: objectId },
+         {
+            $set: {
+               status: "firmado",
+               signedAt: currentDate,
+               updateClient: currentDate,
+            },
+            $push: {
+               cambios: firmadoMetadata,
+            },
+         },
+         {
+            returnDocument: "after",
+         },
+      );
+
+      // await req.db
+      //    .collection("respuestas")
+      //    .updateOne(
+      //       { _id: new ObjectId(responseId) },
+      //       { $set: { status: "firmado", signedAt: new Date(), updateClient: new Date() } },
+      //    );
+
+      if (!updatedResponse) return res.status(404).json({ error: "Respuesta no encontrada" });
 
       // --- BLOQUE DE NOTIFICACIONES AL STAFF ---
       const notifStaff = {
@@ -3373,17 +3405,16 @@ router.post("/:responseId/upload-client-signature", upload.single("signedPdf"), 
          actionUrl: `/RespuestasForms?id=${respuesta._id}`,
       };
 
-      // Notificar a RRHH (Como ya estaba)
-      await addNotification(req.db, {
-         filtro: { rol: "RRHH" },
-         ...notifStaff,
-      });
-
-      // AGREGADO: Notificar al rol Administrador
-      await addNotification(req.db, {
-         filtro: { rol: "Administrador" }, // He usado "admin" que es el valor común en tus otros filtros
-         ...notifStaff,
-      });
+      await Promise.all([
+         addNotification(req.db, {
+            filtro: { rol: "RRHH" },
+            ...notifStaff,
+         }),
+         addNotification(req.db, {
+            filtro: { rol: "Administrador" },
+            ...notifStaff,
+         }),
+      ]);
 
       res.json({
          success: true,
@@ -3780,7 +3811,7 @@ router.put("/:id/status", async (req, res) => {
          if (updatedResponse.mail && typeof updatedResponse.mail === "string" && updatedResponse.mail.includes(":")) {
             try {
                updatedResponse.mail = decrypt(updatedResponse.mail);
-            } catch (e) { }
+            } catch (e) {}
          }
       }
 
