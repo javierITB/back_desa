@@ -146,6 +146,22 @@ async function getFinalizedMetadata(req, auth, date) {
 
 }
 
+async function getArchivedMetadata(req, auth, date) {
+
+   const actor = await getActor(req, auth);
+   const formattedActor = formatActor(actor);
+
+   return {
+      title: "Solicitud Archivada",
+      description:
+         "La solicitud ha sido archivada y ya no admite modificaciones.",
+      status: "completed",
+      completedAt: date,
+      assignedTo: formattedActor,
+   };
+
+}
+
 
 
 
@@ -203,5 +219,6 @@ module.exports = {
    getFilesUploadedMetadata,
    getCorrectedFilesDeletedMetadata,
    getCorrectionsClearedMetadata,
-   getFinalizedMetadata
+   getFinalizedMetadata,
+   getArchivedMetadata
 };

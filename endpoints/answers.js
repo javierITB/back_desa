@@ -18,7 +18,8 @@ const {
    getFilesUploadedMetadata,
    getCorrectedFilesDeletedMetadata,
    getCorrectionsClearedMetadata,
-   getFinalizedMetadata
+   getFinalizedMetadata,
+   getArchivedMetadata
 } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
@@ -2513,54 +2514,80 @@ router.get("/mantenimiento/limpiar-archivos-archivados", async (req, res) => {
 // Cambiar estado a archivado
 router.get("/:id/archived", async (req, res) => {
    try {
+
       const { id } = req.params;
 
-      // Verificar token
       const auth = await verifyRequest(req);
-      if (!auth.ok) return res.status(401).json({ error: auth.error });
+      if (!auth.ok)
+         return res.status(401).json({ error: auth.error });
 
       if (!ObjectId.isValid(id)) {
-         return res.status(400).json({ error: "ID de respuesta inválido" });
+         return res.status(400).json({
+            error: "ID de respuesta inválido",
+         });
       }
 
+      const objectId = new ObjectId(id);
+      const currentDate = new Date();
+
+      // verificar existencia
       const respuesta = await req.db.collection("respuestas").findOne({
-         _id: new ObjectId(id),
+         _id: objectId,
       });
 
       if (!respuesta) {
-         return res.status(404).json({ error: "Respuesta no encontrada" });
+         return res.status(404).json({
+            error: "Respuesta no encontrada",
+         });
       }
 
-      // 1. Actualizar el estado a archivado
-      const updateResult = await req.db.collection("respuestas").updateOne(
-         { _id: new ObjectId(id) },
-         {
-            $set: {
-               status: "archivado",
-               archivedAt: new Date(),
-               archivedAt: new Date(),
-               updatedAt: new Date(),
-               updateAdmin: new Date(),
-            },
-         },
+      // crear metadata evento
+      const archivedMetadata = await getArchivedMetadata(
+         req,
+         auth,
+         currentDate
       );
 
-      if (updateResult.matchedCount === 0) {
-         return res.status(404).json({ error: "No se pudo actualizar la respuesta" });
+      // actualizar estado + registrar evento
+      const updatedResponse =
+         await req.db.collection("respuestas").findOneAndUpdate(
+            { _id: objectId },
+            {
+               $set: {
+                  status: "archivado",
+                  archivedAt: currentDate,
+                  updatedAt: currentDate,
+                  updateAdmin: currentDate,
+               },
+               $push: {
+                  cambios: archivedMetadata,
+               },
+            },
+            {
+               returnDocument: "after",
+            }
+         );
+
+      if (!updatedResponse) {
+         return res.status(404).json({
+            error: "No se pudo actualizar la respuesta",
+         });
       }
 
+      // limpiar colecciones relacionadas
       const cleanupResults = await Promise.all([
-         // Eliminar de aprobados (usa responseId como string u objeto según tu flujo)
-         req.db.collection("aprobados").deleteMany({ responseId: id }),
 
-         // Eliminar de adjuntos (suele usar ObjectId por la estructura anterior)
-         req.db.collection("adjuntos").deleteMany({ responseId: new ObjectId(id) }),
+         req.db.collection("aprobados")
+            .deleteMany({ responseId: id }),
 
-         // Eliminar de docxs (usa responseId habitualmente como string)
-         req.db.collection("docxs").deleteMany({ responseId: id }),
+         req.db.collection("adjuntos")
+            .deleteMany({ responseId: objectId }),
+
+         req.db.collection("docxs")
+            .deleteMany({ responseId: id }),
+
       ]);
 
-      // Respuesta final al cliente
       res.json({
          success: true,
          message: "Respuesta archivada y archivos relacionados eliminados correctamente",
@@ -2572,9 +2599,18 @@ router.get("/:id/archived", async (req, res) => {
             docxs: cleanupResults[2].deletedCount,
          },
       });
+
    } catch (err) {
-      console.error("Error archivando respuesta y limpiando colecciones:", err);
-      res.status(500).json({ error: "Error archivando respuesta: " + err.message });
+
+      console.error(
+         "Error archivando respuesta y limpiando colecciones:",
+         err
+      );
+
+      res.status(500).json({
+         error: "Error archivando respuesta",
+      });
+
    }
 });
 
