@@ -993,11 +993,20 @@ router.post("/disable-2fa", async (req, res) => {
 
 router.get("/logins/todos", async (req, res) => {
    try {
-      await verifyRequest(req);
-      const tkn = await req.db.collection("ingresos").find().toArray();
+      await verifyRequest(req); 
+
+      const dbContext = req.db; 
+
+      const tkn = await dbContext.collection("ingresos").find().toArray();
+      
       res.json(tkn);
    } catch (err) {
-      if (err.status) return res.status(err.status).json({ message: err.message });
+      // Log para debuggear en consola del servidor qué está fallando
+      console.error("Error en /logins/todos:", err.message);
+
+      if (err.status) {
+         return res.status(err.status).json({ message: err.message });
+      }
       res.status(500).json({ error: "Error al obtener ingresos" });
    }
 });
