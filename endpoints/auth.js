@@ -186,7 +186,13 @@ const desactivarTokenPorEmail = async (db, email) => {
 
 router.get("/", async (req, res) => {
    try {
-      await verifyRequest(req);
+      await verifyRequest(req); // Aseguramos que verifyRequest ya valida el token
+      // verifyRequest devuelve { ok: true, data: { ... }, ... } si es exitoso, pero aquí parece que solo lanza error si falla.
+      // Vamos a asumir que el req.headers.authorization fue validado y decodificado.
+      // PERO verifyRequest en este archivo retorna validation object.
+      const auth = await verifyRequest(req);
+      const isRequesterMaestro = auth.data.rol?.toLowerCase() === "maestro";
+
       const usuarios = await req.db.collection("usuarios").find().toArray();
 
       if (!usuarios || usuarios.length === 0) {
@@ -195,15 +201,29 @@ router.get("/", async (req, res) => {
 
       const usuariosProcesados = usuarios.map((u) => {
          const { pass, ...resto } = u;
+         // Decrypt properties
+         let cargoDescifrado = "";
+         let rolDescifrado = "";
+         try {
+            cargoDescifrado = decrypt(u.cargo);
+            rolDescifrado = u.rol; // rol usually isn't encrypted in recent versions, but check logic
+         } catch (e) {
+            cargoDescifrado = u.cargo;
+         }
 
          return {
             ...resto,
             nombre: decrypt(u.nombre),
             apellido: decrypt(u.apellido),
-            cargo: decrypt(u.cargo),
+            cargo: cargoDescifrado,
             empresa: decrypt(u.empresa),
             mail: decrypt(u.mail),
+            rol: rolDescifrado
          };
+      }).filter(u => {
+         // FILTRO MAESTRO
+         if (isRequesterMaestro) return true;
+         return u.cargo?.toLowerCase() !== "maestro" && u.rol?.toLowerCase() !== "maestro";
       });
 
       res.status(200).json(usuariosProcesados);
@@ -215,18 +235,28 @@ router.get("/", async (req, res) => {
 
 router.get("/solicitud", async (req, res) => {
    try {
-      await verifyRequest(req);
+      const auth = await verifyRequest(req);
+      const isRequesterMaestro = auth.data.rol?.toLowerCase() === "maestro";
+
       const usuarios = await req.db
          .collection("usuarios")
-         .find({}, { projection: { nombre: 1, apellido: 1, mail: 1, empresa: 1 } })
+         .find({}, { projection: { nombre: 1, apellido: 1, mail: 1, empresa: 1, cargo: 1, rol: 1 } }) // Agregamos cargo/rol para filtrar
          .toArray();
 
-      const usuariosFormateados = usuarios.map((usr) => ({
-         nombre: decrypt(usr.nombre),
-         apellido: decrypt(usr.apellido),
-         correo: decrypt(usr.mail),
-         empresa: decrypt(usr.empresa),
-      }));
+      const usuariosFormateados = usuarios.map((usr) => {
+         const cargo = decrypt(usr.cargo);
+         return {
+            nombre: decrypt(usr.nombre),
+            apellido: decrypt(usr.apellido),
+            correo: decrypt(usr.mail),
+            empresa: decrypt(usr.empresa),
+            cargo: cargo,
+            rol: usr.rol
+         };
+      }).filter(u => {
+         if (isRequesterMaestro) return true;
+         return u.cargo?.toLowerCase() !== "maestro" && u.rol?.toLowerCase() !== "maestro";
+      });
 
       res.json(usuariosFormateados);
    } catch (err) {
@@ -239,7 +269,8 @@ router.get("/solicitud", async (req, res) => {
 
 router.get("/empresas/anuncios", async (req, res) => {
    try {
-      await verifyRequest(req);
+      const auth = await verifyRequest(req);
+      const isRequesterMaestro = auth.data.rol?.toLowerCase() === "maestro";
       const db = req.db;
 
       // 1. OBTENER EMPRESAS (Descifradas)
@@ -260,24 +291,35 @@ router.get("/empresas/anuncios", async (req, res) => {
       const listaCargos = rolesRaw
          .map(r => r.name)
          .filter(Boolean)
+         .filter(name => {
+            // FILTRO CARGOS MAESTRO
+            if (isRequesterMaestro) return true;
+            return name.toLowerCase() !== "maestro";
+         })
          .sort((a, b) => a.localeCompare(b, "es"));
 
       // 3. OBTENER USUARIOS (Para match y vista manual)
       const usuariosRaw = await db.collection("usuarios").find({ estado: "activo" }).toArray();
       const usuariosProcesados = usuariosRaw.map((u) => {
          try {
+            const cargo = (u.cargo && u.cargo.includes(':')) ? decrypt(u.cargo) : u.cargo;
             return {
                _id: u._id,
                nombre: (u.nombre && u.nombre.includes(':')) ? decrypt(u.nombre) : u.nombre,
                apellido: (u.apellido && u.apellido.includes(':')) ? decrypt(u.apellido) : u.apellido,
                mail: (u.mail && u.mail.includes(':')) ? decrypt(u.mail) : u.mail,
-               cargo: (u.cargo && u.cargo.includes(':')) ? decrypt(u.cargo) : u.cargo,
+               cargo: cargo,
                empresa: (u.empresa && u.empresa.includes(':')) ? decrypt(u.empresa) : u.empresa,
+               rol: u.rol // Agregamos rol por si acaso
             };
          } catch (err) {
             return null;
          }
-      }).filter(Boolean);
+      }).filter(Boolean).filter(u => {
+         // FILTRO USUARIOS MAESTRO
+         if (isRequesterMaestro) return true;
+         return u.cargo?.toLowerCase() !== "maestro" && u.rol?.toLowerCase() !== "maestro";
+      });
 
       // RESPUESTA FINAL
       res.json({
@@ -1122,6 +1164,11 @@ router.post("/register", async (req, res) => {
       const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
       const m = mail.toLowerCase().trim();
 
+      const isRequesterMaestro = auth.data.rol?.toLowerCase() === "maestro";
+      if ((cargo?.toLowerCase() === "maestro" || rol?.toLowerCase() === "maestro") && !isRequesterMaestro) {
+         return res.status(403).json({ error: "No tienes permisos para crear usuarios Maestro." });
+      }
+
       if (await req.db.collection("usuarios").findOne({ mail_index: createBlindIndex(m) })) {
          return res.status(400).json({ error: "El usuario ya existe" });
       }
@@ -1310,6 +1357,13 @@ router.put("/users/:id", async (req, res) => {
       const { nombre, apellido, mail, empresa, cargo, rol, estado } = req.body;
       const userId = req.params.id;
 
+      const isRequesterMaestro = auth.data.rol?.toLowerCase() === "maestro";
+
+      // 1. Check Maestro Role
+      if ((cargo?.toLowerCase() === "maestro" || rol?.toLowerCase() === "maestro") && !isRequesterMaestro) {
+         return res.status(403).json({ error: "No tienes permisos para asignar el rol Maestro." });
+      }
+
       if (!nombre || !apellido || !mail || !empresa || !cargo || !rol) {
          return res.status(400).json({ error: "Todos los campos son obligatorios" });
       }
@@ -1325,6 +1379,22 @@ router.put("/users/:id", async (req, res) => {
 
       if (existingUser) {
          return res.status(400).json({ error: "El email ya está en uso por otro usuario" });
+      }
+
+      // 2. Check Editar Maestro
+      let currentCargo = "";
+      try {
+         // Intentar descifrar el cargo del usuario actual para validación
+         const userToCheck = await req.db.collection("usuarios").findOne({ _id: new ObjectId(userId) });
+         if (userToCheck) {
+            currentCargo = decrypt(userToCheck.cargo);
+         }
+      } catch (e) {
+         console.warn("Error descifrando cargo en validación PUT:", e);
+      }
+
+      if (currentCargo?.toLowerCase() === "maestro" && !isRequesterMaestro) {
+         return res.status(403).json({ error: "No tienes permisos para editar usuarios Maestro." });
       }
 
       const updateData = {
