@@ -2643,7 +2643,7 @@ router.post("/upload-corrected-files", async (req, res) => {
             return res.status(400).json({ error: err.message });
          }
 
-         const { responseId, index, total } = req.body;
+         const { responseId, index, total, totalFilesLeft } = req.body;
          const files = req.files;
 
          // VALIDACIONES MEJORADAS
@@ -2752,26 +2752,28 @@ router.post("/upload-corrected-files", async (req, res) => {
             }
          }
 
-         // Actualizar respuesta updateAdmin
-         const currentDate = new Date();
+         if (totalFilesLeft === 1){
 
-         const filesUploadedMetadata = await getFilesUploadedMetadata(req, auth, files.length, currentDate);
-
-         await req.db.collection("respuestas").findOneAndUpdate(
-            { _id: new ObjectId(responseId) },
-            {
-               $set: {
-                  updatedAt: currentDate,
-                  updateAdmin: currentDate,
+            const currentDate = new Date();
+   
+            const filesUploadedMetadata = await getFilesUploadedMetadata(req, auth, total, currentDate);
+   
+            await req.db.collection("respuestas").findOneAndUpdate(
+               { _id: new ObjectId(responseId) },
+               {
+                  $set: {
+                     updatedAt: currentDate,
+                     updateAdmin: currentDate,
+                  },
+                  $push: {
+                     cambios: filesUploadedMetadata,
+                  },
                },
-               $push: {
-                  cambios: filesUploadedMetadata,
+               {
+                  returnDocument: "after",
                },
-            },
-            {
-               returnDocument: "after",
-            },
-         );
+            );
+         }
 
          // ENVIAR CORREO AL USUARIO DESPUÉS DE SUBIR A LA DB
          let emailSent = false;
