@@ -1004,66 +1004,83 @@ router.get("/logins/todos", async (req, res) => {
 
 
 router.get("/logins/registroempresas", async (req, res) => {
+   console.log("--- INICIO DEPURACIÓN: /logins/registroempresas ---");
    try {
       const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ message: "No autorizado" });
+      if (!authHeader) {
+         console.error("DEBUG: No se encontró authHeader");
+         return res.status(401).json({ message: "No autorizado" });
+      }
       
       const token = authHeader.split(" ")[1];
       const { validarToken } = require("../utils/validarToken");
 
-      // 1. Validar Token en formsdb (Base Maestra)
+      // 1. Validar Token en formsdb
       const dbMaestra = req.mongoClient.db("formsdb"); 
       const validation = await validarToken(dbMaestra, token);
 
       if (!validation.ok) {
-         return res.status(401).json({ message: "Token inválido" });
+         console.error("DEBUG: Falla validarToken:", validation.reason);
+         return res.status(401).json({ message: "Token inválido", reason: validation.reason });
       }
+      console.log("DEBUG: Token validado correctamente para:", validation.data.email);
 
-      // 2. Buscar usuario en la colección maestra para verificar empresa y cargo
+      // 2. Buscar usuario en la colección maestra
       const { ObjectId } = require("mongodb");
       const usuarioDB = await dbMaestra.collection("usuarios").findOne({ 
          _id: new ObjectId(validation.data._id) 
       });
 
-      if (!usuarioDB || usuarioDB.estado !== "activo") {
-         return res.status(403).json({ message: "Usuario no encontrado o inactivo" });
+      if (!usuarioDB) {
+         console.error("DEBUG: Usuario no encontrado en DB Maestra con ID:", validation.data._id);
+         return res.status(403).json({ message: "Usuario no encontrado" });
+      }
+      console.log("DEBUG: Usuario encontrado. Estado:", usuarioDB.estado);
+
+      if (usuarioDB.estado !== "activo") {
+         console.error("DEBUG: Usuario no está activo");
+         return res.status(403).json({ message: "Usuario inactivo" });
       }
 
-      // 3. DESCIFRAR Y VALIDAR (Empresa y Cargo)
+      // 3. DESCIFRAR Y VALIDAR
       try {
          const empresaDescifrada = decrypt(usuarioDB.empresa);
          const cargoDescifrado = decrypt(usuarioDB.cargo);
 
+         console.log("DEBUG: Empresa descifrada:", empresaDescifrada);
+         console.log("DEBUG: Cargo descifrado:", cargoDescifrado);
+
          const empresaRequerida = "Acciona Centro de Negocios Spa.";
          
-         // Verificamos empresa exacta
          if (empresaDescifrada !== empresaRequerida) {
+            console.error(`DEBUG: Empresa no coincide. Esperado: "${empresaRequerida}" vs Recibido: "${empresaDescifrada}"`);
             return res.status(403).json({ message: "Acceso denegado: Empresa no autorizada" });
          }
 
-         /**
-          * VALIDACIÓN DE PERMISO POR CARGO:
-          * Solo permitimos el acceso si el cargo descifrado es:
-          * 'view_registro_empresa', 'Administrador' o 'Super User Do'.
-          */
-         const cargosAutorizados = ["Administrador", "Super User Do"];
+         const cargosAutorizados = ["Administrador", "Super User Do", "view_registro_empresa"];
          
          if (!cargosAutorizados.includes(cargoDescifrado)) {
+            console.error(`DEBUG: Cargo "${cargoDescifrado}" no está en la lista permitida:`, cargosAutorizados);
             return res.status(403).json({ message: "Acceso denegado: Cargo sin permisos de auditoría" });
          }
 
+         console.log("DEBUG: Validación de permisos EXITOSA.");
+
       } catch (error) {
-         console.error("Error al descifrar datos de seguridad:", error);
+         console.error("DEBUG ERROR DESCIFRADO:", error.message);
          return res.status(500).json({ error: "Error en la verificación de identidad cifrada" });
       }
 
-      // 4. CONSULTA DE DATOS (En la base de datos solicitada req.db)
+      // 4. CONSULTA DE DATOS
+      console.log("DEBUG: Consultando ingresos en la base de datos:", req.db.databaseName);
       const tkn = await req.db.collection("ingresos").find().toArray();
       
+      console.log(`DEBUG: Se encontraron ${tkn.length} registros.`);
+      console.log("--- FIN DEPURACIÓN ---");
       res.json(tkn);
 
    } catch (err) {
-      console.error("Error en validación:", err.message);
+      console.error("DEBUG ERROR CRÍTICO:", err.message);
       res.status(500).json({ error: "Error interno de servidor" });
    }
 });
