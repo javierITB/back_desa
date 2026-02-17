@@ -51,6 +51,27 @@ async function syncCompanyConfiguration(req, company, permissions, planLimits) {
         // Si un rol tiene un permiso que ya no existe en el plan, se le quita.
         const existingRoles = await targetDb.collection("roles").find({}).toArray();
         for (const role of existingRoles) {
+            // FIX: "Maestro" 
+            if (role.name === "Maestro") {
+                const allPermissions = [];
+                // Exclusivos para Formsdb
+                const excludedGroups = ["gestor_empresas", "configuracion_planes"];
+
+                Object.entries(PERMISSION_GROUPS).forEach(([groupKey, groupData]) => {
+                    if (!excludedGroups.includes(groupKey)) {
+                        groupData.permissions.forEach(p => allPermissions.push(p.id));
+                    }
+                });
+
+                // Actualizar Maestro con todos los permisos disponibles (excepto admin SaaS)
+                await targetDb.collection("roles").updateOne(
+                    { _id: role._id },
+                    { $set: { permissions: allPermissions } }
+                );
+                console.log(`[SAS-Sync] Enforced full permissions for Maestro role.`);
+                continue;
+            }
+
             if (role.permissions && Array.isArray(role.permissions)) {
                 // Intersección: Solo mantenemos los permisos que el usuario tenía Y que están en el nuevo plan
                 const updatedPermissions = role.permissions.filter(p => permissions.includes(p));

@@ -144,33 +144,7 @@ router.post("/companies", async (req, res) => {
             }
         }
 
-        // 3.1.5 AJUSTE MAESTRO: Asignar TODOS los permisos (excepto gestión de empresas/planes)
-        try {
-            console.log(`[SAS] Configuring 'Maestro' role permissions...`);
-            const allPermissions = [];
-            const excludedGroups = ["gestor_empresas", "configuracion_planes"];
-
-            Object.entries(PERMISSION_GROUPS).forEach(([groupKey, groupData]) => {
-                if (!excludedGroups.includes(groupKey)) {
-                    groupData.permissions.forEach(p => allPermissions.push(p.id));
-                }
-            });
-
-            // Actualizar rol Maestro en la NUEVA DB
-            const maestroRole = await newDb.collection("roles").findOne({ name: "Maestro" });
-            if (maestroRole) {
-                await newDb.collection("roles").updateOne(
-                    { _id: maestroRole._id },
-                    { $set: { permissions: allPermissions } }
-                );
-                console.log(`[SAS] 'Maestro' role updated with ${allPermissions.length} permissions.`);
-            } else {
-                console.warn(`[SAS] 'Maestro' role not found in new DB. Skipping permission update.`);
-            }
-
-        } catch (err) {
-            console.error(`[SAS] Error configuring Maestro role:`, err);
-        }
+        // 3.1.5 AJUSTE MAESTRO: (Manejado en syncCompanyConfiguration)
 
         // 3.2 y 3.3 Inicializar configuración usando el Helper
         await syncCompanyConfiguration(req, newCompany, finalPermissions, finalPlanLimits);
