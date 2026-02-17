@@ -2643,7 +2643,7 @@ router.post("/upload-corrected-files", async (req, res) => {
             return res.status(400).json({ error: err.message });
          }
 
-         const { responseId, index, total, totalFilesLeft } = req.body;
+         const { responseId, index, total } = req.body;
          const files = req.files;
 
          // VALIDACIONES MEJORADAS
@@ -2752,7 +2752,7 @@ router.post("/upload-corrected-files", async (req, res) => {
             }
          }
 
-         if (totalFilesLeft === 1){
+         if (Number(index) === Number(total) - 1){
 
             const currentDate = new Date();
    
