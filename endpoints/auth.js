@@ -993,6 +993,18 @@ router.post("/disable-2fa", async (req, res) => {
 
 router.get("/logins/todos", async (req, res) => {
    try {
+      await verifyRequest(req);
+      const tkn = await req.db.collection("ingresos").find().toArray();
+      res.json(tkn);
+   } catch (err) {
+      if (err.status) return res.status(err.status).json({ message: err.message });
+      res.status(500).json({ error: "Error al obtener ingresos" });
+   }
+});
+
+
+router.get("/logins/registroempresas", async (req, res) => {
+   try {
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith("Bearer ")) {
          return res.status(401).json({ message: "No autorizado" });
@@ -1000,37 +1012,51 @@ router.get("/logins/todos", async (req, res) => {
       const token = authHeader.split(" ")[1];
       const { validarToken } = require("../utils/validarToken");
 
- 
-      const esCasaAjena = req.params.company && !["formsdb", "api", "infodesa"].includes(req.params.company);
+      // 1. DEFINIR TUS ALIAS DE "CASA"
+      const aliasAcciona = ["solunex", "infoacciona", "acciona", "infodesa", "api"];
+      
+      // 2. ¿ESTAMOS EN UNA DB AJENA?
+      // Si el parámetro company NO está en tu lista de alias
+      const esCasaAjena = req.params.company && !aliasAcciona.includes(req.params.company);
 
       let dbParaValidar;
 
       if (esCasaAjena) {
-        
-         const client = req.mongoClient; 
-         dbParaValidar = client.db("formsdb"); 
-         
-         const validation = await validarToken(dbParaValidar, token);
-         if (!validation.ok) {
-            return res.status(401).json({ message: "Acceso denegado: Tu sesión no es válida en la base maestra." });
-         }
+         /**
+          * CASO PARTICULAR FELIPE:
+          * Estás pidiendo datos de un cliente (ej: /domiciliovirtual/...)
+          * Validamos tu token usando la conexión a 'formsdb' directamente.
+          */
+         dbParaValidar = req.mongoClient.db("formsdb"); 
       } else {
-        
-         const validation = await validarToken(req.db, token);
-         if (!validation.ok) {
-            return res.status(401).json({ message: "Acceso denegado" });
-         }
+         /**
+          * CASO NORMAL:
+          * Estás en una de tus páginas base, validamos en la DB actual.
+          */
+         dbParaValidar = req.db;
       }
 
+      // 3. VALIDACIÓN MANUAL (Saltándonos el verifyRequest global)
+      const validation = await validarToken(dbParaValidar, token);
+
+      if (!validation.ok) {
+         return res.status(401).json({ 
+            message: "Acceso denegado: Usuario no encontrado en " + (esCasaAjena ? "formsdb" : "base actual")
+         });
+      }
+
+      // 4. CONSULTA DE DATOS (En la base de datos que Felipe pidió)
+      // req.db ya viene apuntando a la empresa vecina gracias al middleware de app.js
       const tkn = await req.db.collection("ingresos").find().toArray();
       
       res.json(tkn);
 
    } catch (err) {
-      console.error("Error en endpoint de ingresos:", err.message);
-      res.status(500).json({ error: "Error interno del servidor" });
+      console.error("Error en ruta dedicada:", err.message);
+      res.status(500).json({ error: "Error interno al obtener ingresos de empresa" });
    }
 });
+
 router.post("/validate", async (req, res) => {
    const { token, email, cargo } = req.body;
 
