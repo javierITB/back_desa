@@ -32,28 +32,27 @@ async function getChangeStatusMetadata(req, auth, status) {
    return statusMetadata || {};
 }
 
-async function getApprovedMetadata(req, auth, approvedDoc) {
+async function getApprovedMetadata(req, auth) {
    const actor = await getActor(req, auth);
    const formattedActor = formatActor(actor);
-   const filesLength = approvedDoc?.correctedFiles?.length || 0;
 
-   const filesUploadedMetadata = {
-      title: `Archivos corregidos subidos`,
-      description: `Se han subido ${filesLength} archivo(s) corregidos a la solicitud.`,
-      status: "completed",
-      completedAt: new Date(),
-      assignedTo: formattedActor,
-   };
+   // const filesUploadedMetadata = {
+   //    title: `Archivos corregidos subidos`,
+   //    description: `Se han subido ${filesLength} archivo(s) corregidos a la solicitud.`,
+   //    status: "completed",
+   //    completedAt: new Date(),
+   //    assignedTo: formattedActor,
+   // };
 
    const approvedMetadata = {
       title: "Solicitud Aprobada",
-      description: "La solicitud ha sido aprobada y está lista para ser firmada.",
+      description: "La solicitud ha sido aprobada y está lista para ser firmada por el cliente.",
       status: "completed",
       completedAt: new Date(),
       assignedTo: formattedActor,
    };
 
-   return { filesUploadedMetadata, approvedMetadata };
+   return approvedMetadata;
 }
 
 async function getFirmadoMetadata(req, auth, currentDate) {

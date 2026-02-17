@@ -3343,7 +3343,7 @@ router.post("/:id/approve", async (req, res) => {
       const now = new Date();
 
       // Registrar cambio metadata
-      const { filesUploadedMetadata, approvedMetadata } = await getApprovedMetadata(req, auth, approvedDoc);
+      const approvedMetadata = await getApprovedMetadata(req, auth);
 
       // Ejecutar updates en paralelo
       const [updatedResponse] = await Promise.all([
@@ -3360,9 +3360,7 @@ router.post("/:id/approve", async (req, res) => {
                   correctedFile: "",
                },
                $push: {
-                  cambios: {
-                     $each: [filesUploadedMetadata, approvedMetadata],
-                  },
+                  cambios: approvedMetadata
                },
             },
             {
