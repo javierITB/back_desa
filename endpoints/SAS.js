@@ -233,12 +233,6 @@ router.put("/companies/:id", async (req, res) => {
         });
 
         // 2. Sincronizar DB del cliente
-        // Si no se enviaron permisos/limits (undefined), usamos los que ya tenía la empresa para regenerar/sincronizar
-        // Esto es importante para el caso de "Solo cambiar nombre" o similar, aunque aquí asumimos que si no se envían, no se tocan.
-        // Pero el helper espera "undefined" si no queremos tocar.
-
-        // Si cambiamos el Plan, newPermissions y newPlanLimits TIENEN valores.
-        // Si hacemos update manual de permisos, newPermissions tiene valor.
 
         await syncCompanyConfiguration(req, company, newPermissions, newPlanLimits);
 

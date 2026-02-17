@@ -253,7 +253,7 @@ router.get("/check-permission/:permission", async (req, res) => {
    }
 });
 
-router.get("/user-count", async (req, res) => {
+router.get("/user-count/all", async (req, res) => {
    try {
       const tokenCheck = await verifyRequest(req);
       if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
