@@ -1006,54 +1006,38 @@ router.get("/logins/todos", async (req, res) => {
 router.get("/logins/registroempresas", async (req, res) => {
    try {
       const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-         return res.status(401).json({ message: "No autorizado" });
-      }
+      if (!authHeader) return res.status(401).json({ message: "No autorizado" });
+      
       const token = authHeader.split(" ")[1];
       const { validarToken } = require("../utils/validarToken");
 
-      // 1. DEFINIR TUS ALIAS DE "CASA"
-      const aliasAcciona = ["solunex", "infoacciona", "acciona", "infodesa", "api"];
-      
-      // 2. ¿ESTAMOS EN UNA DB AJENA?
-      // Si el parámetro company NO está en tu lista de alias
-      const esCasaAjena = req.params.company && !aliasAcciona.includes(req.params.company);
-
-      let dbParaValidar;
-
-      if (esCasaAjena) {
-         /**
-          * CASO PARTICULAR FELIPE:
-          * Estás pidiendo datos de un cliente (ej: /domiciliovirtual/...)
-          * Validamos tu token usando la conexión a 'formsdb' directamente.
-          */
-         dbParaValidar = req.mongoClient.db("formsdb"); 
-      } else {
-         /**
-          * CASO NORMAL:
-          * Estás en una de tus páginas base, validamos en la DB actual.
-          */
-         dbParaValidar = req.db;
-      }
-
-      // 3. VALIDACIÓN MANUAL (Saltándonos el verifyRequest global)
-      const validation = await validarToken(dbParaValidar, token);
+      /**
+       * LA SOLUCIÓN QUIRÚRGICA:
+       * Forzamos la validación en 'formsdb' porque es ahí donde vive tu token de admin.
+       * Usamos 'req.mongoClient' que ya definiste en tu app.js (línea 82).
+       */
+      const dbMaestra = req.mongoClient.db("formsdb"); 
+      const validation = await validarToken(dbMaestra, token);
 
       if (!validation.ok) {
          return res.status(401).json({ 
-            message: "Acceso denegado: Usuario no encontrado en " + (esCasaAjena ? "formsdb" : "base actual")
+            message: "Acceso denegado: Token no encontrado en la base maestra",
+            reason: validation.reason 
          });
       }
 
-      // 4. CONSULTA DE DATOS (En la base de datos que Felipe pidió)
-      // req.db ya viene apuntando a la empresa vecina gracias al middleware de app.js
+      /**
+       * LA CONSULTA DE DATOS:
+       * Una vez validado por 'formsdb', usamos 'req.db' (la del vecino) 
+       * para obtener los ingresos que solicitaste desde el front.
+       */
       const tkn = await req.db.collection("ingresos").find().toArray();
       
       res.json(tkn);
 
    } catch (err) {
-      console.error("Error en ruta dedicada:", err.message);
-      res.status(500).json({ error: "Error interno al obtener ingresos de empresa" });
+      console.error("Error en ruta registroempresas:", err.message);
+      res.status(500).json({ error: "Error interno en el servidor" });
    }
 });
 
