@@ -1727,6 +1727,20 @@ router.get("/:id", async (req, res) => {
          respuestaProcesada.hasTemplate = false;
       }
 
+      // --- NUEVO: Consultar restricciones del plan para informar al frontend ---
+      try {
+         const configPlan = await req.db.collection("config_plan").findOne({});
+         const limits = configPlan?.planLimits || {};
+         const reqLimits = limits.requests ?? limits.solicitudes;
+
+         // Inyectamos la propiedad para que el front sepa si debe mostrar la advertencia
+         respuestaProcesada.deleteArchivedFiles = !!(reqLimits && (reqLimits.deleteArchivedFiles === true || reqLimits.deleteArchivedFiles === "true"));
+      } catch (e) {
+         console.warn("Error al consultar config_plan para el detalle:", e.message);
+         respuestaProcesada.deleteArchivedFiles = false;
+      }
+      // -------------------------------------------------------------------------
+
       res.json(respuestaProcesada);
    } catch (err) {
       res.status(500).json({ error: "Error al obtener formulario: " + err.message });
@@ -4178,6 +4192,7 @@ router.put("/:id/status", async (req, res) => {
       res.status(500).json({ error: "Error cambiando estado: " + err.message });
    }
 });
+
 
 // MANTENIMIENTO: Migrar respuestas existentes para cifrado PQC
 router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
