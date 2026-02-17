@@ -3980,6 +3980,7 @@ router.post("/:id/regenerate-document", async (req, res) => {
 router.put("/:id/status", async (req, res) => {
    let auth = null;
    let updatedResponse = null;
+   let deleteArchivedFiles = false; // Variable para informar al front
 
    try {
       const { id } = req.params;
@@ -4021,6 +4022,7 @@ router.put("/:id/status", async (req, res) => {
             if (reqLimits && (reqLimits.deleteArchivedFiles === true || reqLimits.deleteArchivedFiles === "true")) {
                console.log(`[Archivado] Eliminando archivos para respuesta ${id} según configuración`);
                await req.db.collection("adjuntos").deleteMany({ responseId: new ObjectId(id) });
+               deleteArchivedFiles = true; // Se marca como true para el front
             }
          } catch (delErr) {
             console.error("Error eliminando archivos al archivar:", delErr);
@@ -4168,6 +4170,7 @@ router.put("/:id/status", async (req, res) => {
       res.json({
          success: true,
          message: `Estado cambiado a '${status}'`,
+         deleteArchivedFiles: deleteArchivedFiles, // Enviamos el permiso al front
          updatedRequest: updatedResponse,
       });
    } catch (err) {
