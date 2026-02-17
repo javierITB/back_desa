@@ -281,7 +281,7 @@ router.get("/user-count", async (req, res) => {
       res.json(cargos);
    } catch (err) {
       console.error("Error en GET /roles/users:", err);
-      res.status(500).json({ error: "Error al obtener usuarios" });
+      res.status(500).json({ error: err.message });
    }
 });
 
