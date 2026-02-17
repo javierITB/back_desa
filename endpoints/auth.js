@@ -61,7 +61,7 @@ const generateAndSend2FACode = async (db, user, type, req) => { // <--- Agregamo
    let contextMessage;
 
    // Definimos las variables que faltaban para corregir el ReferenceError
-   const bgColor = "#f3f4f6"; 
+   const bgColor = "#f3f4f6";
    const primaryColor = "#f97316";
 
    if (type === "2FA_SETUP") {
@@ -236,7 +236,7 @@ router.get("/solicitud", async (req, res) => {
 });
 
 // ruta para listar cargos y empresas.  
- 
+
 router.get("/empresas/anuncios", async (req, res) => {
    try {
       await verifyRequest(req);
@@ -797,7 +797,7 @@ router.post("/send-2fa-code", async (req, res) => {
          });
       }
 
-      await generateAndSend2FACode(req.db,user, "2FA_SETUP", req);
+      await generateAndSend2FACode(req.db, user, "2FA_SETUP", req);
 
       res.status(200).json({
          success: true,
