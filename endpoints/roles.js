@@ -61,8 +61,20 @@ router.post("/", async (req, res) => {
         return res.status(403).json({ error: "No se puede modificar el rol raíz de administrador" });
       }
 
+      const isUserMaestro = tokenCheck.data.rol?.toLowerCase() === "maestro";
+
       const currentCargoState = await req.db.collection("roles").findOne({ _id: new ObjectId(id) });
       if (!currentCargoState) return res.status(404).json({ error: "Rol no encontrado" });
+
+      // Proteccion Maestro: Solo un Maestro puede editar un Maestro
+      if (currentCargoState.name?.toLowerCase() === "maestro" && !isUserMaestro) {
+        return res.status(403).json({ error: "No tienes permisos para modificar el rol Maestro" });
+      }
+
+      // Evitar que alguien asigne el nombre "Maestro" si no lo es
+      if (roleData.name.toLowerCase() === "maestro" && !isUserMaestro) {
+        return res.status(403).json({ error: "No puedes asignar el nombre Maestro a un rol" });
+      }
 
       const newCargoState = await req.db.collection("roles").findOneAndUpdate(
         { _id: new ObjectId(id) },
@@ -109,12 +121,19 @@ router.get("/", async (req, res) => {
     const tokenCheck = await verifyRequest(req);
     if (!tokenCheck.ok) return res.status(401).json({ error: "Unauthorized" });
 
+    const isUserMaestro = tokenCheck.data.rol?.toLowerCase() === "maestro";
+
     const roles = await req.db.collection("roles")
       .find({})
       .sort({ name: 1 })
       .toArray();
 
-    res.json(roles);
+    // Filtrar Maestro si el usuario no es Maestro
+    const filteredRoles = isUserMaestro
+      ? roles
+      : roles.filter(r => r.name?.toLowerCase() !== "maestro");
+
+    res.json(filteredRoles);
   } catch (err) {
     console.error("Error en GET /roles:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -174,9 +193,21 @@ router.delete("/:id", async (req, res) => {
 
     const roleId = req.params.id;
 
-    // 1. Evitar borrar el admin
-    if (roleId === 'admin' || roleId === '67a25...') { // ID quemado o flag de sistema
+    // 1. Evitar borrar el admin o maestro
+    const isUserMaestro = tokenCheck.data.rol?.toLowerCase() === "maestro";
+
+    if (roleId === 'admin') {
       return res.status(403).json({ error: "No se puede eliminar un rol de sistema" });
+    }
+
+    const roleToDelete = await req.db.collection("roles").findOne({ _id: new ObjectId(roleId) });
+    if (roleToDelete && roleToDelete.name?.toLowerCase() === "maestro") {
+      if (!isUserMaestro) {
+        return res.status(403).json({ error: "No tienes permisos para eliminar el rol Maestro" });
+      }
+      // Incluso si es maestro, tal vez no debería borrarse? El usuario dijo "no se puede modificar"
+      // Mantenemos protección alta:
+      return res.status(403).json({ error: "El rol Maestro es vital para el sistema y no puede eliminarse" });
     }
 
     // 2. Verificar si hay usuarios con este rol antes de borrar
