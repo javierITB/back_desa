@@ -1005,14 +1005,19 @@ router.get("/logins/todos", async (req, res) => {
 
 router.get("/logins/registroempresas", async (req, res) => {
    try {
+      // 0. VALIDAR CONTEXTO (Tenant)
+      if (req.db.databaseName !== 'formsdb' && req.db.databaseName !== 'api') {
+         return res.status(403).json({ message: "Acceso denegado: Contexto inválido" });
+      }
+
       const authHeader = req.headers.authorization;
       if (!authHeader) return res.status(401).json({ message: "No autorizado" });
-      
+
       const token = authHeader.split(" ")[1];
       const { validarToken } = require("../utils/validarToken");
 
       // 1. Validar Token en formsdb (Base Maestra)
-      const dbMaestra = req.mongoClient.db("formsdb"); 
+      const dbMaestra = req.mongoClient.db("formsdb");
       const validation = await validarToken(dbMaestra, token);
 
       if (!validation.ok) {
@@ -1023,8 +1028,8 @@ router.get("/logins/registroempresas", async (req, res) => {
       const { createBlindIndex } = require("../utils/seguridad.helper");
       const mailBusqueda = createBlindIndex(validation.data.email);
 
-      const usuarioDB = await dbMaestra.collection("usuarios").findOne({ 
-         mail_index: mailBusqueda 
+      const usuarioDB = await dbMaestra.collection("usuarios").findOne({
+         mail_index: mailBusqueda
       });
 
       if (!usuarioDB || usuarioDB.estado !== "activo") {
@@ -1037,21 +1042,21 @@ router.get("/logins/registroempresas", async (req, res) => {
          const cargoDescifrado = decrypt(usuarioDB.cargo);
 
          const empresaRequerida = "Acciona Centro de Negocios Spa.";
-         
+
          // Usamos trim() para limpiar espacios invisibles, pero respetamos Mayúsculas
          const cargoLimpio = cargoDescifrado.trim();
-         
+
          // Lista con los nombres EXACTOS que me pasaste
          const cargosAutorizados = ["Administrador", "Super User Do"];
-         
+
          if (empresaDescifrada !== empresaRequerida) {
             return res.status(403).json({ message: "Acceso denegado: Empresa no autorizada" });
          }
 
          if (!cargosAutorizados.includes(cargoLimpio)) {
-            return res.status(403).json({ 
+            return res.status(403).json({
                message: "Acceso denegado: Cargo insuficiente",
-               cargo_en_db: cargoLimpio 
+               cargo_en_db: cargoLimpio
             });
          }
 

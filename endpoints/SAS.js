@@ -9,10 +9,43 @@ const getFormsDB = (req) => {
     return req.mongoClient.db("formsdb");
 };
 
+// Helper para verificar contexto formsdb
+const verifyRequest = async (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({ error: "No autorizado" });
+        }
+        const token = authHeader.split(" ")[1];
+
+        const { validarToken } = require("../utils/validarToken");
+        // Validamos que el token sea válido en el contexto actual
+        const validation = await validarToken(req.db, token);
+
+        if (!validation.ok) {
+            return res.status(401).json({ error: "Acceso denegado: " + validation.reason });
+        }
+
+        // 2. Verificar que la DB actual sea 'formsdb' (o 'api' en entorno dev si aplica)
+        const currentDbName = req.db.databaseName;
+        if (currentDbName !== 'formsdb' && currentDbName !== 'api') { // Asumiendo 'api' puede ser el nombre en local
+            return res.status(403).json({ error: `Acceso denegado: Operación no permitida en el contexto '${currentDbName}'. Se requiere 'formsdb'.` });
+        }
+
+        req.user = validation.data; // Retornamos datos de auth por si se usan
+        next();
+    } catch (error) {
+        console.error("Error en verifyRequest:", error);
+        res.status(500).json({ error: "Error interno de autenticación" });
+    }
+};
+
 // GET /companies: Listar todas las empresas
-router.get("/companies", async (req, res) => {
+router.get("/companies", verifyRequest, async (req, res) => {
     console.log(`[SAS] GET /companies request received`);
     try {
+        // Validación de Seguridad
+        // (Validado por verifyRequest)
         if (!req.mongoClient) {
             console.error("[SAS] Error: req.mongoClient is undefined");
             return res.status(500).json({ error: "Configuration Error: No mongoClient" });
@@ -69,9 +102,10 @@ router.get("/companies", async (req, res) => {
 });
 
 // POST /companies: Crear nueva empresa y su base de datos
-router.post("/companies", async (req, res) => {
+router.post("/companies", verifyRequest, async (req, res) => {
     console.log(`[SAS] POST /companies request received`, req.body);
     try {
+        // (Validado por verifyRequest)
         const { name, permissions: bodyPermissions, planId } = req.body;
         if (!name) return res.status(400).json({ error: "El nombre es requerido" });
 
@@ -159,9 +193,10 @@ router.post("/companies", async (req, res) => {
 });
 
 // PUT /companies/:id: Actualizar permisos de una empresa
-router.put("/companies/:id", async (req, res) => {
+router.put("/companies/:id", verifyRequest, async (req, res) => {
     console.log(`[SAS] PUT /companies/${req.params.id} request received`, req.body);
     try {
+        // (Validado por verifyRequest)
         const { id } = req.params;
         const { permissions, planId, name } = req.body;
         const { ObjectId } = require("mongodb");
@@ -219,8 +254,9 @@ router.put("/companies/:id", async (req, res) => {
 });
 
 // DELETE /companies/:id: Eliminar empresa y su DB
-router.delete("/companies/:id", async (req, res) => {
+router.delete("/companies/:id", verifyRequest, async (req, res) => {
     try {
+        // (Validado por verifyRequest)
         const { id } = req.params;
         // id es el _id de la colección config_empresas. 
         // Pero necesitamos el nombre para borrar la DB.
@@ -265,8 +301,9 @@ router.delete("/companies/:id", async (req, res) => {
 });
 
 // GET /companies/:id: Obtener detalles de una empresa (incluyendo planLimits)
-router.get("/companies/:id", async (req, res) => {
+router.get("/companies/:id", verifyRequest, async (req, res) => {
     try {
+        // (Validado por verifyRequest)
         const { id } = req.params;
         const dbForms = getFormsDB(req);
         const { ObjectId } = require("mongodb");

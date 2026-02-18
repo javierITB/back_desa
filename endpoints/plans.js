@@ -8,10 +8,42 @@ const getFormsDB = (req) => {
     return req.mongoClient.db("formsdb");
 };
 
+const verifyRequest = async (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({ error: "No autorizado" });
+        }
+        const token = authHeader.split(" ")[1];
+
+        const { validarToken } = require("../utils/validarToken");
+        // Validamos que el token sea válido en el contexto actual
+        const validation = await validarToken(req.db, token);
+
+        if (!validation.ok) {
+            return res.status(401).json({ error: "Acceso denegado: " + validation.reason });
+        }
+
+        // Validar que el contexto sea formsdb
+        if (req.db.databaseName !== 'formsdb' && req.db.databaseName !== 'api') {
+            return res.status(403).json({ error: "Acceso denegado: Contexto inválido" });
+        }
+
+        req.user = validation.data;
+        next();
+    } catch (error) {
+        console.error("Error en verifyRequest:", error);
+        res.status(500).json({ error: "Error interno de autenticación" });
+    }
+};
+
 // GET /: Listar todos los planes
-router.get("/", async (req, res) => {
+router.get("/", verifyRequest, async (req, res) => {
     try {
         const db = getFormsDB(req);
+        // Validar que el contexto sea formsdb
+        // (Ya validado por verifyRequest, pero mantenemos db formsdb)
+
         const plans = await db.collection("planes").find({}).sort({ name: 1 }).toArray();
 
         // Calcular cuántas empresas tienen cada plan
@@ -30,8 +62,10 @@ router.get("/", async (req, res) => {
 });
 
 // POST /: Crear un nuevo plan
-router.post("/", async (req, res) => {
+router.post("/", verifyRequest, async (req, res) => {
     try {
+        // (Validado por verifyRequest)
+
         const { name, permissions, planLimits, price } = req.body;
         if (!name) return res.status(400).json({ error: "El nombre es requerido" });
 
@@ -56,8 +90,10 @@ router.post("/", async (req, res) => {
 });
 
 // PUT /:id: Actualizar plan y propagar cambios
-router.put("/:id", async (req, res) => {
+router.put("/:id", verifyRequest, async (req, res) => {
     try {
+        // (Validado por verifyRequest)
+
         const { id } = req.params;
         const { name, permissions, planLimits, price } = req.body;
         const db = getFormsDB(req);
@@ -128,8 +164,10 @@ router.put("/:id", async (req, res) => {
 });
 
 // DELETE /:id: Eliminar plan
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", verifyRequest, async (req, res) => {
     try {
+        // (Validado por verifyRequest)
+
         const { id } = req.params;
         const db = getFormsDB(req);
 

@@ -123,8 +123,10 @@ router.get("/admin/all", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
 
-        // Ensure only authorized users can see this (simplified check)
-        // In a real app, check permissions against 'view_pagos'
+        // Validar que el contexto sea formsdb
+        if (req.db.databaseName !== 'formsdb' && req.db.databaseName !== 'api') {
+            return res.status(403).json({ error: "Acceso denegado: Contexto inválido" });
+        }
 
         const comprobantes = await db.collection("comprobantes")
             .find({})
@@ -143,6 +145,12 @@ router.get("/admin/all", verifyAuth, async (req, res) => {
 router.put("/:id/status", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
+
+        // Validar que el contexto sea formsdb
+        if (req.db.databaseName !== 'formsdb' && req.db.databaseName !== 'api') {
+            return res.status(403).json({ error: "Acceso denegado: Contexto inválido" });
+        }
+
         const { id } = req.params;
         const { status } = req.body; // 'Aprobado', 'Rechazado', 'Pendiente'
 
@@ -175,6 +183,12 @@ router.put("/:id/status", verifyAuth, async (req, res) => {
 router.get("/file/:id", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
+
+        // Validar que el contexto sea formsdb (ya que esto descarga cualquier archivo por ID)
+        if (req.db.databaseName !== 'formsdb' && req.db.databaseName !== 'api') {
+            return res.status(403).json({ error: "Acceso denegado: Contexto inválido" });
+        }
+
         const { id } = req.params;
 
         if (!ObjectId.isValid(id)) {
