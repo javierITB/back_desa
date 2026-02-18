@@ -67,22 +67,17 @@ router.get("/mini", async (req, res) => {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-        // 1. Extraemos los parámetros del query
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 30;
         const { status, company, search, submittedBy, dateRange, startDate, endDate } = req.query;
 
         const collection = req.db.collection("domicilio_virtual");
 
-        // 2. CONSTRUCCIÓN DEL FILTRO DE BASE DE DATOS
         const dbQuery = {};
-
-        // Filtro por Estado
         if (status && status !== "") {
             dbQuery.status = status;
         }
 
-        // --- LÓGICA DE FECHAS (AGREGADO: Hoy, Mes, Trimestre, Año) ---
         if (startDate || endDate) {
             dbQuery.createdAt = {};
             if (startDate) dbQuery.createdAt.$gte = new Date(`${startDate}T00:00:00.000Z`);
@@ -91,7 +86,6 @@ router.get("/mini", async (req, res) => {
         else if (dateRange && dateRange !== "") {
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
             if (dateRange === 'today') {
                 const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
                 dbQuery.createdAt = { $gte: startOfToday, $lte: endOfToday };
@@ -115,12 +109,8 @@ router.get("/mini", async (req, res) => {
             }
         }
 
-        // 3. Obtención de datos desde la DB
-        const answers = await collection.find(dbQuery)
-            .sort({ createdAt: -1 })
-            .toArray();
+        const answers = await collection.find(dbQuery).sort({ createdAt: -1 }).toArray();
 
-        // 4. Procesamiento, Desencriptación y Mapeo (Lógica Original)
         let answersProcessed = answers.map(answer => {
             const getVal = (keys, ignore = []) => {
                 const responseKeys = Object.keys(answer.responses || {});
@@ -128,34 +118,23 @@ router.get("/mini", async (req, res) => {
                     const foundKey = responseKeys.find(k => {
                         const cleanK = k.toLowerCase().trim().replace(":", "");
                         const cleanSearch = searchTerm.toLowerCase().trim();
-
-                        if (ignore.some(ignoredTerm => cleanK.includes(ignoredTerm))) {
-                            return false;
-                        }
-
+                        if (ignore.some(ignoredTerm => cleanK.includes(ignoredTerm))) return false;
                         return cleanK.includes(cleanSearch);
                     });
-
                     if (foundKey && answer.responses[foundKey]) {
-                        try {
-                            return decrypt(answer.responses[foundKey]);
-                        } catch (e) { return answer.responses[foundKey]; }
+                        try { return decrypt(answer.responses[foundKey]); } catch (e) { return answer.responses[foundKey]; }
                     }
                 }
                 return "";
             };
 
-            const nombreCliente = getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]);
-            const rutCliente = getVal(["rut de la empresa", "rut representante legal"]);
-            const nombreEmpresa = getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]);
-
             return {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                tuNombre: nombreCliente,
-                nombreEmpresa: nombreEmpresa,
-                rutEmpresa: rutCliente,
+                tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
+                nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
+                rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
                 submittedAt: answer.submittedAt || answer.createdAt,
                 status: answer.status,
                 createdAt: answer.createdAt,
@@ -163,62 +142,46 @@ router.get("/mini", async (req, res) => {
             };
         });
 
-        // 5. Filtrado en Memoria (Texto desencriptado)
+        // --- CAMBIO MÍNIMO VIABLE: Lógica de Normalización de Tildes ---
+        const clean = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
         if (company && company.trim() !== "") {
-            const term = company.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a =>
-                a.rutEmpresa.toLowerCase().includes(term) ||
-                a.nombreEmpresa.toLowerCase().includes(term)
-            );
+            const term = clean(company);
+            answersProcessed = answersProcessed.filter(a => clean(a.rutEmpresa).includes(term) || clean(a.nombreEmpresa).includes(term));
         }
 
         if (submittedBy && submittedBy.trim() !== "") {
-            const term = submittedBy.toLowerCase().trim();
-            answersProcessed = answersProcessed.filter(a =>
-                a.tuNombre.toLowerCase().includes(term)
-            );
+            const term = clean(submittedBy);
+            answersProcessed = answersProcessed.filter(a => clean(a.tuNombre).includes(term));
         }
 
         if (search && search.trim() !== "") {
-            const term = search.toLowerCase().trim();
+            const term = clean(search); // "contratacion"
             answersProcessed = answersProcessed.filter(a =>
-                a.tuNombre.toLowerCase().includes(term) ||
-                a.rutEmpresa.toLowerCase().includes(term) ||
-                a.nombreEmpresa.toLowerCase().includes(term) ||
-                a.formTitle.toLowerCase().includes(term)
+                clean(a.tuNombre).includes(term) ||
+                clean(a.rutEmpresa).includes(term) ||
+                clean(a.nombreEmpresa).includes(term) ||
+                clean(a.formTitle).includes(term) // Hará match con "Contratación"
             );
         }
+        // --------------------------------------------------------------
 
-        // 6. Paginación y Stats (AGREGADO: Sincronización con "enviado")
         const totalCount = answersProcessed.length;
         const skip = (page - 1) * limit;
         const paginatedData = answersProcessed.slice(skip, skip + limit);
 
-        const statusCounts = await collection.aggregate([
-            { $group: { _id: "$status", count: { $sum: 1 } } }
-        ]).toArray();
-
-        const getCount = (id) => statusCounts.find(s => s._id === id)?.count || 0;
+        // Recalcular stats basadas en el filtro actual para que el front sea coherente
+        const stats = {
+            total: totalCount,
+            documento_generado: 0, enviado: 0, solicitud_firmada: 0, informado_sii: 0, dicom: 0, dado_de_baja: 0, pendiente: 0
+        };
+        answersProcessed.forEach(a => { if (stats.hasOwnProperty(a.status)) stats[a.status]++; });
 
         res.json({
             success: true,
             data: paginatedData,
-            pagination: {
-                total: totalCount,
-                page: page,
-                limit: limit,
-                totalPages: Math.ceil(totalCount / limit)
-            },
-            stats: {
-                total: totalCount,
-                documento_generado: getCount('documento_generado'),
-                enviado: getCount('enviado'), // Coincide con tu BD
-                solicitud_firmada: getCount('solicitud_firmada'),
-                informado_sii: getCount('informado_sii'),
-                dicom: getCount('dicom'),
-                dado_de_baja: getCount('dado_de_baja'),
-                pendiente: getCount('pendiente')
-            }
+            pagination: { total: totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) },
+            stats: stats
         });
 
     } catch (err) {
