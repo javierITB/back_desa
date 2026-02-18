@@ -3739,6 +3739,31 @@ router.get("/:responseId/client-signature", async (req, res) => {
    }
 });
 
+router.get("/:id/client-signatures", async (req, res) => {
+   try {
+      const { id } = req.params;
+
+      const auth = await verifyRequest(req);
+      if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+      if (!ObjectId.isValid(id)) {
+         return res.status(400).json({ error: "ID inválido" });
+      }
+
+      const firmas = await req.db
+         .collection("firmados")
+         .find({ responseId: id })
+         .toArray();
+
+      res.json(firmas);
+   } catch (err) {
+      console.error("Error obteniendo firmas:", err);
+      res.status(500).json({ error: "Error obteniendo firmas" });
+   }
+});
+
+
+
 // Eliminar PDF firmado por cliente y volver al estado 'aprobado'
 router.delete("/:responseId/client-signature", async (req, res) => {
    try {
