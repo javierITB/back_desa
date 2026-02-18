@@ -27,13 +27,44 @@ const upload = multer({
 
 // --- ENDPOINTS ---
 
+// --- MIDDLEWARE ---
+
+const verifyAuth = async (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader) {
+            return res.status(401).json({ error: "No autorizado. Token faltante." });
+        }
+
+        const token = authHeader.split(" ")[1];
+        if (!token) {
+            return res.status(401).json({ error: "Formato de token inválido." });
+        }
+
+        // Use req.db (Tenant DB) to validate token because users log in to their specific company DB
+        const validation = await validarToken(req.db, token);
+
+        if (!validation.ok) {
+            return res.status(401).json({ error: validation.reason });
+        }
+
+        req.user = validation.data;
+        next();
+    } catch (error) {
+        console.error("Error en middleware de autenticación:", error);
+        res.status(500).json({ error: "Error interno de autenticación." });
+    }
+};
+
+// --- ENDPOINTS ---
+
 // 1. Upload Comprobante (Client)
-router.post("/upload", validarToken, upload.single("file"), async (req, res) => {
+router.post("/upload", verifyAuth, upload.single("file"), async (req, res) => {
     try {
         const db = getCentralDB(req);
         const { amount, date, concept } = req.body;
         const company = req.params.company; // The company from the URL (the client's company)
-        const user = req.user; // From validarToken
+        const user = req.user; // From verifyAuth
 
         if (!req.file) {
             return res.status(400).json({ error: "No se ha subido ningún archivo." });
@@ -68,7 +99,7 @@ router.post("/upload", validarToken, upload.single("file"), async (req, res) => 
 });
 
 // 2. Get History (Client View - filtered by company)
-router.get("/history", validarToken, async (req, res) => {
+router.get("/history", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
         const company = req.params.company;
@@ -88,7 +119,7 @@ router.get("/history", validarToken, async (req, res) => {
 });
 
 // 3. Get All (Admin View - requires generic 'view_pagos' logic, assuming 'formsdb' context/user)
-router.get("/admin/all", validarToken, async (req, res) => {
+router.get("/admin/all", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
 
@@ -109,7 +140,7 @@ router.get("/admin/all", validarToken, async (req, res) => {
 });
 
 // 4. Update Status (Admin)
-router.put("/:id/status", validarToken, async (req, res) => {
+router.put("/:id/status", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
         const { id } = req.params;
@@ -141,7 +172,7 @@ router.put("/:id/status", validarToken, async (req, res) => {
 });
 
 // 5. Get File (Download/View)
-router.get("/file/:id", validarToken, async (req, res) => {
+router.get("/file/:id", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
         const { id } = req.params;
