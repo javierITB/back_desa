@@ -19,7 +19,7 @@ const {
    getCorrectedFilesDeletedMetadata,
    getCorrectionsClearedMetadata,
    getFinalizedMetadata,
-   getArchivedMetadata
+   getArchivedMetadata,
 } = require("../utils/answers.helper");
 
 // Función para normalizar nombres de archivos (versión completa y segura)
@@ -1734,7 +1734,10 @@ router.get("/:id", async (req, res) => {
          const reqLimits = limits.requests ?? limits.solicitudes;
 
          // Inyectamos la propiedad para que el front sepa si debe mostrar la advertencia
-         respuestaProcesada.deleteArchivedFiles = !!(reqLimits && (reqLimits.deleteArchivedFiles === true || reqLimits.deleteArchivedFiles === "true"));
+         respuestaProcesada.deleteArchivedFiles = !!(
+            reqLimits &&
+            (reqLimits.deleteArchivedFiles === true || reqLimits.deleteArchivedFiles === "true")
+         );
       } catch (e) {
          console.warn("Error al consultar config_plan para el detalle:", e.message);
          respuestaProcesada.deleteArchivedFiles = false;
@@ -2389,8 +2392,7 @@ router.get("/:id/finalized", async (req, res) => {
       const { id } = req.params;
 
       const auth = await verifyRequest(req);
-      if (!auth.ok)
-         return res.status(401).json({ error: auth.error });
+      if (!auth.ok) return res.status(401).json({ error: auth.error });
 
       if (!ObjectId.isValid(id)) {
          return res.status(400).json({
@@ -2413,31 +2415,26 @@ router.get("/:id/finalized", async (req, res) => {
       }
 
       // crear metadata
-      const finalizedMetadata = await getFinalizedMetadata(
-         req,
-         auth,
-         currentDate
-      );
+      const finalizedMetadata = await getFinalizedMetadata(req, auth, currentDate);
 
       // actualizar respuesta + registrar evento
-      const updatedResponse =
-         await req.db.collection("respuestas").findOneAndUpdate(
-            { _id: objectId },
-            {
-               $set: {
-                  status: "finalizado",
-                  finalizedAt: currentDate,
-                  updatedAt: currentDate,
-                  updateAdmin: currentDate,
-               },
-               $push: {
-                  cambios: finalizedMetadata,
-               },
+      const updatedResponse = await req.db.collection("respuestas").findOneAndUpdate(
+         { _id: objectId },
+         {
+            $set: {
+               status: "finalizado",
+               finalizedAt: currentDate,
+               updatedAt: currentDate,
+               updateAdmin: currentDate,
             },
-            {
-               returnDocument: "after",
-            }
-         );
+            $push: {
+               cambios: finalizedMetadata,
+            },
+         },
+         {
+            returnDocument: "after",
+         },
+      );
 
       if (!updatedResponse) {
          return res.status(404).json({
@@ -2451,18 +2448,14 @@ router.get("/:id/finalized", async (req, res) => {
          status: "finalizado",
          responseId: id,
       });
-
    } catch (err) {
-
       console.error("Error finalizando respuesta:", err);
 
       res.status(500).json({
          error: "Error finalizando respuesta",
       });
-
    }
 });
-
 
 // Endpoint de mantenimiento único para limpiar archivos de respuestas ya archivadas
 router.get("/mantenimiento/limpiar-archivos-archivados", async (req, res) => {
@@ -2528,12 +2521,10 @@ router.get("/mantenimiento/limpiar-archivos-archivados", async (req, res) => {
 // Cambiar estado a archivado
 router.get("/:id/archived", async (req, res) => {
    try {
-
       const { id } = req.params;
 
       const auth = await verifyRequest(req);
-      if (!auth.ok)
-         return res.status(401).json({ error: auth.error });
+      if (!auth.ok) return res.status(401).json({ error: auth.error });
 
       if (!ObjectId.isValid(id)) {
          return res.status(400).json({
@@ -2556,31 +2547,26 @@ router.get("/:id/archived", async (req, res) => {
       }
 
       // crear metadata evento
-      const archivedMetadata = await getArchivedMetadata(
-         req,
-         auth,
-         currentDate
-      );
+      const archivedMetadata = await getArchivedMetadata(req, auth, currentDate);
 
       // actualizar estado + registrar evento
-      const updatedResponse =
-         await req.db.collection("respuestas").findOneAndUpdate(
-            { _id: objectId },
-            {
-               $set: {
-                  status: "archivado",
-                  archivedAt: currentDate,
-                  updatedAt: currentDate,
-                  updateAdmin: currentDate,
-               },
-               $push: {
-                  cambios: archivedMetadata,
-               },
+      const updatedResponse = await req.db.collection("respuestas").findOneAndUpdate(
+         { _id: objectId },
+         {
+            $set: {
+               status: "archivado",
+               archivedAt: currentDate,
+               updatedAt: currentDate,
+               updateAdmin: currentDate,
             },
-            {
-               returnDocument: "after",
-            }
-         );
+            $push: {
+               cambios: archivedMetadata,
+            },
+         },
+         {
+            returnDocument: "after",
+         },
+      );
 
       if (!updatedResponse) {
          return res.status(404).json({
@@ -2590,16 +2576,11 @@ router.get("/:id/archived", async (req, res) => {
 
       // limpiar colecciones relacionadas
       const cleanupResults = await Promise.all([
+         req.db.collection("aprobados").deleteMany({ responseId: id }),
 
-         req.db.collection("aprobados")
-            .deleteMany({ responseId: id }),
+         req.db.collection("adjuntos").deleteMany({ responseId: objectId }),
 
-         req.db.collection("adjuntos")
-            .deleteMany({ responseId: objectId }),
-
-         req.db.collection("docxs")
-            .deleteMany({ responseId: id }),
-
+         req.db.collection("docxs").deleteMany({ responseId: id }),
       ]);
 
       res.json({
@@ -2613,18 +2594,12 @@ router.get("/:id/archived", async (req, res) => {
             docxs: cleanupResults[2].deletedCount,
          },
       });
-
    } catch (err) {
-
-      console.error(
-         "Error archivando respuesta y limpiando colecciones:",
-         err
-      );
+      console.error("Error archivando respuesta y limpiando colecciones:", err);
 
       res.status(500).json({
          error: "Error archivando respuesta",
       });
-
    }
 });
 
@@ -2752,12 +2727,11 @@ router.post("/upload-corrected-files", async (req, res) => {
             }
          }
 
-         if (Number(index) === Number(total) - 1){
-
+         if (Number(index) === Number(total) - 1) {
             const currentDate = new Date();
-   
+
             const filesUploadedMetadata = await getFilesUploadedMetadata(req, auth, total, currentDate);
-   
+
             await req.db.collection("respuestas").findOneAndUpdate(
                { _id: new ObjectId(responseId) },
                {
@@ -3218,8 +3192,6 @@ router.delete("/delete-corrected-files/:responseId", async (req, res) => {
 
          statusChanged = nuevoEstado !== estadoActual;
 
-         
-
          // await req.db.collection("respuestas").updateOne(
          //    { _id: new ObjectId(responseId) },
          //    {
@@ -3360,7 +3332,7 @@ router.post("/:id/approve", async (req, res) => {
                   correctedFile: "",
                },
                $push: {
-                  cambios: approvedMetadata
+                  cambios: approvedMetadata,
                },
             },
             {
@@ -3606,19 +3578,20 @@ router.post("/:responseId/upload-client-signature", upload.single("signedPdf"), 
       const objectId = new ObjectId(responseId);
       const currentDate = new Date();
 
-      // Buscar respuesta y verificar firma existente en paralelo
-      const [respuesta, existingSignature] = await Promise.all([
+      const [respuesta, signaturesCount] = await Promise.all([
          req.db.collection("respuestas").findOne({ _id: objectId }),
-         req.db.collection("firmados").findOne({ responseId }),
+         req.db.collection("firmados").countDocuments({ responseId }),
       ]);
 
       if (!respuesta) {
          return res.status(404).json({ error: "Formulario no encontrado" });
       }
 
-      if (existingSignature) {
+      const MAX_SIGNATURES = 5;
+
+      if (signaturesCount >= MAX_SIGNATURES) {
          return res.status(400).json({
-            error: "Ya existe un documento firmado para este formulario",
+            error: `Se alcanzó el máximo de ${MAX_SIGNATURES} documentos firmados para este formulario`,
          });
       }
 
@@ -4192,7 +4165,6 @@ router.put("/:id/status", async (req, res) => {
       res.status(500).json({ error: "Error cambiando estado: " + err.message });
    }
 });
-
 
 // MANTENIMIENTO: Migrar respuestas existentes para cifrado PQC
 router.get("/mantenimiento/migrar-respuestas-pqc", async (req, res) => {
