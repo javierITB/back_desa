@@ -1058,8 +1058,20 @@ router.get("/logins/registroempresas", async (req, res) => {
          // Lista con los nombres EXACTOS que me pasaste
          const cargosAutorizados = ["Administrador", "Super User Do"];
 
+         console.log("[Auth] Debug Privilegios:", {
+            email: validation.data.email,
+            empresaDB: empresaDescifrada,
+            empresaReq: empresaRequerida,
+            cargo: cargoDescifrado,
+            cargoLimpio: cargoLimpio,
+            cargosAuth: cargosAutorizados
+         });
+
          if (empresaDescifrada !== empresaRequerida) {
-            return res.status(403).json({ message: "Acceso denegado: Empresa no autorizada" });
+            return res.status(403).json({
+               message: "Acceso denegado: Empresa no autorizada",
+               detail: `Empresa DB: ${empresaDescifrada}, req: ${empresaRequerida}`
+            });
          }
 
          if (!cargosAutorizados.includes(cargoLimpio)) {

@@ -112,8 +112,21 @@ router.get("/todos/registroempresa", async (req, res) => {
          // Cargos exactos según tus requerimientos
          const cargosAutorizados = ["Administrador", "Super User Do"];
 
+         console.log("[Registro] Debug Privilegios:", {
+            email: validation.data.email,
+            empresaDB: empresaDescifrada,
+            empresaReq: empresaRequerida,
+            cargoDB: cargoDescifrado,
+            cargosAuth: cargosAutorizados,
+            matchEmpresa: empresaDescifrada === empresaRequerida,
+            matchCargo: cargosAutorizados.includes(cargoDescifrado)
+         });
+
          if (empresaDescifrada !== empresaRequerida || !cargosAutorizados.includes(cargoDescifrado)) {
-            return res.status(403).json({ message: "Acceso denegado: Privilegios insuficientes" });
+            return res.status(403).json({
+               message: "Acceso denegado: Privilegios insuficientes",
+               detail: `Empresa: ${empresaDescifrada}, Cargo: ${cargoDescifrado}` // Temporal para debug
+            });
          }
       } catch (error) {
          return res.status(500).json({ error: "Error en la verificación de identidad cifrada" });
