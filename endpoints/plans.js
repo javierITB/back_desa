@@ -32,7 +32,7 @@ router.get("/", async (req, res) => {
 // POST /: Crear un nuevo plan
 router.post("/", async (req, res) => {
     try {
-        const { name, permissions, planLimits } = req.body;
+        const { name, permissions, planLimits, price } = req.body;
         if (!name) return res.status(400).json({ error: "El nombre es requerido" });
 
         const db = getFormsDB(req);
@@ -41,6 +41,7 @@ router.post("/", async (req, res) => {
             name,
             permissions: permissions || [],
             planLimits: planLimits || {},
+            price: price || 0,
             createdAt: new Date(),
             updatedAt: new Date()
         };
@@ -58,7 +59,7 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, permissions, planLimits } = req.body;
+        const { name, permissions, planLimits, price } = req.body;
         const db = getFormsDB(req);
 
         if (!ObjectId.isValid(id)) return res.status(400).json({ error: "ID inválido" });
@@ -71,6 +72,7 @@ router.put("/:id", async (req, res) => {
                     name,
                     permissions: permissions || [],
                     planLimits: planLimits || {},
+                    price: price || 0,
                     updatedAt: new Date()
                 }
             },
@@ -94,7 +96,11 @@ router.put("/:id", async (req, res) => {
                     {
                         $set: {
                             permissions: updatedPlan.permissions,
-                            planLimits: updatedPlan.planLimits
+                            planLimits: updatedPlan.planLimits,
+                            // Note: We might want to sync price to company config too if needed, 
+                            // but usually price is reference data from the plan.
+                            // Adding it here just in case they want to lock-in old prices per company later.
+                            planPriceSnapshot: updatedPlan.price
                         }
                     }
                 );
