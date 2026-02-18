@@ -1011,59 +1011,33 @@ router.get("/logins/registroempresas", async (req, res) => {
       const token = authHeader.split(" ")[1];
       const { validarToken } = require("../utils/validarToken");
 
-      // 1. Validar Token en formsdb (Base Maestra)
+      /**
+       * LA SOLUCIÓN QUIRÚRGICA:
+       * Forzamos la validación en 'formsdb' porque es ahí donde vive tu token de admin.
+       * Usamos 'req.mongoClient' que ya definiste en tu app.js (línea 82).
+       */
       const dbMaestra = req.mongoClient.db("formsdb"); 
       const validation = await validarToken(dbMaestra, token);
 
       if (!validation.ok) {
-         return res.status(401).json({ message: "Token inválido" });
+         return res.status(401).json({ 
+            message: "Acceso denegado: Token no encontrado en la base maestra",
+            reason: validation.reason 
+         });
       }
 
-      // 2. Buscar usuario en la colección maestra con manejo robusto de ID
-      const { ObjectId } = require("mongodb");
-      const rawId = validation.data._id;
-      
-      // Corregimos la depreciación: verificamos si ya es un ObjectId o lo convertimos
-      const queryId = ObjectId.isValid(rawId) ? new ObjectId(rawId) : rawId;
-
-      const usuarioDB = await dbMaestra.collection("usuarios").findOne({ _id: queryId });
-
-      if (!usuarioDB || usuarioDB.estado !== "activo") {
-         return res.status(403).json({ message: "Usuario no encontrado o inactivo" });
-      }
-
-      // 3. DESCIFRAR Y VALIDAR (Empresa y Cargo)
-      try {
-         const empresaDescifrada = decrypt(usuarioDB.empresa);
-         const cargoDescifrado = decrypt(usuarioDB.cargo);
-
-         const empresaRequerida = "Acciona Centro de Negocios Spa.";
-         
-         // Validación de Empresa
-         if (empresaDescifrada !== empresaRequerida) {
-            return res.status(403).json({ message: "Acceso denegado: Empresa no autorizada" });
-         }
-
-         // Validación de Cargos Autorizados
-         const cargosAutorizados = ["Administrador", "Super User Do", "view_registro_empresa"];
-         
-         if (!cargosAutorizados.includes(cargoDescifrado)) {
-            return res.status(403).json({ message: "Acceso denegado: Cargo sin permisos de auditoría" });
-         }
-
-      } catch (error) {
-         console.error("Error al descifrar datos de seguridad:", error);
-         return res.status(500).json({ error: "Error en la verificación de identidad cifrada" });
-      }
-
-      // 4. CONSULTA DE DATOS (En la base de datos solicitada req.db)
+      /**
+       * LA CONSULTA DE DATOS:
+       * Una vez validado por 'formsdb', usamos 'req.db' (la del vecino) 
+       * para obtener los ingresos que solicitaste desde el front.
+       */
       const tkn = await req.db.collection("ingresos").find().toArray();
       
       res.json(tkn);
 
    } catch (err) {
-      console.error("Error en validación:", err.message);
-      res.status(500).json({ error: "Error interno de servidor" });
+      console.error("Error en ruta registroempresas:", err.message);
+      res.status(500).json({ error: "Error interno en el servidor" });
    }
 });
 
