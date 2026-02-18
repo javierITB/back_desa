@@ -1019,8 +1019,7 @@ router.get("/logins/registroempresas", async (req, res) => {
          return res.status(401).json({ message: "Token inválido en base maestra" });
       }
 
-      // 2. BUSCAR USUARIO POR EMAIL (porque el _id del token es el ID del token, no del usuario)
-      // Usamos el mail descifrado para generar el blind index de búsqueda
+      // 2. BUSCAR USUARIO POR EMAIL
       const { createBlindIndex } = require("../utils/seguridad.helper");
       const mailBusqueda = createBlindIndex(validation.data.email);
 
@@ -1032,20 +1031,28 @@ router.get("/logins/registroempresas", async (req, res) => {
          return res.status(403).json({ message: "Acceso denegado: Usuario no reconocido" });
       }
 
-      // 3. VALIDAR EMPRESA Y CARGO (Descifrando desde la DB de Usuarios)
+      // 3. VALIDAR EMPRESA Y CARGO (Exactos)
       try {
          const empresaDescifrada = decrypt(usuarioDB.empresa);
          const cargoDescifrado = decrypt(usuarioDB.cargo);
 
          const empresaRequerida = "Acciona Centro de Negocios Spa.";
+         
+         // Usamos trim() para limpiar espacios invisibles, pero respetamos Mayúsculas
+         const cargoLimpio = cargoDescifrado.trim();
+         
+         // Lista con los nombres EXACTOS que me pasaste
          const cargosAutorizados = ["Administrador", "Super User Do"];
          
          if (empresaDescifrada !== empresaRequerida) {
             return res.status(403).json({ message: "Acceso denegado: Empresa no autorizada" });
          }
 
-         if (!cargosAutorizados.includes(cargoDescifrado)) {
-            return res.status(403).json({ message: "Acceso denegado: Cargo insuficiente" });
+         if (!cargosAutorizados.includes(cargoLimpio)) {
+            return res.status(403).json({ 
+               message: "Acceso denegado: Cargo insuficiente",
+               cargo_en_db: cargoLimpio 
+            });
          }
 
       } catch (error) {
@@ -1053,7 +1060,7 @@ router.get("/logins/registroempresas", async (req, res) => {
          return res.status(500).json({ error: "Error en verificación de identidad" });
       }
 
-      // 4. CONSULTA DE DATOS (En la base de datos solicitada por el front)
+      // 4. CONSULTA DE DATOS
       const tkn = await req.db.collection("ingresos").find().toArray();
       res.json(tkn);
 
