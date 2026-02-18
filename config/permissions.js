@@ -397,30 +397,30 @@ const PERMISSION_GROUPS = {
         ]
     },
     registro_empresas: {
-      label: 'Vista: Registro de Empresas',
-      tagg: 'admin',
-      permissions: [
-         { 
-            id: 'view_acceso_registro_empresas', 
-            label: 'Acceso a la vista' 
-         },
-         { 
-            id: 'view_registro_ingresos_empresas', 
-            label: 'Ver pestaña: Registro de Ingresos', 
-            dependency: 'view_acceso_registro_empresas' // Sincronizado con tu ID
-         },
-         { 
-            id: 'view_registro_cambios_empresas', 
-            label: 'Ver pestaña: Registro de Cambios', 
-            dependency: 'view_acceso_registro_empresas' // Sincronizado con tu ID
-         },
-         { 
-            id: 'view_registro_cambios_details', 
-            label: 'Acceso a detalles de cambios (Modal)', 
-            dependency: 'view_registro_cambios_empresas' 
-         },
-      ]
-   },
+        label: 'Vista: Registro de Empresas',
+        tagg: 'admin',
+        permissions: [
+            {
+                id: 'view_acceso_registro_empresas',
+                label: 'Acceso a la vista'
+            },
+            {
+                id: 'view_registro_ingresos_empresas',
+                label: 'Ver pestaña: Registro de Ingresos',
+                dependency: 'view_acceso_registro_empresas' // Sincronizado con tu ID
+            },
+            {
+                id: 'view_registro_cambios_empresas',
+                label: 'Ver pestaña: Registro de Cambios',
+                dependency: 'view_acceso_registro_empresas' // Sincronizado con tu ID
+            },
+            {
+                id: 'view_registro_cambios_details_empresas',
+                label: 'Acceso a detalles de cambios (Modal)',
+                dependency: 'view_registro_cambios_empresas'
+            },
+        ]
+    },
 };
 
 module.exports = { PERMISSION_GROUPS };
