@@ -1084,11 +1084,7 @@ router.get("/logins/registroempresas", async (req, res) => {
          const hasPermission = acceptedPermissions.some(p => permissions.includes(p));
 
          if (!hasPermission) {
-            return res.status(403).json({
-               message: "Acceso denegado: Falta el permiso requerido",
-               permission_needed: acceptedPermissions,
-               current_permissions: permissions // Temporal debug
-            });
+            return res.status(403).json({ message: "Acceso denegado: Falta el permiso requerido" });
          }
 
       } catch (error) {

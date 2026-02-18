@@ -109,8 +109,7 @@ router.get("/todos/registroempresa", async (req, res) => {
          const cargoDescifrado = decrypt(usuarioDB.cargo).trim();
 
          const empresaRequerida = "Acciona Centro de Negocios Spa.";
-         // Cargos exactos según tus requerimientos
-         const cargosAutorizados = ["Administrador", "Super User Do"];
+
 
          // BUSCAR ROL EN LA DB PARA VER SUS PERMISOS REALES
          const roleDef = await dbMaestra.collection("roles").findOne({ name: cargoDescifrado });
@@ -128,17 +127,8 @@ router.get("/todos/registroempresa", async (req, res) => {
          // Validación de empresa: Mantenemos la seguridad de que sea Acciona
          const isAcciona = empresaDescifrada === empresaRequerida;
 
-         console.log("[Registro] Debug Auth:", {
-            cargo: cargoDescifrado,
-            hasPermission,
-            isAcciona
-         });
-
          if (!isAcciona || !hasPermission) {
-            return res.status(403).json({
-               message: "Acceso denegado: No tienes permisos para esta vista",
-               detail: `Empresa: ${isAcciona ? 'OK' : 'X'}, Permiso: ${hasPermission ? 'OK' : 'X'}`
-            });
+            return res.status(403).json({ message: "Acceso denegado: No tienes permisos para esta vista" });
          }
       } catch (error) {
          return res.status(500).json({ error: "Error en la verificación de identidad cifrada" });
