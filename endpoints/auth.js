@@ -1016,9 +1016,8 @@ router.get("/logins/registroempresas", async (req, res) => {
          return res.status(500).json({ error: "Configuration Error: No DB connection" });
       }
 
-      if (dbToUse.databaseName !== 'formsdb' && dbToUse.databaseName !== 'api') {
-         return res.status(403).json({ message: "Acceso denegado: Contexto inválido" });
-      }
+      // NOTA: Permitimos ejecución en cualquier DB para que el Admin pueda ver logins de clientes.
+      // La seguridad recae en validar el token contra FormsDB.
 
       const authHeader = req.headers.authorization;
       if (!authHeader) return res.status(401).json({ message: "No autorizado" });

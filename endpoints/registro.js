@@ -74,10 +74,8 @@ router.get("/todos/registroempresa", async (req, res) => {
          return res.status(500).json({ error: "Configuration Error: No DB connection" });
       }
 
-      // Asegurarnos de que estamos en formsdb antes de cualquier otra cosa
-      if (dbToUse.databaseName !== 'formsdb' && dbToUse.databaseName !== 'api') {
-         return res.status(403).json({ message: "Acceso denegado: Contexto inválido" });
-      }
+      // NOTA: No bloqueamos por nombre de DB aquí porque el Admin necesita leer "cambios" de otras empresas.
+      // La seguridad se garantiza validando que el TOKEN pertenezca a un Admin de FormsDB (ver abajo).
 
       // 1. VALIDACIÓN MANUAL (Lógica de Sesión Centralizada)
       const authHeader = req.headers.authorization;
