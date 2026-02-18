@@ -16,16 +16,28 @@ const verifyRequest = async (req, res, next) => {
         }
         const token = authHeader.split(" ")[1];
 
+        // Asegurar que existe una DB conectada para validar
+        let dbToUse = req.db;
+        if (!dbToUse && req.mongoClient) {
+            dbToUse = req.mongoClient.db("formsdb");
+        }
+
+        if (!dbToUse) {
+            console.error("[Plans] Error: No database connection available for token validation");
+            return res.status(500).json({ error: "Configuration Error: No DB connection" });
+        }
+
         const { validarToken } = require("../utils/validarToken");
-        // Validamos que el token sea válido en el contexto actual
-        const validation = await validarToken(req.db, token);
+        // Validamos que el token sea válido
+        const validation = await validarToken(dbToUse, token);
 
         if (!validation.ok) {
             return res.status(401).json({ error: "Acceso denegado: " + validation.reason });
         }
 
         // Validar que el contexto sea formsdb
-        if (req.db.databaseName !== 'formsdb' && req.db.databaseName !== 'api') {
+        const currentDbName = dbToUse.databaseName;
+        if (currentDbName !== 'formsdb' && currentDbName !== 'api') {
             return res.status(403).json({ error: "Acceso denegado: Contexto inválido" });
         }
 

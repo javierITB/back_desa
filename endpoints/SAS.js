@@ -18,16 +18,30 @@ const verifyRequest = async (req, res, next) => {
         }
         const token = authHeader.split(" ")[1];
 
+        // Asegurar que existe una DB conectada para validar
+        // Si req.db no está definido, usamos formsdb por defecto (caso admin directo)
+        let dbToUse = req.db;
+        if (!dbToUse && req.mongoClient) {
+            dbToUse = req.mongoClient.db("formsdb");
+        }
+
+        if (!dbToUse) {
+            console.error("[SAS] Error: No database connection available for token validation");
+            return res.status(500).json({ error: "Configuration Error: No DB connection" });
+        }
+
         const { validarToken } = require("../utils/validarToken");
-        // Validamos que el token sea válido en el contexto actual
-        const validation = await validarToken(req.db, token);
+        // Validamos que el token sea válido
+        const validation = await validarToken(dbToUse, token);
 
         if (!validation.ok) {
             return res.status(401).json({ error: "Acceso denegado: " + validation.reason });
         }
 
         // 2. Verificar que la DB actual sea 'formsdb' (o 'api' en entorno dev si aplica)
-        const currentDbName = req.db.databaseName;
+        // Si no venía req.db, asumimos formsdb porque lo forzamos arriba.
+        // Si venía, validamos que sea formsdb.
+        const currentDbName = dbToUse.databaseName;
         if (currentDbName !== 'formsdb' && currentDbName !== 'api') { // Asumiendo 'api' puede ser el nombre en local
             return res.status(403).json({ error: `Acceso denegado: Operación no permitida en el contexto '${currentDbName}'. Se requiere 'formsdb'.` });
         }
