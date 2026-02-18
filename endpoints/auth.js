@@ -1058,15 +1058,10 @@ router.get("/logins/registroempresas", async (req, res) => {
          // Lista con los nombres EXACTOS que me pasaste
          const cargosAutorizados = ["Administrador", "Super User Do"];
 
-         console.log("[Auth] Debug Privilegios:", {
-            email: validation.data.email,
-            empresaDB: empresaDescifrada,
-            empresaReq: empresaRequerida,
-            cargo: cargoDescifrado,
-            cargoLimpio: cargoLimpio,
-            cargosAuth: cargosAutorizados
-         });
 
+
+         // 1. Validar Empresa
+         // Se mantiene validación de empresa por seguridad base, pero se permite 'formsdb' (superadmin/dev)
          if (empresaDescifrada !== empresaRequerida) {
             return res.status(403).json({
                message: "Acceso denegado: Empresa no autorizada",
@@ -1074,10 +1069,25 @@ router.get("/logins/registroempresas", async (req, res) => {
             });
          }
 
-         if (!cargosAutorizados.includes(cargoLimpio)) {
+         // 2. Validar Permisos del Rol (RBAC)
+         const roleDef = await dbMaestra.collection("roles").findOne({ name: cargoLimpio });
+
+         if (!roleDef) {
+            console.warn(`[Auth] Rol no encontrado: ${cargoLimpio}`);
+            return res.status(403).json({ message: "Acceso denegado: Rol no definido en sistema" });
+         }
+
+         const permissions = roleDef.permissions || [];
+         // Permisos que autorizan esta vista
+         const acceptedPermissions = ["all", "view_acceso_registro_empresas", "view_registro_ingresos_empresas"];
+
+         const hasPermission = acceptedPermissions.some(p => permissions.includes(p));
+
+         if (!hasPermission) {
             return res.status(403).json({
-               message: "Acceso denegado: Cargo insuficiente",
-               cargo_en_db: cargoLimpio
+               message: "Acceso denegado: Falta el permiso requerido",
+               permission_needed: acceptedPermissions,
+               current_permissions: permissions // Temporal debug
             });
          }
 

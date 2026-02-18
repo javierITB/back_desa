@@ -112,20 +112,32 @@ router.get("/todos/registroempresa", async (req, res) => {
          // Cargos exactos según tus requerimientos
          const cargosAutorizados = ["Administrador", "Super User Do"];
 
-         console.log("[Registro] Debug Privilegios:", {
-            email: validation.data.email,
-            empresaDB: empresaDescifrada,
-            empresaReq: empresaRequerida,
-            cargoDB: cargoDescifrado,
-            cargosAuth: cargosAutorizados,
-            matchEmpresa: empresaDescifrada === empresaRequerida,
-            matchCargo: cargosAutorizados.includes(cargoDescifrado)
+         // BUSCAR ROL EN LA DB PARA VER SUS PERMISOS REALES
+         const roleDef = await dbMaestra.collection("roles").findOne({ name: cargoDescifrado });
+
+         if (!roleDef) {
+            return res.status(403).json({ message: `Acceso denegado: Rol '${cargoDescifrado}' no encontrado en configuración` });
+         }
+
+         const permissions = roleDef.permissions || [];
+         // Permisos que autorizan esta vista
+         const acceptedPermissions = ["all", "view_acceso_registro_empresas", "view_registro_cambios_empresas"];
+
+         const hasPermission = acceptedPermissions.some(p => permissions.includes(p));
+
+         // Validación de empresa: Mantenemos la seguridad de que sea Acciona
+         const isAcciona = empresaDescifrada === empresaRequerida;
+
+         console.log("[Registro] Debug Auth:", {
+            cargo: cargoDescifrado,
+            hasPermission,
+            isAcciona
          });
 
-         if (empresaDescifrada !== empresaRequerida || !cargosAutorizados.includes(cargoDescifrado)) {
+         if (!isAcciona || !hasPermission) {
             return res.status(403).json({
-               message: "Acceso denegado: Privilegios insuficientes",
-               detail: `Empresa: ${empresaDescifrada}, Cargo: ${cargoDescifrado}` // Temporal para debug
+               message: "Acceso denegado: No tienes permisos para esta vista",
+               detail: `Empresa: ${isAcciona ? 'OK' : 'X'}, Permiso: ${hasPermission ? 'OK' : 'X'}`
             });
          }
       } catch (error) {
