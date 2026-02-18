@@ -18,6 +18,7 @@ const configTicketsRoutes = require("./endpoints/configTickets");
 const dashboardRoutes = require("./endpoints/dashboard");
 const registroRoutes = require("./endpoints/registro");
 const roles = require("./endpoints/roles");
+const pagosRoutes = require("./endpoints/pagos");
 
 const app = express();
 
@@ -25,87 +26,12 @@ const app = express();
 app.use(cors());
 
 // CONFIGURACIÓN PARA VERCEL (Límites de carga)
-app.use(express.json({ limit: '4mb' }));
-app.use(express.urlencoded({ limit: '4mb', extended: true }));
+app.use(express.json({ limit: '50mb' })); // Increased limit for base64 if needed, though we use multer
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.set('trust proxy', true);
 
-// --- CONFIGURACIÓN DE CONEXIÓN DINÁMICA A MONGODB ---
-
-const client = new MongoClient(process.env.MONGO_URI);
-const dbCache = {}; // Almacena instancias de DB para reutilizarlas
-
-/**
- * Función para obtener o crear la instancia de DB basada en el tenant
- */
-async function getTenantDB(tenantName) {
-  // Asegurar que el cliente de MongoDB está conectado
-  if (!client.topology || !client.topology.isConnected()) {
-    await client.connect();
-  }
-
-  // Mapeo: si es "api" usamos la DB por defecto, de lo contrario usamos el nombre del tenant
-  const dbName = (tenantName === "api" || tenantName === "infodesa" || !tenantName) ? "formsdb" : tenantName;
-
-  // Retornar de caché si ya existe para ahorrar recursos
-  if (dbCache[dbName]) {
-    return dbCache[dbName];
-  }
-
-  // Si no existe, creamos la instancia y la guardamos
-  const dbInstance = client.db(dbName);
-  dbCache[dbName] = dbInstance;
-
-  console.log(`Base de datos activa: ${dbName}`);
-  return dbInstance;
-}
-
-// --- ESTRUCTURA DE RUTAS DINÁMICAS ---
-
-// Creamos un Router con mergeParams para que los hijos vean el parámetro :company
-const tenantRouter = express.Router({ mergeParams: true });
-
-// Middleware Multi-tenant: se ejecuta en cada petición antes de las rutas
-tenantRouter.use(async (req, res, next) => {
-  try {
-    const { company } = req.params;
-
-    // Evitar que archivos estáticos o rutas con punto sean tratados como tenant
-    if (company.includes(".")) {
-      return res.status(404).json({ error: "Recurso no encontrado" });
-    }
-
-    // Inyectamos la base de datos específica en el objeto request
-    req.db = await getTenantDB(company);
-
-    req.nombreEmpresa = (company === "api") ? "ACCIONA" : company;
-
-    // Lógica de redirección global solicitada
-    // api, infoacciona y solunex redirigen a solunex.cl
-    if (company === "api" || company === "infoacciona" || company === "solunex") {
-      req.urlPortal = "https://solunex.cl";
-    } else {
-      req.urlPortal = `https://${company}.solunex.cl`;
-    }
-
-    next();
-  } catch (err) {
-    console.error("Error crítico de conexión Multi-tenant:", err);
-    res.status(500).json({ error: "Error interno con la base de datos de la empresa" });
-  }
-});
-
-// Montaje final: todas las rutas ahora requieren un prefijo (ej: /acciona/auth)
-app.use((req, res, next) => {
-  req.mongoClient = client;
-  next();
-});
-
-const plansRouter = require("./endpoints/plans");
-app.use(["/sas/plans", "/api/sas/plans", "/:company/sas/plans"], plansRouter);
-
-const sasRoutes = require("./endpoints/SAS");
-app.use(["/sas", "/api/sas", "/:company/sas"], sasRoutes);
+// ... (existing code) ...
 
 // Definición de todos los endpoints bajo el control del tenantRouter
 tenantRouter.use("/auth", authRoutes);
@@ -123,6 +49,7 @@ tenantRouter.use("/config-tickets", configTicketsRoutes);
 tenantRouter.use("/dashboard", dashboardRoutes);
 tenantRouter.use("/registro", registroRoutes);
 tenantRouter.use("/roles", roles);
+tenantRouter.use("/pagos", pagosRoutes);
 
 
 

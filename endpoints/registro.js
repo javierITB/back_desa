@@ -62,27 +62,54 @@ router.get("/todos", async (req, res) => {
 
 router.get("/todos/registroempresa", async (req, res) => {
    try {
-      // 1. VALIDACIÓN MANUAL (Lógica Felipe Admin)
+      // 1. VALIDACIÓN MANUAL (Lógica de Sesión Centralizada)
       const authHeader = req.headers.authorization;
       if (!authHeader) return res.status(401).json({ message: "No autorizado" });
-      
+
       const token = authHeader.split(" ")[1];
       const { validarToken } = require("../utils/validarToken");
 
-      // Validamos SIEMPRE contra formsdb (donde está tu sesión)
-      const dbMaestra = req.mongoClient.db("formsdb"); 
+      // Validamos contra formsdb (Base Maestra donde reside tu cuenta Admin)
+      const dbMaestra = req.mongoClient.db("formsdb");
       const validation = await validarToken(dbMaestra, token);
 
       if (!validation.ok) {
-         return res.status(401).json({ message: "Acceso denegado: Sesión no válida en formsdb" });
+         return res.status(401).json({ message: "Acceso denegado: Sesión no válida" });
       }
 
-      // 2. CONFIGURACIÓN DE PAGINACIÓN
+      // 2. IDENTIFICACIÓN Y FILTRO DE SEGURIDAD (Acciona Admin)
+      const { createBlindIndex } = require("../utils/seguridad.helper");
+      const mailBusqueda = createBlindIndex(validation.data.email);
+
+      const usuarioDB = await dbMaestra.collection("usuarios").findOne({
+         mail_index: mailBusqueda
+      });
+
+      if (!usuarioDB || usuarioDB.estado !== "activo") {
+         return res.status(403).json({ message: "Acceso denegado: Usuario no autorizado" });
+      }
+
+      try {
+         const empresaDescifrada = decrypt(usuarioDB.empresa);
+         const cargoDescifrado = decrypt(usuarioDB.cargo).trim();
+
+         const empresaRequerida = "Acciona Centro de Negocios Spa.";
+         // Cargos exactos según tus requerimientos
+         const cargosAutorizados = ["Administrador", "Super User Do"];
+
+         if (empresaDescifrada !== empresaRequerida || !cargosAutorizados.includes(cargoDescifrado)) {
+            return res.status(403).json({ message: "Acceso denegado: Privilegios insuficientes" });
+         }
+      } catch (error) {
+         return res.status(500).json({ error: "Error en la verificación de identidad cifrada" });
+      }
+
+      // 3. CONFIGURACIÓN DE PAGINACIÓN
       const page = Math.max(parseInt(req.query.page) || 1, 1);
       const limit = Math.min(parseInt(req.query.limit) || 20, 100);
       const skip = (page - 1) * limit;
 
-      // 3. CONSULTA EN LA DB DEL VECINO (req.db)
+      // 4. CONSULTA EN LA DB DEL CLIENTE SELECCIONADO (req.db)
       const collection = req.db.collection("cambios");
       const total = await collection.countDocuments({});
 
@@ -99,7 +126,7 @@ router.get("/todos/registroempresa", async (req, res) => {
          .limit(limit)
          .toArray();
 
-      // 4. PROCESAMIENTO (Descifrado)
+      // 5. PROCESAMIENTO (Descifrado de datos del cliente)
       const eventsProcessed = events.map(event => ({
          ...event,
          actor: decryptActor(event.actor),
@@ -153,7 +180,7 @@ function decryptMetadata(value) {
    return value;
 }
 
-function decryptActor(actor) {   
+function decryptActor(actor) {
    const campos = ['name', 'last_name', 'email', 'empresa', 'cargo'];
    return decryptByFields(actor, campos);
 }
