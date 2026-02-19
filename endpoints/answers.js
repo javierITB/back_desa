@@ -3766,7 +3766,7 @@ router.get("/:id/client-signatures", async (req, res) => {
       res.json(firmas);
    } catch (err) {
       console.error("Error obteniendo firmas:", err);
-      res.status(500).json({ error: "Error obteniendo firmas" });
+      res.status(500).json({ error: err.message });
    }
 });
 
