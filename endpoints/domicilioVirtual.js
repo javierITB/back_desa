@@ -111,71 +111,103 @@ router.get("/mini", async (req, res) => {
 
         const answers = await collection.find(dbQuery).sort({ createdAt: -1 }).toArray();
 
-        // --- CAMBIO: Procesar cada answer con la fecha descifrada ---
+        // Función clean protegida
+        const clean = (t) => {
+            if (!t) return "";
+            try {
+                return String(t)
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .toLowerCase()
+                    .trim();
+            } catch (e) {
+                return String(t || "").toLowerCase().trim();
+            }
+        };
+
         const answersProcessed = answers.map(answer => {
-            const getVal = (keys, ignore = []) => {
-                const responseKeys = Object.keys(answer.responses || {});
-                for (let searchTerm of keys) {
-                    const foundKey = responseKeys.find(k => {
-                        const cleanK = k.toLowerCase().trim().replace(":", "");
-                        const cleanSearch = searchTerm.toLowerCase().trim();
-                        if (ignore.some(ignoredTerm => cleanK.includes(ignoredTerm))) return false;
-                        return cleanK.includes(cleanSearch);
-                    });
-                    if (foundKey && answer.responses[foundKey]) {
-                        try { return decrypt(answer.responses[foundKey]); } catch (e) { return answer.responses[foundKey]; }
+            try {
+                const getVal = (keys, ignore = []) => {
+                    try {
+                        const responseKeys = Object.keys(answer.responses || {});
+                        for (let searchTerm of keys) {
+                            const foundKey = responseKeys.find(k => {
+                                const cleanK = k ? k.toLowerCase().trim().replace(":", "") : "";
+                                const cleanSearch = searchTerm ? searchTerm.toLowerCase().trim() : "";
+                                if (ignore.some(ignoredTerm => cleanK.includes(ignoredTerm))) return false;
+                                return cleanK.includes(cleanSearch);
+                            });
+                            if (foundKey && answer.responses && answer.responses[foundKey]) {
+                                const val = answer.responses[foundKey];
+                                if (typeof val === 'string' && val.includes(':')) {
+                                    try { return decrypt(val) || val; } catch (e) { return val; }
+                                }
+                                return val;
+                            }
+                        }
+                    } catch (e) {
+                        return "";
+                    }
+                    return "";
+                };
+
+                const responsesWithDecryptedDate = { ...(answer.responses || {}) };
+                const fechaKey = "FECHA_TERMINO_CONTRATO";
+                
+                if (responsesWithDecryptedDate[fechaKey] && typeof responsesWithDecryptedDate[fechaKey] === 'string' && responsesWithDecryptedDate[fechaKey].includes(':')) {
+                    try {
+                        responsesWithDecryptedDate[fechaKey] = decrypt(responsesWithDecryptedDate[fechaKey]);
+                    } catch (e) {
+                        // Silently fail
                     }
                 }
-                return "";
-            };
 
-            // --- CAMBIO: Crear copia de responses con la fecha descifrada ---
-            const responsesWithDecryptedDate = { ...(answer.responses || {}) };
-            const fechaKey = "FECHA_TERMINO_CONTRATO";
-            
-            if (responsesWithDecryptedDate[fechaKey] && typeof responsesWithDecryptedDate[fechaKey] === 'string' && responsesWithDecryptedDate[fechaKey].includes(':')) {
-                try {
-                    responsesWithDecryptedDate[fechaKey] = decrypt(responsesWithDecryptedDate[fechaKey]);
-                } catch (e) {
-                    console.error("Error descifrando fecha en mini:", e);
-                }
+                return {
+                    _id: answer._id,
+                    formId: answer.formId,
+                    formTitle: answer.formTitle,
+                    responses: responsesWithDecryptedDate,
+                    tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
+                    nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
+                    rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
+                    submittedAt: answer.submittedAt || answer.createdAt,
+                    status: answer.status,
+                    createdAt: answer.createdAt,
+                    adjuntosCount: 0
+                };
+            } catch (e) {
+                return null;
             }
-
-            return {
-                _id: answer._id,
-                formId: answer.formId,
-                formTitle: answer.formTitle,
-                responses: responsesWithDecryptedDate, // AHORA SÍ incluye la fecha legible
-                tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
-                nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
-                rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
-                submittedAt: answer.submittedAt || answer.createdAt,
-                status: answer.status,
-                createdAt: answer.createdAt,
-                adjuntosCount: 0
-            };
-        });
-
-        const clean = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+        }).filter(a => a !== null);
 
         if (company && company.trim() !== "") {
             const term = clean(company);
-            answersProcessed = answersProcessed.filter(a => clean(a.rutEmpresa).includes(term) || clean(a.nombreEmpresa).includes(term));
+            answersProcessed = answersProcessed.filter(a => 
+                (a.rutEmpresa && clean(a.rutEmpresa).includes(term)) || 
+                (a.nombreEmpresa && clean(a.nombreEmpresa).includes(term))
+            );
         }
 
         if (submittedBy && submittedBy.trim() !== "") {
             const term = clean(submittedBy);
-            answersProcessed = answersProcessed.filter(a => clean(a.tuNombre).includes(term));
+            answersProcessed = answersProcessed.filter(a => 
+                a.tuNombre && clean(a.tuNombre).includes(term)
+            );
         }
 
         if (search && search.trim() !== "") {
             const term = clean(search);
-            answersProcessed = answersProcessed.filter(a =>
-                clean(a.tuNombre).includes(term) ||
-                clean(a.rutEmpresa).includes(term) ||
-                clean(a.nombreEmpresa).includes(term) ||
-                clean(a.formTitle).includes(term)
-            );
+            answersProcessed = answersProcessed.filter(a => {
+                const tuNombreClean = a.tuNombre ? clean(a.tuNombre) : "";
+                const rutEmpresaClean = a.rutEmpresa ? clean(a.rutEmpresa) : "";
+                const nombreEmpresaClean = a.nombreEmpresa ? clean(a.nombreEmpresa) : "";
+                const formTitleClean = a.formTitle ? clean(a.formTitle) : "";
+                
+                return tuNombreClean.includes(term) ||
+                       rutEmpresaClean.includes(term) ||
+                       nombreEmpresaClean.includes(term) ||
+                       formTitleClean.includes(term);
+            });
         }
 
         const totalCount = answersProcessed.length;
