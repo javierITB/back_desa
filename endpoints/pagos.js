@@ -139,7 +139,13 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                 $group: {
                     _id: null,
                     totalCollected: {
-                        $sum: { $cond: [{ $eq: ["$status", "Aprobado"] }, "$amount", 0] }
+                        $sum: {
+                            $cond: [
+                                { $eq: ["$status", "Aprobado"] },
+                                { $toDouble: "$amount" },
+                                0
+                            ]
+                        }
                     },
                     monthCollected: {
                         $sum: {
@@ -150,7 +156,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                                         { $eq: ["$period", currentPeriod] }
                                     ]
                                 },
-                                "$amount",
+                                { $toDouble: "$amount" },
                                 0
                             ]
                         }
@@ -158,8 +164,13 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                     totalPending: {
                         $sum: {
                             $cond: [
-                                { $in: ["$status", ["Pendiente", "En Revisión"]] },
-                                "$amount",
+                                {
+                                    $or: [
+                                        { $eq: ["$status", "Pendiente"] },
+                                        { $eq: ["$status", "En Revisión"] }
+                                    ]
+                                },
+                                { $toDouble: "$amount" },
                                 0
                             ]
                         }
@@ -167,7 +178,12 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                     countPending: {
                         $sum: {
                             $cond: [
-                                { $in: ["$status", ["Pendiente", "En Revisión"]] },
+                                {
+                                    $or: [
+                                        { $eq: ["$status", "Pendiente"] },
+                                        { $eq: ["$status", "En Revisión"] }
+                                    ]
+                                },
                                 1,
                                 0
                             ]
@@ -185,12 +201,30 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                     lastChargeDate: { $max: "$createdAt" },
                     pendingCount: {
                         $sum: {
-                            $cond: [{ $in: ["$status", ["Pendiente", "En Revisión"]] }, 1, 0]
+                            $cond: [
+                                {
+                                    $or: [
+                                        { $eq: ["$status", "Pendiente"] },
+                                        { $eq: ["$status", "En Revisión"] }
+                                    ]
+                                },
+                                1,
+                                0
+                            ]
                         }
                     },
                     pendingAmount: {
                         $sum: {
-                            $cond: [{ $in: ["$status", ["Pendiente", "En Revisión"]] }, "$amount", 0]
+                            $cond: [
+                                {
+                                    $or: [
+                                        { $eq: ["$status", "Pendiente"] },
+                                        { $eq: ["$status", "En Revisión"] }
+                                    ]
+                                },
+                                { $toDouble: "$amount" },
+                                0
+                            ]
                         }
                     }
                 }
@@ -202,6 +236,11 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
         companyStats.forEach(stat => {
             statsByCompany[stat._id] = stat;
         });
+
+        console.log("--- DASHBOARD STATS DEBUG ---");
+        console.log("Global Stats (Raw):", JSON.stringify(globalStats, null, 2));
+        console.log("Company Stats (Raw):", JSON.stringify(companyStats, null, 2));
+        console.log("-----------------------------");
 
         res.json({
             global: globalStats[0] || { totalCollected: 0, monthCollected: 0, totalPending: 0, countPending: 0 },
