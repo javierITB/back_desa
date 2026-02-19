@@ -73,6 +73,7 @@ router.get("/mini", async (req, res) => {
 
         const collection = req.db.collection("domicilio_virtual");
 
+        // 1. CONSTRUCCIÓN DEL FILTRO DE BASE DE DATOS
         const dbQuery = {};
         if (status && status !== "") {
             dbQuery.status = status;
@@ -109,9 +110,23 @@ router.get("/mini", async (req, res) => {
             }
         }
 
+        // 2. OBTENER DATOS Y ESTADÍSTICAS (Lógica Original Recuperada)
+        // Ejecutamos la búsqueda y el conteo por separado para que los stats no dependan del filtro de texto
         const answers = await collection.find(dbQuery).sort({ createdAt: -1 }).toArray();
+        
+        // Recuperamos el aggregate original pero aplicado al filtro de fecha actual (dbQuery sin el search de memoria)
+        // Esto evita que los contadores se vuelvan cero al buscar un nombre
+        const statsQuery = { ...dbQuery };
+        delete statsQuery.status; // Para que el conteo sea de todos los estados en ese periodo
 
-        // --- PROCESAMIENTO: Descifrado corregido para que el filtro funcione ---
+        const statusCounts = await collection.aggregate([
+            { $match: statsQuery },
+            { $group: { _id: "$status", count: { $sum: 1 } } }
+        ]).toArray();
+
+        const getCount = (id) => statusCounts.find(s => s._id === id)?.count || 0;
+
+        // 3. PROCESAMIENTO Y DESCIFRADO (Lógica Actual MVP)
         const answersProcessed = answers.map(answer => {
             const getVal = (keys, ignore = []) => {
                 const responseKeys = Object.keys(answer.responses || {});
@@ -124,7 +139,6 @@ router.get("/mini", async (req, res) => {
                     });
                     if (foundKey && answer.responses[foundKey]) {
                         const val = answer.responses[foundKey];
-                        // CAMBIO MVP: Descifrar el valor si es un hash para que el filtro posterior lo encuentre
                         if (typeof val === 'string' && val.includes(':')) {
                             try { return decrypt(val); } catch (e) { return val; }
                         }
@@ -136,13 +150,8 @@ router.get("/mini", async (req, res) => {
 
             const responsesWithDecryptedDate = { ...(answer.responses || {}) };
             const fechaKey = "FECHA_TERMINO_CONTRATO";
-            
             if (responsesWithDecryptedDate[fechaKey] && typeof responsesWithDecryptedDate[fechaKey] === 'string' && responsesWithDecryptedDate[fechaKey].includes(':')) {
-                try {
-                    responsesWithDecryptedDate[fechaKey] = decrypt(responsesWithDecryptedDate[fechaKey]);
-                } catch (e) {
-                    console.error("Error descifrando fecha en mini:", e);
-                }
+                try { responsesWithDecryptedDate[fechaKey] = decrypt(responsesWithDecryptedDate[fechaKey]); } catch (e) {}
             }
 
             return {
@@ -160,24 +169,18 @@ router.get("/mini", async (req, res) => {
             };
         });
 
-        // --- FILTRADO: Lógica de normalización robusta ---
-        const clean = (t) => {
-            if (!t) return ""; // Evita error 500 si el campo es null
-            return String(t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-        };
-
+        // 4. FILTRADO EN MEMORIA (Insensible a tildes y mayúsculas)
+        const clean = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
         let filteredData = answersProcessed;
 
         if (company && company.trim() !== "") {
             const term = clean(company);
             filteredData = filteredData.filter(a => clean(a.rutEmpresa).includes(term) || clean(a.nombreEmpresa).includes(term));
         }
-
         if (submittedBy && submittedBy.trim() !== "") {
             const term = clean(submittedBy);
             filteredData = filteredData.filter(a => clean(a.tuNombre).includes(term));
         }
-
         if (search && search.trim() !== "") {
             const term = clean(search);
             filteredData = filteredData.filter(a =>
@@ -192,17 +195,21 @@ router.get("/mini", async (req, res) => {
         const skip = (page - 1) * limit;
         const paginatedData = filteredData.slice(skip, skip + limit);
 
-        const stats = {
-            total: totalCount,
-            documento_generado: 0, enviado: 0, solicitud_firmada: 0, informado_sii: 0, dicom: 0, dado_de_baja: 0, pendiente: 0
-        };
-        filteredData.forEach(a => { if (stats.hasOwnProperty(a.status)) stats[a.status]++; });
-
+        // 5. RESPUESTA FINAL
         res.json({
             success: true,
             data: paginatedData,
             pagination: { total: totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) },
-            stats: stats
+            stats: {
+                total: answers.length, // Total de solicitudes en el periodo sin filtro de búsqueda
+                documento_generado: getCount('documento_generado'),
+                enviado: getCount('enviado'),
+                solicitud_firmada: getCount('solicitud_firmada'),
+                informado_sii: getCount('informado_sii'),
+                dicom: getCount('dicom'),
+                dado_de_baja: getCount('dado_de_baja'),
+                pendiente: getCount('pendiente')
+            }
         });
 
     } catch (err) {
@@ -279,7 +286,7 @@ router.post("/", async (req, res) => {
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
         if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-        // --- NUEVA INTEGRACIÓN: CÁLCULO PARA RESPONSES (Menos un día) ---
+        // --- NUEVA LÓGICA: CÁLCULO DE FECHA TÉRMINO (Periodo menos 1 día) ---
         const keysForCalc = Object.keys(responses || {});
         const planKey = keysForCalc.find(k => k.toLowerCase().trim().includes('plan de servicio seleccionado'));
         
@@ -325,11 +332,12 @@ router.post("/", async (req, res) => {
 
         const responsesCifrado = cifrarObjeto(responses);
 
-        // 3. Guardar Domicilio Virtual (Original)
+        // 3. Guardar Domicilio Virtual (RECUPERADO: Incluye el objeto 'user' original)
         const result = await req.db.collection("domicilio_virtual").insertOne({
             formId,
             responses: responsesCifrado,
             formTitle,
+            user, // Restaurado para mantener compatibilidad con otros servicios
             status: "documento_generado",
             createdAt: new Date(),
             updatedAt: new Date()
@@ -343,7 +351,7 @@ router.post("/", async (req, res) => {
             });
         }
 
-        // 4. CREAR TICKET AUTOMATICO (Original Integro con ajuste de fecha)
+        // 4. CREAR TICKET AUTOMATICO (Original Integro con ajuste de fecha -1 día)
         try {
             let nombreCliente = "Sin Empresa";
             const keys = Object.keys(responses || {});
@@ -379,7 +387,7 @@ router.post("/", async (req, res) => {
                 if (config && config.statuses && config.statuses.length > 0) statusInicial = config.statuses[0].value;
             } catch (ignore) { }
 
-            // Lógica de expirationDate para Ticket con el ajuste de MENOS 1 día
+            // Lógica de expirationDate para Ticket (Ajustado a -1 día)
             let expirationDate = bodyExpirationDate ? new Date(bodyExpirationDate) : null;
             if (!expirationDate) {
                 const planKeyTicket = keys.find(k => normalizeKey(k).includes('plan de servicio seleccionado'));
@@ -388,11 +396,11 @@ router.post("/", async (req, res) => {
                     const dateExp = new Date();
                     if (planValue.includes('anual')) {
                         dateExp.setFullYear(dateExp.getFullYear() + 1);
-                        dateExp.setDate(dateExp.getDate() - 1); // Menos 1 día
+                        dateExp.setDate(dateExp.getDate() - 1); 
                         expirationDate = dateExp;
                     } else if (planValue.includes('semestral')) {
                         dateExp.setMonth(dateExp.getMonth() + 6);
-                        dateExp.setDate(dateExp.getDate() - 1); // Menos 1 día
+                        dateExp.setDate(dateExp.getDate() - 1);
                         expirationDate = dateExp;
                     }
                 }
