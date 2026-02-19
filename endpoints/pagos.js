@@ -155,7 +155,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                             ]
                         }
                     },
-                    monthPendingAmount: {
+                    totalPending: {
                         $sum: {
                             $cond: [
                                 { $in: ["$status", ["Pendiente", "En Revisión"]] },
@@ -164,7 +164,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                             ]
                         }
                     },
-                    monthPendingCount: {
+                    countPending: {
                         $sum: {
                             $cond: [
                                 { $in: ["$status", ["Pendiente", "En Revisión"]] },
@@ -204,7 +204,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
         });
 
         res.json({
-            global: globalStats[0] || { totalCollected: 0, monthCollected: 0, monthPendingAmount: 0, monthPendingCount: 0 },
+            global: globalStats[0] || { totalCollected: 0, monthCollected: 0, totalPending: 0, countPending: 0 },
             byCompany: statsByCompany
         });
 
