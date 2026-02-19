@@ -85,14 +85,14 @@ router.post("/admin/generate-charges", verifyAuth, async (req, res) => {
         if (!companies || !Array.isArray(companies) || companies.length === 0) {
             return res.status(400).json({ error: "Debe seleccionar al menos una empresa." });
         }
-        if (!amount || !concept) {
-            return res.status(400).json({ error: "Monto y concepto son requeridos." });
+        if (!concept) {
+            return res.status(400).json({ error: "El concepto es requerido." });
         }
 
         const batch = companies.map(company => ({
             companyDb: company.dbName,
             companyName: company.name,
-            amount: parseFloat(amount),
+            amount: parseFloat(company.amount || amount),
             concept: concept,
             period: period || new Date().toISOString().slice(0, 7), // YYYY-MM per default
             status: "Pendiente",

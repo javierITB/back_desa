@@ -68,7 +68,39 @@ router.get("/companies", verifyRequest, async (req, res) => {
         const db = getFormsDB(req);
         console.log(`[SAS] Connected to formsdb, query config_empresas...`);
 
-        const companies = await db.collection("config_empresas").find().toArray();
+        // Usar aggregation para unir con Planes
+        const companies = await db.collection("config_empresas").aggregate([
+            {
+                $lookup: {
+                    from: "planes",
+                    localField: "planId",
+                    foreignField: "_id",
+                    as: "plan"
+                }
+            },
+            {
+                $unwind: {
+                    path: "$plan",
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            {
+                $project: {
+                    name: 1,
+                    dbName: 1,
+                    permissions: 1,
+                    createdAt: 1,
+                    active: 1,
+                    isSystem: 1,
+                    logo: 1, // Si existe
+                    plan: {
+                        _id: 1,
+                        name: 1,
+                        price: 1
+                    }
+                }
+            }
+        ]).toArray();
 
         // Inyectar formsdb (principal)
         const hasFormsDb = companies.some(c => c.dbName === "formsdb");
