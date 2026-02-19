@@ -3752,15 +3752,11 @@ router.get("/:id/client-signatures", async (req, res) => {
 
       const firmas = await req.db
          .collection("firmados")
-         .find(
-            { responseId: id },
-            {
-               projection: {
-                  clientSignedPdf: 1,
-                  "clientSignedPdf.fileData": 0,
-               },
-            },
-         )
+         .aggregate([
+            { $match: { responseId: id } },
+            { $unset: "clientSignedPdf.fileData" },
+            { $project: { clientSignedPdf: 1 } },
+         ])
          .toArray();
 
       res.json(firmas);
