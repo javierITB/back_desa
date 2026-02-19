@@ -417,7 +417,7 @@ const PERMISSION_GROUPS = {
             {
                 id: 'view_registro_cambios_details_empresas',
                 label: 'Acceso a detalles de cambios (Modal)',
-                dependency: 'view_registro_cambios_empresas'
+                dependency: 'view_acceso_registro_empresas'
             },
         ]
     },

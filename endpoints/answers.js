@@ -3752,7 +3752,15 @@ router.get("/:id/client-signatures", async (req, res) => {
 
       const firmas = await req.db
          .collection("firmados")
-         .find({ responseId: id })
+         .find(
+            { responseId: id },
+            {
+               projection: {
+                  clientSignedPdf: 1,
+                  "clientSignedPdf.fileData": 0,
+               },
+            },
+         )
          .toArray();
 
       res.json(firmas);
@@ -3761,8 +3769,6 @@ router.get("/:id/client-signatures", async (req, res) => {
       res.status(500).json({ error: "Error obteniendo firmas" });
    }
 });
-
-
 
 // Eliminar PDF firmado por cliente y volver al estado 'aprobado'
 router.delete("/:responseId/client-signature", async (req, res) => {
