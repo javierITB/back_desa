@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { Groq } = require('groq-sdk');
 
+const { validarToken } = require("../utils/validarToken.js");
+
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const LEGAL_SYSTEM_PROMPT = `Eres un Asesor Legal Virtual especializado en legislación chilena y procedimientos administrativos para el sector empresarial. Tu rol es estrictamente técnico y orientativo.
