@@ -62,6 +62,7 @@ const verifyRequest = async (req) => {
 // ==========================================
 
 // 1. Obtener lista (Dashboard Mini)
+// 1. Obtener lista (Dashboard Mini)
 router.get("/mini", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
@@ -128,12 +129,23 @@ router.get("/mini", async (req, res) => {
                 return "";
             };
 
+            // --- PERTINENTE: Descifrado selectivo de la fecha para la Card ---
+            const responsesWithDecryptedDate = { ...(answer.responses || {}) };
+            const fechaKey = "FECHA_TERMINO_CONTRATO";
+            
+            if (responsesWithDecryptedDate[fechaKey] && typeof responsesWithDecryptedDate[fechaKey] === 'string' && responsesWithDecryptedDate[fechaKey].includes(':')) {
+                try {
+                    responsesWithDecryptedDate[fechaKey] = decrypt(responsesWithDecryptedDate[fechaKey]);
+                } catch (e) {
+                    console.error("Error descifrando fecha en mini:", e);
+                }
+            }
+
             return {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                // --- PERTINENTE: Pasamos responses para que la Card vea la fecha ---
-                responses: answer.responses, 
+                responses: responsesWithDecryptedDate, // Ahora incluye la fecha legible si existía
                 tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
                 nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
                 rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
@@ -256,7 +268,7 @@ router.post("/", async (req, res) => {
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
         if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-        // --- INTEGRACIÓN: CÁLCULO PARA RESPONSES (Mínimo cambio viable) ---
+        // --- NUEVA INTEGRACIÓN: CÁLCULO PARA RESPONSES (Sin quitar nada) ---
         const keysForCalc = Object.keys(responses || {});
         const planKey = keysForCalc.find(k => k.toLowerCase().trim().includes('plan de servicio seleccionado'));
         
@@ -376,7 +388,7 @@ router.post("/", async (req, res) => {
             await req.db.collection("tickets").insertOne({
                 formId: formId, 
                 user: userToSave, 
-                responses: responses, // Se pasan las respuestas (incluyendo la fecha de término en texto plano para el ticket)
+                responses: responses, 
                 formTitle: ticketTitle,
                 mail: "",
                 status: statusInicial,
@@ -434,6 +446,78 @@ router.get("/:id/adjuntos", async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Error al obtener adjuntos" });
+    }
+});
+
+router.post("/:id/extend", async (req, res) => {
+    try {
+        const auth = await verifyRequest(req);
+        if (!auth.ok) return res.status(401).json({ error: auth.error });
+
+        const { type } = req.body; // 'semestral' o 'anual'
+        const collection = req.db.collection("domicilio_virtual");
+        const docId = new ObjectId(req.params.id);
+
+        const doc = await collection.findOne({ _id: docId });
+        if (!doc) return res.status(404).json({ error: "Solicitud no encontrada" });
+
+        // 1. Obtener y DESCIFRAR la fecha base actual si existe
+        let fechaBase = new Date();
+        let currentFechaStr = doc.responses?.["FECHA_TERMINO_CONTRATO"];
+
+        if (currentFechaStr) {
+            // Si viene cifrada (tiene ":"), la desciframos para operar con ella
+            if (currentFechaStr.includes(':')) {
+                try { currentFechaStr = decrypt(currentFechaStr); } catch (e) { console.error("Error descifrando al extender:", e); }
+            }
+            
+            const [day, month, year] = currentFechaStr.split('/');
+            const parsedDate = new Date(year, month - 1, day);
+            if (!isNaN(parsedDate)) fechaBase = parsedDate;
+        }
+
+        // 2. Calcular la nueva fecha
+        if (type === 'anual') {
+            fechaBase.setFullYear(fechaBase.getFullYear() + 1);
+        } else if (type === 'semestral') {
+            fechaBase.setMonth(fechaBase.getMonth() + 6);
+        }
+
+        const nuevaFechaStr = fechaBase.toLocaleDateString('es-CL');
+        // CIFRAR la nueva fecha para que sea consistente con la DB
+        const nuevaFechaCifrada = encrypt(nuevaFechaStr);
+
+        // 3. Actualizar en Domicilio Virtual
+        await collection.updateOne(
+            { _id: docId },
+            { 
+                $set: { 
+                    "responses.FECHA_TERMINO_CONTRATO": nuevaFechaCifrada,
+                    "updatedAt": new Date() 
+                } 
+            }
+        );
+
+        // 4. Sincronizar con el Ticket (Aquí se guarda el objeto Date, no el string cifrado)
+        try {
+            await req.db.collection("tickets").updateOne(
+                { relatedRequestId: docId },
+                { $set: { expirationDate: fechaBase, updatedAt: new Date() } }
+            );
+        } catch (e) { console.error("Error actualizando ticket:", e); }
+
+        // Devolvemos el documento actualizado
+        const updatedRequest = await collection.findOne({ _id: docId });
+
+        res.json({
+            success: true,
+            message: `Contrato extendido hasta el ${nuevaFechaStr}`,
+            updatedRequest: updatedRequest
+        });
+
+    } catch (err) {
+        console.error("Error extendiendo contrato:", err);
+        res.status(500).json({ error: "Error interno al extender" });
     }
 });
 
