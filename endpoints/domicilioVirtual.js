@@ -253,12 +253,30 @@ router.post("/", async (req, res) => {
     try {
         const { formId, responses, formTitle, adjuntos = [], user, expirationDate: bodyExpirationDate } = req.body;
 
-
-        // Verificar formulario
+        // 1. Verificar formulario (Original)
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
         if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-        // Función cifrado recursivo
+        // --- NUEVA INTEGRACIÓN: CÁLCULO PARA RESPONSES (Sin quitar nada) ---
+        const keysForCalc = Object.keys(responses || {});
+        const planKey = keysForCalc.find(k => k.toLowerCase().trim().includes('plan de servicio seleccionado'));
+        
+        if (planKey && responses[planKey]) {
+            const planValue = String(responses[planKey]).toLowerCase();
+            let dateCalc = new Date();
+            if (planValue.includes('anual')) {
+                dateCalc.setFullYear(dateCalc.getFullYear() + 1);
+                dateCalc.setDate(dateCalc.getDate() + 1); // + 1 día
+                responses["FECHA_TERMINO_CONTRATO"] = dateCalc.toLocaleDateString('es-CL');
+            } else if (planValue.includes('semestral')) {
+                dateCalc.setMonth(dateCalc.getMonth() + 6);
+                dateCalc.setDate(dateCalc.getDate() + 1); // + 1 día
+                responses["FECHA_TERMINO_CONTRATO"] = dateCalc.toLocaleDateString('es-CL');
+            }
+        }
+        // -------------------------------------------------------------------
+
+        // 2. Función cifrado recursivo (Original)
         const cifrarObjeto = (obj) => {
             if (!obj || typeof obj !== 'object') return obj;
             const resultado = {};
@@ -285,7 +303,7 @@ router.post("/", async (req, res) => {
 
         const responsesCifrado = cifrarObjeto(responses);
 
-        // Guardar
+        // 3. Guardar Domicilio Virtual (Original)
         const result = await req.db.collection("domicilio_virtual").insertOne({
             formId,
             responses: responsesCifrado,
@@ -303,31 +321,18 @@ router.post("/", async (req, res) => {
             });
         }
 
-        // CREAR TICKET AUTOMATICO
+        // 4. CREAR TICKET AUTOMATICO (Original Integro)
         try {
-            // Extraer nombre del cliente/empresa (priorizando Empresa)
             let nombreCliente = "Sin Empresa";
             const keys = Object.keys(responses || {});
-
             const normalizeKey = (k) => k.toLowerCase().trim().replace(':', '');
 
             const companyNameKey = keys.find(k => {
                 const normalized = normalizeKey(k);
-                // Excluir 'rut' y datos de contacto para no confundir con "Teléfono Empresa", "Dirección Empresa", etc.
-                if (normalized.includes('rut') ||
-                    normalized.includes('teléfono') || normalized.includes('telefono') ||
-                    normalized.includes('celular') ||
-                    normalized.includes('mail') || normalized.includes('correo') ||
+                if (normalized.includes('rut') || normalized.includes('teléfono') || normalized.includes('telefono') ||
+                    normalized.includes('celular') || normalized.includes('mail') || normalized.includes('correo') ||
                     normalized.includes('dirección') || normalized.includes('direccion') || normalized.includes('calle')) return false;
-
-                return [
-                    'nombre o razón social',
-                    'nombre que llevará la empresa',
-                    'razón social',
-                    'razon social',
-                    'empresa',
-                    'cliente'
-                ].some(target => normalized.includes(target));
+                return ['nombre o razón social','nombre que llevará la empresa','razón social','razon social','empresa','cliente'].some(target => normalized.includes(target));
             });
 
             const tuNombreKey = keys.find(k => normalizeKey(k).includes('tu nombre') || normalizeKey(k).includes('nombre solicitante'));
@@ -342,63 +347,53 @@ router.post("/", async (req, res) => {
                 nombreCliente = user.nombre;
             }
 
-            // Construir asunto
             const ticketTitle = `${formTitle} - ${nombreCliente}`;
-
-            // Preparar usuario con nombre de empresa correcto
             const userToSave = { ...user };
-            if (companyNameKey && responses[companyNameKey]) {
-                userToSave.empresa = responses[companyNameKey];
-            }
+            if (companyNameKey && responses[companyNameKey]) userToSave.empresa = responses[companyNameKey];
 
-            // Insertar ticket en tickets
-            let statusInicial = "documento_generado"; // Por defecto
+            let statusInicial = "documento_generado"; 
             try {
                 const config = await req.db.collection("config_tickets").findOne({ key: "domicilio_virtual" });
-                if (config && config.statuses && config.statuses.length > 0) {
-                    statusInicial = config.statuses[0].value;
-                }
+                if (config && config.statuses && config.statuses.length > 0) statusInicial = config.statuses[0].value;
             } catch (ignore) { }
 
-            // Fecha experación Ticket de Domicilio Virtual
+            // Lógica original de expirationDate para Ticket con el ajuste de +1 día
             let expirationDate = bodyExpirationDate ? new Date(bodyExpirationDate) : null;
             if (!expirationDate) {
-                // Fallback: Calcular si no viene en el body
-                const planKey = keys.find(k => normalizeKey(k).includes('plan de servicio seleccionado'));
-
-                if (planKey && responses[planKey]) {
-                    const planValue = String(responses[planKey]).toLowerCase();
+                const planKeyTicket = keys.find(k => normalizeKey(k).includes('plan de servicio seleccionado'));
+                if (planKeyTicket && responses[planKeyTicket]) {
+                    const planValue = String(responses[planKeyTicket]).toLowerCase();
                     const now = new Date();
-
                     if (planValue.includes('anual')) {
                         expirationDate = new Date(now.setFullYear(now.getFullYear() + 1));
+                        expirationDate.setDate(expirationDate.getDate() + 1); // + 1 día
                     } else if (planValue.includes('semestral')) {
                         expirationDate = new Date(now.setMonth(now.getMonth() + 6));
+                        expirationDate.setDate(expirationDate.getDate() + 1); // + 1 día
                     }
                 }
             }
 
             await req.db.collection("tickets").insertOne({
-                formId: formId, // Usar ID real del formulario para que aparezca en panel admin
-                user: userToSave, // Se guarda el usuario con la empresa corregida
-                responses: responses, // Se guardan las respuestas en texto plano para el ticket
+                formId: formId, 
+                user: userToSave, 
+                responses: responses, 
                 formTitle: ticketTitle,
                 mail: "",
                 status: statusInicial,
                 priority: "alta",
                 category: "domicilio_virtual",
-                relatedRequestId: result.insertedId, // Vinculación interna
+                relatedRequestId: result.insertedId, 
                 origin: "domicilio_virtual",
-                expirationDate: expirationDate, // Fecha de vencimiento calculada
+                expirationDate: expirationDate, 
                 createdAt: new Date(),
                 updatedAt: new Date()
             });
-
         } catch (ticketError) {
             console.error("Error al crear ticket automático:", ticketError);
         }
 
-        // Notificaciones
+        // 5. Notificaciones (Original)
         const notifData = {
             titulo: `Alguien ha respondido en Domicilio Virtual: ${formTitle}`,
             descripcion: adjuntos.length > 0 ? `Incluye ${adjuntos.length} archivo(s)` : "Revisar en panel.",
@@ -409,7 +404,7 @@ router.post("/", async (req, res) => {
         };
         await addNotification(req.db, { filtro: { cargo: "admin" }, ...notifData });
 
-        // Anexo
+        // 6. Anexo (Original)
         try {
             await generarAnexoDesdeRespuesta(responses, result.insertedId.toString(), req.db, form.section, {
                 nombre: null, empresa: "Acciona Centro de Negocios Spa.", uid: null,
