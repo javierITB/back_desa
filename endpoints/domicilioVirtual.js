@@ -219,63 +219,72 @@ router.get("/mini", async (req, res) => {
 });
 
 // 2. Obtener detalle (GET /:id)
-    router.get("/:id", async (req, res) => {
-        try {
-            const auth = await verifyRequest(req);
-            if (!auth.ok) return res.status(401).json({ error: auth.error });
+router.get("/:id", async (req, res) => {
+    try {
+        const auth = await verifyRequest(req);
+        if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-            const answer = await req.db.collection("domicilio_virtual").findOne({ _id: new ObjectId(req.params.id) });
-            if (!answer) return res.status(404).json({ error: "No encontrado" });
+        const answer = await req.db.collection("domicilio_virtual").findOne({ _id: new ObjectId(req.params.id) });
+        if (!answer) return res.status(404).json({ error: "No encontrado" });
 
-            const result = {
-                ...answer,
-                user: answer.user ? {
-                    ...answer.user,
-                    nombre: decrypt(answer.user.nombre),
-                    rut: decrypt(answer.user.rut),
-                    empresa: decrypt(answer.user.empresa),
-                    mail: decrypt(answer.user.mail),
-                    telefono: decrypt(answer.user.telefono)
-                } : null,
+        const result = {
+            ...answer,
+            user: answer.user ? {
+                ...answer.user,
+                nombre: decrypt(answer.user.nombre),
+                rut: decrypt(answer.user.rut),
+                empresa: decrypt(answer.user.empresa),
+                mail: decrypt(answer.user.mail),
+                telefono: decrypt(answer.user.telefono)
+            } : null,
+        };
+
+        // --- NUEVO: Descifrar fechas de contrato en la raíz ---
+        if (answer.fechaInicioContrato) {
+            try { result.fechaInicioContrato = decrypt(answer.fechaInicioContrato); } catch (e) { result.fechaInicioContrato = answer.fechaInicioContrato; }
+        }
+        if (answer.fechaTerminoContrato) {
+            try { result.fechaTerminoContrato = decrypt(answer.fechaTerminoContrato); } catch (e) { result.fechaTerminoContrato = answer.fechaTerminoContrato; }
+        }
+        // -----------------------------------------------------
+
+        if (answer.responses) {
+            const descifrarValor = (valor) => {
+                if (typeof valor === 'string' && valor.includes(':')) {
+                    try { return decrypt(valor); } catch (e) { return valor; }
+                }
+                if (Array.isArray(valor)) {
+                    return valor.map(item => descifrarValor(item));
+                }
+                if (typeof valor === 'object' && valor !== null) {
+                    const res = {};
+                    for (const k in valor) res[k] = descifrarValor(valor[k]);
+                    return res;
+                }
+                return valor;
             };
 
-            if (answer.responses) {
-                const descifrarValor = (valor) => {
-                    if (typeof valor === 'string' && valor.includes(':')) {
-                        try { return decrypt(valor); } catch (e) { return valor; }
-                    }
-                    if (Array.isArray(valor)) {
-                        return valor.map(item => descifrarValor(item));
-                    }
-                    if (typeof valor === 'object' && valor !== null) {
-                        const res = {};
-                        for (const k in valor) res[k] = descifrarValor(valor[k]);
-                        return res;
-                    }
-                    return valor;
-                };
-
-                const decryptedResponses = {};
-                for (const [key, value] of Object.entries(answer.responses)) {
-                    decryptedResponses[key] = descifrarValor(value);
-                }
-                result.responses = decryptedResponses;
+            const decryptedResponses = {};
+            for (const [key, value] of Object.entries(answer.responses)) {
+                decryptedResponses[key] = descifrarValor(value);
             }
-
-            const adjuntosDoc = await req.db.collection("adjuntos").findOne({ responseId: answer._id });
-            if (adjuntosDoc && adjuntosDoc.adjuntos) {
-                result.adjuntos = adjuntosDoc.adjuntos.map(adj => ({
-                    ...adj,
-                    fileName: adj.fileName || adj.name,
-                    mimeType: adj.mimeType || adj.type
-                }));
-            }
-            res.json(result);
-        } catch (err) {
-            console.error("Error en GET /:id:", err);
-            res.status(500).json({ error: "Error interno: " + err.message });
+            result.responses = decryptedResponses;
         }
-    });
+
+        const adjuntosDoc = await req.db.collection("adjuntos").findOne({ responseId: answer._id });
+        if (adjuntosDoc && adjuntosDoc.adjuntos) {
+            result.adjuntos = adjuntosDoc.adjuntos.map(adj => ({
+                ...adj,
+                fileName: adj.fileName || adj.name,
+                mimeType: adj.mimeType || adj.type
+            }));
+        }
+        res.json(result);
+    } catch (err) {
+        console.error("Error en GET /:id:", err);
+        res.status(500).json({ error: "Error interno: " + err.message });
+    }
+});
 
 // 3. Crear solicitud (POST /)
 router.post("/", async (req, res) => {
