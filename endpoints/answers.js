@@ -3699,7 +3699,7 @@ router.get("/:_id/client-signature", async (req, res) => {
       if (!auth.ok) return res.status(401).json({ error: auth.error });
 
       const signature = await req.db.collection("firmados").findOne({
-         _id: ObjectId(_id),
+         _id: new ObjectId(_id),
       });
 
       if (!signature) {
