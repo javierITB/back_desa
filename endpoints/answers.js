@@ -3720,7 +3720,7 @@ router.get("/:_id/client-signature", async (req, res) => {
       }
 
       // CORREGIDO: Usar el fileName real, no el por defecto
-      const fileName = pdfData.fileName || `documento_firmado_${responseId}.pdf`;
+      const fileName = pdfData.fileName || `documento_firmado.pdf`;
       const encodedFileName = encodeURIComponent(fileName);
 
       res.setHeader("Content-Type", pdfData.mimeType || "application/pdf");
