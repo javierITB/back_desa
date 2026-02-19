@@ -111,114 +111,92 @@ router.get("/mini", async (req, res) => {
 
         const answers = await collection.find(dbQuery).sort({ createdAt: -1 }).toArray();
 
-        // Función clean protegida
-        const clean = (t) => {
-            if (!t) return "";
-            try {
-                return String(t)
-                    .normalize("NFD")
-                    .replace(/[\u0300-\u036f]/g, "")
-                    .toLowerCase()
-                    .trim();
-            } catch (e) {
-                return String(t || "").toLowerCase().trim();
-            }
-        };
-
+        // --- PROCESAMIENTO: Descifrado corregido para que el filtro funcione ---
         const answersProcessed = answers.map(answer => {
-            try {
-                const getVal = (keys, ignore = []) => {
-                    try {
-                        const responseKeys = Object.keys(answer.responses || {});
-                        for (let searchTerm of keys) {
-                            const foundKey = responseKeys.find(k => {
-                                const cleanK = k ? k.toLowerCase().trim().replace(":", "") : "";
-                                const cleanSearch = searchTerm ? searchTerm.toLowerCase().trim() : "";
-                                if (ignore.some(ignoredTerm => cleanK.includes(ignoredTerm))) return false;
-                                return cleanK.includes(cleanSearch);
-                            });
-                            if (foundKey && answer.responses && answer.responses[foundKey]) {
-                                const val = answer.responses[foundKey];
-                                if (typeof val === 'string' && val.includes(':')) {
-                                    try { return decrypt(val) || val; } catch (e) { return val; }
-                                }
-                                return val;
-                            }
+            const getVal = (keys, ignore = []) => {
+                const responseKeys = Object.keys(answer.responses || {});
+                for (let searchTerm of keys) {
+                    const foundKey = responseKeys.find(k => {
+                        const cleanK = k.toLowerCase().trim().replace(":", "");
+                        const cleanSearch = searchTerm.toLowerCase().trim();
+                        if (ignore.some(ignoredTerm => cleanK.includes(ignoredTerm))) return false;
+                        return cleanK.includes(cleanSearch);
+                    });
+                    if (foundKey && answer.responses[foundKey]) {
+                        const val = answer.responses[foundKey];
+                        // CAMBIO MVP: Descifrar el valor si es un hash para que el filtro posterior lo encuentre
+                        if (typeof val === 'string' && val.includes(':')) {
+                            try { return decrypt(val); } catch (e) { return val; }
                         }
-                    } catch (e) {
-                        return "";
-                    }
-                    return "";
-                };
-
-                const responsesWithDecryptedDate = { ...(answer.responses || {}) };
-                const fechaKey = "FECHA_TERMINO_CONTRATO";
-                
-                if (responsesWithDecryptedDate[fechaKey] && typeof responsesWithDecryptedDate[fechaKey] === 'string' && responsesWithDecryptedDate[fechaKey].includes(':')) {
-                    try {
-                        responsesWithDecryptedDate[fechaKey] = decrypt(responsesWithDecryptedDate[fechaKey]);
-                    } catch (e) {
-                        // Silently fail
+                        return val;
                     }
                 }
+                return "";
+            };
 
-                return {
-                    _id: answer._id,
-                    formId: answer.formId,
-                    formTitle: answer.formTitle,
-                    responses: responsesWithDecryptedDate,
-                    tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
-                    nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
-                    rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
-                    submittedAt: answer.submittedAt || answer.createdAt,
-                    status: answer.status,
-                    createdAt: answer.createdAt,
-                    adjuntosCount: 0
-                };
-            } catch (e) {
-                return null;
+            const responsesWithDecryptedDate = { ...(answer.responses || {}) };
+            const fechaKey = "FECHA_TERMINO_CONTRATO";
+            
+            if (responsesWithDecryptedDate[fechaKey] && typeof responsesWithDecryptedDate[fechaKey] === 'string' && responsesWithDecryptedDate[fechaKey].includes(':')) {
+                try {
+                    responsesWithDecryptedDate[fechaKey] = decrypt(responsesWithDecryptedDate[fechaKey]);
+                } catch (e) {
+                    console.error("Error descifrando fecha en mini:", e);
+                }
             }
-        }).filter(a => a !== null);
+
+            return {
+                _id: answer._id,
+                formId: answer.formId,
+                formTitle: answer.formTitle,
+                responses: responsesWithDecryptedDate,
+                tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
+                nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
+                rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
+                submittedAt: answer.submittedAt || answer.createdAt,
+                status: answer.status,
+                createdAt: answer.createdAt,
+                adjuntosCount: 0
+            };
+        });
+
+        // --- FILTRADO: Lógica de normalización robusta ---
+        const clean = (t) => {
+            if (!t) return ""; // Evita error 500 si el campo es null
+            return String(t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+        };
+
+        let filteredData = answersProcessed;
 
         if (company && company.trim() !== "") {
             const term = clean(company);
-            answersProcessed = answersProcessed.filter(a => 
-                (a.rutEmpresa && clean(a.rutEmpresa).includes(term)) || 
-                (a.nombreEmpresa && clean(a.nombreEmpresa).includes(term))
-            );
+            filteredData = filteredData.filter(a => clean(a.rutEmpresa).includes(term) || clean(a.nombreEmpresa).includes(term));
         }
 
         if (submittedBy && submittedBy.trim() !== "") {
             const term = clean(submittedBy);
-            answersProcessed = answersProcessed.filter(a => 
-                a.tuNombre && clean(a.tuNombre).includes(term)
-            );
+            filteredData = filteredData.filter(a => clean(a.tuNombre).includes(term));
         }
 
         if (search && search.trim() !== "") {
             const term = clean(search);
-            answersProcessed = answersProcessed.filter(a => {
-                const tuNombreClean = a.tuNombre ? clean(a.tuNombre) : "";
-                const rutEmpresaClean = a.rutEmpresa ? clean(a.rutEmpresa) : "";
-                const nombreEmpresaClean = a.nombreEmpresa ? clean(a.nombreEmpresa) : "";
-                const formTitleClean = a.formTitle ? clean(a.formTitle) : "";
-                
-                return tuNombreClean.includes(term) ||
-                       rutEmpresaClean.includes(term) ||
-                       nombreEmpresaClean.includes(term) ||
-                       formTitleClean.includes(term);
-            });
+            filteredData = filteredData.filter(a =>
+                clean(a.tuNombre).includes(term) ||
+                clean(a.rutEmpresa).includes(term) ||
+                clean(a.nombreEmpresa).includes(term) ||
+                clean(a.formTitle).includes(term)
+            );
         }
 
-        const totalCount = answersProcessed.length;
+        const totalCount = filteredData.length;
         const skip = (page - 1) * limit;
-        const paginatedData = answersProcessed.slice(skip, skip + limit);
+        const paginatedData = filteredData.slice(skip, skip + limit);
 
         const stats = {
             total: totalCount,
             documento_generado: 0, enviado: 0, solicitud_firmada: 0, informado_sii: 0, dicom: 0, dado_de_baja: 0, pendiente: 0
         };
-        answersProcessed.forEach(a => { if (stats.hasOwnProperty(a.status)) stats[a.status]++; });
+        filteredData.forEach(a => { if (stats.hasOwnProperty(a.status)) stats[a.status]++; });
 
         res.json({
             success: true,
