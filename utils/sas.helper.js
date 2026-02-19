@@ -27,7 +27,7 @@ async function syncCompanyConfiguration(req, company, permissions, planLimits) {
 
         const rolesConfig = [];
         // Grupos que NO deben estar en DBs de clientes
-        const SYSTEM_ONLY_GROUPS = ['gestor_empresas', 'configuracion_planes', 'empresas', 'acceso_panel_admin', 'planes'];
+        const SYSTEM_ONLY_GROUPS = ['gestor_empresas', 'configuracion_planes', 'planes'];
 
         Object.entries(PERMISSION_GROUPS).forEach(([key, group]) => {
             if (SYSTEM_ONLY_GROUPS.includes(key)) return;
