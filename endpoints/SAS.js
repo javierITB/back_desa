@@ -101,6 +101,7 @@ router.get("/companies", verifyRequest, async (req, res) => {
                     name: 1,
                     dbName: 1,
                     permissions: 1,
+                    planId: 1,
                     createdAt: 1,
                     active: 1,
                     isSystem: 1,
