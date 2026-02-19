@@ -286,24 +286,24 @@ router.post("/", async (req, res) => {
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
         if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-        // --- NUEVA LÓGICA: CÁLCULO DE FECHA TÉRMINO (Periodo menos 1 día) ---
+        // --- NUEVA LÓGICA: CÁLCULO DE FECHAS (A nivel de raíz, no en responses) ---
         const keysForCalc = Object.keys(responses || {});
         const planKey = keysForCalc.find(k => k.toLowerCase().trim().includes('plan de servicio seleccionado'));
         
-        // AGREGAR ESTA LÍNEA: Setea la fecha de inicio como el día de hoy
-        responses["FECHA_INICIO_CONTRATO"] = new Date().toLocaleDateString('es-CL');
+        let fechaInicioContrato = new Date().toLocaleDateString('es-CL');
+        let fechaTerminoContrato = null;
 
         if (planKey && responses[planKey]) {
             const planValue = String(responses[planKey]).toLowerCase();
             let dateCalc = new Date();
             if (planValue.includes('anual')) {
                 dateCalc.setFullYear(dateCalc.getFullYear() + 1);
-                dateCalc.setDate(dateCalc.getDate() - 1); // Menos 1 día
-                responses["FECHA_TERMINO_CONTRATO"] = dateCalc.toLocaleDateString('es-CL');
+                dateCalc.setDate(dateCalc.getDate() - 1);
+                fechaTerminoContrato = dateCalc.toLocaleDateString('es-CL');
             } else if (planValue.includes('semestral')) {
                 dateCalc.setMonth(dateCalc.getMonth() + 6);
-                dateCalc.setDate(dateCalc.getDate() - 1); // Menos 1 día
-                responses["FECHA_TERMINO_CONTRATO"] = dateCalc.toLocaleDateString('es-CL');
+                dateCalc.setDate(dateCalc.getDate() - 1);
+                fechaTerminoContrato = dateCalc.toLocaleDateString('es-CL');
             }
         }
         // -------------------------------------------------------------------
@@ -335,12 +335,14 @@ router.post("/", async (req, res) => {
 
         const responsesCifrado = cifrarObjeto(responses);
 
-        // 3. Guardar Domicilio Virtual (RECUPERADO: Incluye el objeto 'user' original)
+        // 3. Guardar Domicilio Virtual (Fechas insertadas a la misma altura que responses)
         const result = await req.db.collection("domicilio_virtual").insertOne({
             formId,
             responses: responsesCifrado,
+            fechaInicioContrato: encrypt(fechaInicioContrato), // Cifradas por seguridad
+            fechaTerminoContrato: fechaTerminoContrato ? encrypt(fechaTerminoContrato) : null,
             formTitle,
-            user, // Restaurado para mantener compatibilidad con otros servicios
+            user, 
             status: "documento_generado",
             createdAt: new Date(),
             updatedAt: new Date()
@@ -390,7 +392,6 @@ router.post("/", async (req, res) => {
                 if (config && config.statuses && config.statuses.length > 0) statusInicial = config.statuses[0].value;
             } catch (ignore) { }
 
-            // Lógica de expirationDate para Ticket (Ajustado a -1 día)
             let expirationDate = bodyExpirationDate ? new Date(bodyExpirationDate) : null;
             if (!expirationDate) {
                 const planKeyTicket = keys.find(k => normalizeKey(k).includes('plan de servicio seleccionado'));
@@ -489,9 +490,7 @@ router.post("/:id/extend", async (req, res) => {
         let finalStartDateStr = "";
         let finalEndDateStr = "";
 
-        // --- AGREGAR ESTA LÓGICA ---
         if (type === 'custom' && startDate && endDate) {
-            // Caso manual: Se procesan las fechas recibidas del modal
             const startParsed = new Date(startDate + "T12:00:00");
             const endParsed = new Date(endDate + "T12:00:00");
             
@@ -499,8 +498,9 @@ router.post("/:id/extend", async (req, res) => {
             finalEndDateStr = endParsed.toLocaleDateString('es-CL').replace(/-/g, '/');
             fechaBase = endParsed; 
         } else {
-            // Caso automático: Tu lógica original de Semestral / Anual
-            let currentFechaStr = doc.responses?.["FECHA_TERMINO_CONTRATO"];
+            // CAMBIO: Ahora buscamos la fecha de término en la raíz del documento
+            let currentFechaStr = doc.fechaTerminoContrato;
+            
             if (currentFechaStr && typeof currentFechaStr === 'string' && currentFechaStr.includes(':')) {
                 try { currentFechaStr = decrypt(currentFechaStr); } catch (e) { console.error("Error decrypt:", e); }
             }
@@ -522,12 +522,11 @@ router.post("/:id/extend", async (req, res) => {
             finalStartDateStr = new Date().toLocaleDateString('es-CL').replace(/-/g, '/');
             finalEndDateStr = fechaBase.toLocaleDateString('es-CL').replace(/-/g, '/');
         }
-        // ---------------------------
 
-        // 4. Guardar (Usamos barras '/' para ser consistentes)
+        // 4. Guardar (En la RAÍZ del documento, no en responses)
         const updates = {
-            "responses.FECHA_INICIO_CONTRATO": encrypt(finalStartDateStr),
-            "responses.FECHA_TERMINO_CONTRATO": encrypt(finalEndDateStr),
+            "fechaInicioContrato": encrypt(finalStartDateStr),
+            "fechaTerminoContrato": encrypt(finalEndDateStr),
             "updatedAt": new Date()
         };
 
@@ -544,7 +543,7 @@ router.post("/:id/extend", async (req, res) => {
             );
         } catch (e) {}
 
-        // 6. Devolver respuesta descifrada para el frontend
+        // 6. Devolver respuesta descifrada
         const updatedDoc = await collection.findOne({ _id: docId });
         
         const descifrarTodo = (obj) => {
@@ -561,10 +560,14 @@ router.post("/:id/extend", async (req, res) => {
         };
 
         if (updatedDoc.responses) updatedDoc.responses = descifrarTodo(updatedDoc.responses);
+        
+        // Desciframos las fechas de la raíz para el Frontend
+        if (updatedDoc.fechaInicioContrato) updatedDoc.fechaInicioContrato = decrypt(updatedDoc.fechaInicioContrato);
+        if (updatedDoc.fechaTerminoContrato) updatedDoc.fechaTerminoContrato = decrypt(updatedDoc.fechaTerminoContrato);
 
         res.json({
             success: true,
-            message: `Contrato extendido hasta el ${finalEndDateStr}`,
+            message: `Contrato actualizado hasta el ${finalEndDateStr}`,
             updatedRequest: updatedDoc
         });
 
