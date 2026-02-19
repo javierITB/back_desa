@@ -290,6 +290,9 @@ router.post("/", async (req, res) => {
         const keysForCalc = Object.keys(responses || {});
         const planKey = keysForCalc.find(k => k.toLowerCase().trim().includes('plan de servicio seleccionado'));
         
+        // AGREGAR ESTA LÍNEA: Setea la fecha de inicio como el día de hoy
+        responses["FECHA_INICIO_CONTRATO"] = new Date().toLocaleDateString('es-CL');
+
         if (planKey && responses[planKey]) {
             const planValue = String(responses[planKey]).toLowerCase();
             let dateCalc = new Date();
@@ -475,7 +478,7 @@ router.post("/:id/extend", async (req, res) => {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-        const { type } = req.body; 
+        const { type, startDate, endDate } = req.body; 
         const collection = req.db.collection("domicilio_virtual");
         const docId = new ObjectId(req.params.id);
 
@@ -483,41 +486,54 @@ router.post("/:id/extend", async (req, res) => {
         if (!doc) return res.status(404).json({ error: "Solicitud no encontrada" });
 
         let fechaBase = new Date();
-        let currentFechaStr = doc.responses?.["FECHA_TERMINO_CONTRATO"];
+        let finalStartDateStr = "";
+        let finalEndDateStr = "";
 
-        // 1. Descifrar si es necesario
-        if (currentFechaStr && typeof currentFechaStr === 'string' && currentFechaStr.includes(':')) {
-            try { currentFechaStr = decrypt(currentFechaStr); } catch (e) { console.error("Error decrypt:", e); }
-        }
-
-        // 2. NORMALIZACIÓN CRÍTICA: Cambiar guiones por barras para que split('/') funcione siempre
-        if (currentFechaStr && typeof currentFechaStr === 'string') {
-            currentFechaStr = currentFechaStr.replace(/-/g, '/'); // <-- Esto permite re-extender fechas como 19-08-2026
+        // --- AGREGAR ESTA LÓGICA ---
+        if (type === 'custom' && startDate && endDate) {
+            // Caso manual: Se procesan las fechas recibidas del modal
+            const startParsed = new Date(startDate + "T12:00:00");
+            const endParsed = new Date(endDate + "T12:00:00");
             
-            const parts = currentFechaStr.split('/');
-            if (parts.length === 3) {
-                const day = parseInt(parts[0]);
-                const month = parseInt(parts[1]) - 1;
-                const year = parseInt(parts[2]);
-                const parsedDate = new Date(year, month, day);
-                if (!isNaN(parsedDate.getTime())) fechaBase = parsedDate;
+            finalStartDateStr = startParsed.toLocaleDateString('es-CL').replace(/-/g, '/');
+            finalEndDateStr = endParsed.toLocaleDateString('es-CL').replace(/-/g, '/');
+            fechaBase = endParsed; 
+        } else {
+            // Caso automático: Tu lógica original de Semestral / Anual
+            let currentFechaStr = doc.responses?.["FECHA_TERMINO_CONTRATO"];
+            if (currentFechaStr && typeof currentFechaStr === 'string' && currentFechaStr.includes(':')) {
+                try { currentFechaStr = decrypt(currentFechaStr); } catch (e) { console.error("Error decrypt:", e); }
             }
-        }
 
-        // 3. Calcular nueva fecha
-        if (type === 'anual') {
-            fechaBase.setFullYear(fechaBase.getFullYear() + 1);
-        } else if (type === 'semestral') {
-            fechaBase.setMonth(fechaBase.getMonth() + 6);
+            if (currentFechaStr && typeof currentFechaStr === 'string') {
+                currentFechaStr = currentFechaStr.replace(/-/g, '/');
+                const parts = currentFechaStr.split('/');
+                if (parts.length === 3) {
+                    fechaBase = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                }
+            }
+
+            if (type === 'anual') {
+                fechaBase.setFullYear(fechaBase.getFullYear() + 1);
+            } else if (type === 'semestral') {
+                fechaBase.setMonth(fechaBase.getMonth() + 6);
+            }
+            
+            finalStartDateStr = new Date().toLocaleDateString('es-CL').replace(/-/g, '/');
+            finalEndDateStr = fechaBase.toLocaleDateString('es-CL').replace(/-/g, '/');
         }
+        // ---------------------------
 
         // 4. Guardar (Usamos barras '/' para ser consistentes)
-        const nuevaFechaStr = fechaBase.toLocaleDateString('es-CL').replace(/-/g, '/');
-        const nuevaFechaCifrada = encrypt(nuevaFechaStr);
+        const updates = {
+            "responses.FECHA_INICIO_CONTRATO": encrypt(finalStartDateStr),
+            "responses.FECHA_TERMINO_CONTRATO": encrypt(finalEndDateStr),
+            "updatedAt": new Date()
+        };
 
         await collection.updateOne(
             { _id: docId },
-            { $set: { "responses.FECHA_TERMINO_CONTRATO": nuevaFechaCifrada, "updatedAt": new Date() } }
+            { $set: updates }
         );
 
         // 5. Sincronizar Ticket
@@ -548,7 +564,7 @@ router.post("/:id/extend", async (req, res) => {
 
         res.json({
             success: true,
-            message: `Contrato extendido hasta el ${nuevaFechaStr}`,
+            message: `Contrato extendido hasta el ${finalEndDateStr}`,
             updatedRequest: updatedDoc
         });
 
