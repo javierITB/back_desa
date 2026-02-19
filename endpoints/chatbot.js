@@ -31,7 +31,7 @@ router.get('/history', async (req, res) => {
         const uid = tokenValido.data.email;
 
         const chatSession = await db.collection("chatbot").findOne({ uid });
-        
+
         // Filtramos solo los mensajes activos para la interfaz
         const history = chatSession ? chatSession.messages.filter(m => m.active) : [];
 
@@ -68,6 +68,13 @@ router.post('/clear', async (req, res) => {
 // ==================== ENDPOINT: ENVIAR MENSAJE ====================
 router.post('/', async (req, res) => {
     try {
+        const { checkPlanLimits } = require("../utils/planLimits");
+        try {
+            await checkPlanLimits(req, "bot_messages", null);
+        } catch (limitErr) {
+            return res.status(403).json({ error: limitErr.message });
+        }
+
         const db = req.db;
         const authHeader = req.headers.authorization;
 
@@ -80,7 +87,7 @@ router.post('/', async (req, res) => {
 
         // 1. Obtener documento del usuario para contexto
         const chatSession = await db.collection("chatbot").findOne({ uid });
-        
+
         let context = [];
         if (chatSession && chatSession.messages) {
             context = chatSession.messages
@@ -112,7 +119,7 @@ router.post('/', async (req, res) => {
 
         await db.collection("chatbot").updateOne(
             { uid },
-            { 
+            {
                 $push: { messages: { $each: newMessages } },
                 $inc: { messageCount: 2 }, // Incrementamos en 2 (usuario + IA)
                 $set: { lastUpdate: new Date() }

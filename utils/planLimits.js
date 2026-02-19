@@ -158,12 +158,22 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 break;
 
             case 'bot_messages':
-                limitValue = limits.forms?.maxQuantity;
+                limitValue = limits.chatbot?.maxQuantity;
                 if (limitValue !== undefined) {
-                    currentCount = await currentDb.collection("forms").countDocuments();
+                    // Sumamos el campo 'messageCount' de todos los documentos en la colección
+                    const result = await currentDb.collection("chatbot").aggregate([
+                        {
+                            $group: {
+                                _id: null,
+                                totalMessages: { $sum: "$messageCount" }
+                            }
+                        }
+                    ]).toArray();
+
+                    // Si hay resultados, extraemos el total; de lo contrario, es 0
+                    currentCount = result.length > 0 ? result[0].totalMessages : 0;
                 }
                 break;
-
             default:
                 return true;
         }
@@ -178,7 +188,8 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 users: "Usuarios",
                 roles: "Roles",
                 configTickets: "Categorías",
-                companies: "Empresas"
+                companies: "Empresas",
+                chatbot: "Mensajes del Chatbot"
             };
             const label = LABELS[type] || type;
             throw new Error(`Límite de ${label} alcanzado.`);
