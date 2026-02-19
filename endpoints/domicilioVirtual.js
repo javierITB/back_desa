@@ -269,7 +269,7 @@ router.post("/", async (req, res) => {
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
         if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-        // --- NUEVA INTEGRACIÓN: CÁLCULO PARA RESPONSES (Sin quitar nada) ---
+        // --- NUEVA INTEGRACIÓN: CÁLCULO PARA RESPONSES (Menos un día) ---
         const keysForCalc = Object.keys(responses || {});
         const planKey = keysForCalc.find(k => k.toLowerCase().trim().includes('plan de servicio seleccionado'));
         
@@ -278,11 +278,11 @@ router.post("/", async (req, res) => {
             let dateCalc = new Date();
             if (planValue.includes('anual')) {
                 dateCalc.setFullYear(dateCalc.getFullYear() + 1);
-                dateCalc.setDate(dateCalc.getDate() + 1); // + 1 día
+                dateCalc.setDate(dateCalc.getDate() - 1); // Menos 1 día
                 responses["FECHA_TERMINO_CONTRATO"] = dateCalc.toLocaleDateString('es-CL');
             } else if (planValue.includes('semestral')) {
                 dateCalc.setMonth(dateCalc.getMonth() + 6);
-                dateCalc.setDate(dateCalc.getDate() + 1); // + 1 día
+                dateCalc.setDate(dateCalc.getDate() - 1); // Menos 1 día
                 responses["FECHA_TERMINO_CONTRATO"] = dateCalc.toLocaleDateString('es-CL');
             }
         }
@@ -333,7 +333,7 @@ router.post("/", async (req, res) => {
             });
         }
 
-        // 4. CREAR TICKET AUTOMATICO (Original Integro)
+        // 4. CREAR TICKET AUTOMATICO (Original Integro con ajuste de fecha)
         try {
             let nombreCliente = "Sin Empresa";
             const keys = Object.keys(responses || {});
@@ -369,19 +369,21 @@ router.post("/", async (req, res) => {
                 if (config && config.statuses && config.statuses.length > 0) statusInicial = config.statuses[0].value;
             } catch (ignore) { }
 
-            // Lógica original de expirationDate para Ticket con el ajuste de +1 día
+            // Lógica de expirationDate para Ticket con el ajuste de MENOS 1 día
             let expirationDate = bodyExpirationDate ? new Date(bodyExpirationDate) : null;
             if (!expirationDate) {
                 const planKeyTicket = keys.find(k => normalizeKey(k).includes('plan de servicio seleccionado'));
                 if (planKeyTicket && responses[planKeyTicket]) {
                     const planValue = String(responses[planKeyTicket]).toLowerCase();
-                    const now = new Date();
+                    const dateExp = new Date();
                     if (planValue.includes('anual')) {
-                        expirationDate = new Date(now.setFullYear(now.getFullYear() + 1));
-                        expirationDate.setDate(expirationDate.getDate() + 1); // + 1 día
+                        dateExp.setFullYear(dateExp.getFullYear() + 1);
+                        dateExp.setDate(dateExp.getDate() - 1); // Menos 1 día
+                        expirationDate = dateExp;
                     } else if (planValue.includes('semestral')) {
-                        expirationDate = new Date(now.setMonth(now.getMonth() + 6));
-                        expirationDate.setDate(expirationDate.getDate() + 1); // + 1 día
+                        dateExp.setMonth(dateExp.getMonth() + 6);
+                        dateExp.setDate(dateExp.getDate() - 1); // Menos 1 día
+                        expirationDate = dateExp;
                     }
                 }
             }
