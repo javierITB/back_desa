@@ -110,14 +110,11 @@ router.get("/mini", async (req, res) => {
             }
         }
 
-        // 2. OBTENER DATOS Y ESTADÍSTICAS (Lógica Original Recuperada)
-        // Ejecutamos la búsqueda y el conteo por separado para que los stats no dependan del filtro de texto
+        // 2. OBTENER DATOS Y ESTADÍSTICAS
         const answers = await collection.find(dbQuery).sort({ createdAt: -1 }).toArray();
         
-        // Recuperamos el aggregate original pero aplicado al filtro de fecha actual (dbQuery sin el search de memoria)
-        // Esto evita que los contadores se vuelvan cero al buscar un nombre
         const statsQuery = { ...dbQuery };
-        delete statsQuery.status; // Para que el conteo sea de todos los estados en ese periodo
+        delete statsQuery.status;
 
         const statusCounts = await collection.aggregate([
             { $match: statsQuery },
@@ -126,8 +123,16 @@ router.get("/mini", async (req, res) => {
 
         const getCount = (id) => statusCounts.find(s => s._id === id)?.count || 0;
 
-        // 3. PROCESAMIENTO Y DESCIFRADO (Lógica Actual MVP)
+        // 3. PROCESAMIENTO Y DESCIFRADO (Lógica Mínima Viable)
         const answersProcessed = answers.map(answer => {
+            // Helper para descifrar de forma segura usando tu seguridad.helper
+            const safeDecrypt = (val) => {
+                if (typeof val === 'string' && val.includes(':')) {
+                    try { return decrypt(val); } catch (e) { return val; }
+                }
+                return val;
+            };
+
             const getVal = (keys, ignore = []) => {
                 const responseKeys = Object.keys(answer.responses || {});
                 for (let searchTerm of keys) {
@@ -138,38 +143,31 @@ router.get("/mini", async (req, res) => {
                         return cleanK.includes(cleanSearch);
                     });
                     if (foundKey && answer.responses[foundKey]) {
-                        const val = answer.responses[foundKey];
-                        if (typeof val === 'string' && val.includes(':')) {
-                            try { return decrypt(val); } catch (e) { return val; }
-                        }
-                        return val;
+                        return safeDecrypt(answer.responses[foundKey]);
                     }
                 }
                 return "";
             };
 
-            const responsesWithDecryptedDate = { ...(answer.responses || {}) };
-            const fechaKey = "FECHA_TERMINO_CONTRATO";
-            if (responsesWithDecryptedDate[fechaKey] && typeof responsesWithDecryptedDate[fechaKey] === 'string' && responsesWithDecryptedDate[fechaKey].includes(':')) {
-                try { responsesWithDecryptedDate[fechaKey] = decrypt(responsesWithDecryptedDate[fechaKey]); } catch (e) {}
-            }
-
             return {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                responses: responsesWithDecryptedDate,
+                responses: answer.responses, // Se mantienen originales
                 tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
                 nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
-                rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
+                rutEmpresa: getVal(["rut de la empresa", "rut representante legal", "rut"]),
                 submittedAt: answer.submittedAt || answer.createdAt,
                 status: answer.status,
                 createdAt: answer.createdAt,
+                // DESCIFRADO EXCLUSIVO EN LA RAÍZ (A la par de responses)
+                fechaInicioContrato: safeDecrypt(answer.fechaInicioContrato),
+                fechaTerminoContrato: safeDecrypt(answer.fechaTerminoContrato),
                 adjuntosCount: 0
             };
         });
 
-        // 4. FILTRADO EN MEMORIA (Insensible a tildes y mayúsculas)
+        // 4. FILTRADO EN MEMORIA
         const clean = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
         let filteredData = answersProcessed;
 
@@ -201,7 +199,7 @@ router.get("/mini", async (req, res) => {
             data: paginatedData,
             pagination: { total: totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) },
             stats: {
-                total: answers.length, // Total de solicitudes en el periodo sin filtro de búsqueda
+                total: answers.length,
                 documento_generado: getCount('documento_generado'),
                 enviado: getCount('enviado'),
                 solicitud_firmada: getCount('solicitud_firmada'),
@@ -227,50 +225,53 @@ router.get("/:id", async (req, res) => {
         const answer = await req.db.collection("domicilio_virtual").findOne({ _id: new ObjectId(req.params.id) });
         if (!answer) return res.status(404).json({ error: "No encontrado" });
 
-        const result = {
-            ...answer,
-            user: answer.user ? {
-                ...answer.user,
-                nombre: decrypt(answer.user.nombre),
-                rut: decrypt(answer.user.rut),
-                empresa: decrypt(answer.user.empresa),
-                mail: decrypt(answer.user.mail),
-                telefono: decrypt(answer.user.telefono)
-            } : null,
+        // Helper para descifrar de forma segura (centralizado)
+        const safeDecrypt = (val) => {
+            if (typeof val === 'string' && val.includes(':')) {
+                try { return decrypt(val); } catch (e) { return val; }
+            }
+            return val;
         };
 
-        // --- NUEVO: Descifrar fechas de contrato en la raíz ---
-        if (answer.fechaInicioContrato) {
-            try { result.fechaInicioContrato = decrypt(answer.fechaInicioContrato); } catch (e) { result.fechaInicioContrato = answer.fechaInicioContrato; }
-        }
-        if (answer.fechaTerminoContrato) {
-            try { result.fechaTerminoContrato = decrypt(answer.fechaTerminoContrato); } catch (e) { result.fechaTerminoContrato = answer.fechaTerminoContrato; }
-        }
-        // -----------------------------------------------------
+        const result = {
+            ...answer,
+            // 1. Descifrar datos del usuario
+            user: answer.user ? {
+                ...answer.user,
+                nombre: safeDecrypt(answer.user.nombre),
+                rut: safeDecrypt(answer.user.rut),
+                empresa: safeDecrypt(answer.user.empresa),
+                mail: safeDecrypt(answer.user.mail),
+                telefono: safeDecrypt(answer.user.telefono)
+            } : null,
+            // 2. Descifrar fechas de contrato en la raíz (Igual que en /mini)
+            fechaInicioContrato: safeDecrypt(answer.fechaInicioContrato),
+            fechaTerminoContrato: safeDecrypt(answer.fechaTerminoContrato)
+        };
 
+        // 3. Descifrar respuestas del formulario de forma recursiva
         if (answer.responses) {
-            const descifrarValor = (valor) => {
-                if (typeof valor === 'string' && valor.includes(':')) {
-                    try { return decrypt(valor); } catch (e) { return valor; }
-                }
+            const descifrarProceso = (valor) => {
+                if (typeof valor === 'string') return safeDecrypt(valor);
+                
                 if (Array.isArray(valor)) {
-                    return valor.map(item => descifrarValor(item));
+                    return valor.map(item => descifrarProceso(item));
                 }
+                
                 if (typeof valor === 'object' && valor !== null) {
-                    const res = {};
-                    for (const k in valor) res[k] = descifrarValor(valor[k]);
-                    return res;
+                    const objDescifrado = {};
+                    for (const k in valor) {
+                        objDescifrado[k] = descifrarProceso(valor[k]);
+                    }
+                    return objDescifrado;
                 }
                 return valor;
             };
 
-            const decryptedResponses = {};
-            for (const [key, value] of Object.entries(answer.responses)) {
-                decryptedResponses[key] = descifrarValor(value);
-            }
-            result.responses = decryptedResponses;
+            result.responses = descifrarProceso(answer.responses);
         }
 
+        // 4. Obtener adjuntos asociados
         const adjuntosDoc = await req.db.collection("adjuntos").findOne({ responseId: answer._id });
         if (adjuntosDoc && adjuntosDoc.adjuntos) {
             result.adjuntos = adjuntosDoc.adjuntos.map(adj => ({
@@ -279,6 +280,7 @@ router.get("/:id", async (req, res) => {
                 mimeType: adj.mimeType || adj.type
             }));
         }
+
         res.json(result);
     } catch (err) {
         console.error("Error en GET /:id:", err);
@@ -495,30 +497,35 @@ router.post("/:id/extend", async (req, res) => {
         const doc = await collection.findOne({ _id: docId });
         if (!doc) return res.status(404).json({ error: "Solicitud no encontrada" });
 
+        // Helper interno para consistencia de fechas
+        const formatDate = (date) => date.toLocaleDateString('es-CL').replace(/-/g, '/');
+
         let fechaBase = new Date();
         let finalStartDateStr = "";
         let finalEndDateStr = "";
 
         if (type === 'custom' && startDate && endDate) {
-            const startParsed = new Date(startDate + "T12:00:00");
-            const endParsed = new Date(endDate + "T12:00:00");
+            // ISO format (YYYY-MM-DD) es más seguro para parsear
+            const startParsed = new Date(`${startDate}T12:00:00`);
+            const endParsed = new Date(`${endDate}T12:00:00`);
             
-            finalStartDateStr = startParsed.toLocaleDateString('es-CL').replace(/-/g, '/');
-            finalEndDateStr = endParsed.toLocaleDateString('es-CL').replace(/-/g, '/');
+            finalStartDateStr = formatDate(startParsed);
+            finalEndDateStr = formatDate(endParsed);
             fechaBase = endParsed; 
         } else {
-            // CAMBIO: Ahora buscamos la fecha de término en la raíz del documento
+            // Buscamos fecha en raíz
             let currentFechaStr = doc.fechaTerminoContrato;
             
             if (currentFechaStr && typeof currentFechaStr === 'string' && currentFechaStr.includes(':')) {
-                try { currentFechaStr = decrypt(currentFechaStr); } catch (e) { console.error("Error decrypt:", e); }
+                try { currentFechaStr = decrypt(currentFechaStr); } catch (e) {}
             }
 
             if (currentFechaStr && typeof currentFechaStr === 'string') {
-                currentFechaStr = currentFechaStr.replace(/-/g, '/');
-                const parts = currentFechaStr.split('/');
+                // Normalizamos a "/" para el split
+                const parts = currentFechaStr.replace(/-/g, '/').split('/');
                 if (parts.length === 3) {
-                    fechaBase = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                    // Formato DD/MM/YYYY
+                    fechaBase = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), 12, 0, 0);
                 }
             }
 
@@ -528,23 +535,21 @@ router.post("/:id/extend", async (req, res) => {
                 fechaBase.setMonth(fechaBase.getMonth() + 6);
             }
             
-            finalStartDateStr = new Date().toLocaleDateString('es-CL').replace(/-/g, '/');
-            finalEndDateStr = fechaBase.toLocaleDateString('es-CL').replace(/-/g, '/');
+            // La nueva fecha de inicio es HOY, la de término es la extendida
+            finalStartDateStr = formatDate(new Date());
+            finalEndDateStr = formatDate(fechaBase);
         }
 
-        // 4. Guardar (En la RAÍZ del documento, no en responses)
+        // 4. Guardar en RAÍZ (Cifrado)
         const updates = {
             "fechaInicioContrato": encrypt(finalStartDateStr),
             "fechaTerminoContrato": encrypt(finalEndDateStr),
             "updatedAt": new Date()
         };
 
-        await collection.updateOne(
-            { _id: docId },
-            { $set: updates }
-        );
+        await collection.updateOne({ _id: docId }, { $set: updates });
 
-        // 5. Sincronizar Ticket
+        // 5. Sincronizar Ticket (expirationDate es un objeto Date en la DB de tickets)
         try {
             await req.db.collection("tickets").updateOne(
                 { relatedRequestId: docId },
@@ -552,27 +557,33 @@ router.post("/:id/extend", async (req, res) => {
             );
         } catch (e) {}
 
-        // 6. Devolver respuesta descifrada
+        // 6. Devolver respuesta con raíz DESCIFRADA para el Front
         const updatedDoc = await collection.findOne({ _id: docId });
         
-        const descifrarTodo = (obj) => {
-            if (typeof obj === 'string' && obj.includes(':')) {
-                try { return decrypt(obj); } catch (e) { return obj; }
+        const safeDecrypt = (val) => {
+            if (typeof val === 'string' && val.includes(':')) {
+                try { return decrypt(val); } catch (e) { return val; }
             }
-            if (Array.isArray(obj)) return obj.map(descifrarTodo);
-            if (typeof obj === 'object' && obj !== null) {
-                const r = {};
-                for (const k in obj) r[k] = descifrarTodo(obj[k]);
-                return r;
-            }
-            return obj;
+            return val;
         };
 
-        if (updatedDoc.responses) updatedDoc.responses = descifrarTodo(updatedDoc.responses);
+        // Descifrado recursivo para responses
+        const descifrarProceso = (valor) => {
+            if (typeof valor === 'string') return safeDecrypt(valor);
+            if (Array.isArray(valor)) return valor.map(descifrarProceso);
+            if (typeof valor === 'object' && valor !== null) {
+                const res = {};
+                for (const k in valor) res[k] = descifrarProceso(valor[k]);
+                return res;
+            }
+            return valor;
+        };
+
+        if (updatedDoc.responses) updatedDoc.responses = descifrarProceso(updatedDoc.responses);
         
-        // Desciframos las fechas de la raíz para el Frontend
-        if (updatedDoc.fechaInicioContrato) updatedDoc.fechaInicioContrato = decrypt(updatedDoc.fechaInicioContrato);
-        if (updatedDoc.fechaTerminoContrato) updatedDoc.fechaTerminoContrato = decrypt(updatedDoc.fechaTerminoContrato);
+        // Fechas en raíz descifradas
+        updatedDoc.fechaInicioContrato = safeDecrypt(updatedDoc.fechaInicioContrato);
+        updatedDoc.fechaTerminoContrato = safeDecrypt(updatedDoc.fechaTerminoContrato);
 
         res.json({
             success: true,
