@@ -18,6 +18,7 @@ const configTicketsRoutes = require("./endpoints/configTickets");
 const dashboardRoutes = require("./endpoints/dashboard");
 const registroRoutes = require("./endpoints/registro");
 const roles = require("./endpoints/roles");
+const chatbotRoutes = require("./endpoints/chatbot");
 
 // Nuevas rutas (SAS, Plans, Pagos)
 const pagosRoutes = require("./endpoints/pagos");
@@ -128,6 +129,7 @@ tenantRouter.use("/dashboard", dashboardRoutes);
 tenantRouter.use("/registro", registroRoutes);
 tenantRouter.use("/roles", roles);
 tenantRouter.use("/pagos", pagosRoutes);
+tenantRouter.use("/chat", chatbotRoutes); // Nueva ruta para el chatbot
 
 app.use("/:company", tenantRouter);
 
