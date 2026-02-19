@@ -62,7 +62,6 @@ const verifyRequest = async (req) => {
 // ==========================================
 
 // 1. Obtener lista (Dashboard Mini)
-// 1. Obtener lista (Dashboard Mini)
 router.get("/mini", async (req, res) => {
     try {
         const auth = await verifyRequest(req);
@@ -112,7 +111,8 @@ router.get("/mini", async (req, res) => {
 
         const answers = await collection.find(dbQuery).sort({ createdAt: -1 }).toArray();
 
-        let answersProcessed = answers.map(answer => {
+        // --- CAMBIO: Procesar cada answer con la fecha descifrada ---
+        const answersProcessed = answers.map(answer => {
             const getVal = (keys, ignore = []) => {
                 const responseKeys = Object.keys(answer.responses || {});
                 for (let searchTerm of keys) {
@@ -129,7 +129,7 @@ router.get("/mini", async (req, res) => {
                 return "";
             };
 
-            // --- PERTINENTE: Descifrado selectivo de la fecha para la Card ---
+            // --- CAMBIO: Crear copia de responses con la fecha descifrada ---
             const responsesWithDecryptedDate = { ...(answer.responses || {}) };
             const fechaKey = "FECHA_TERMINO_CONTRATO";
             
@@ -145,7 +145,7 @@ router.get("/mini", async (req, res) => {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                responses: responsesWithDecryptedDate, // Ahora incluye la fecha legible si existía
+                responses: responsesWithDecryptedDate, // AHORA SÍ incluye la fecha legible
                 tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
                 nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
                 rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
@@ -200,6 +200,7 @@ router.get("/mini", async (req, res) => {
         res.status(500).json({ error: "Error interno" });
     }
 });
+
 // 2. Obtener detalle (GET /:id)
 router.get("/:id", async (req, res) => {
     try {
@@ -465,30 +466,55 @@ router.post("/:id/extend", async (req, res) => {
         let fechaBase = new Date();
         let currentFechaStr = doc.responses?.["FECHA_TERMINO_CONTRATO"];
 
+        console.log("Fecha actual (cifrada):", currentFechaStr);
+
         if (currentFechaStr) {
             // Si viene cifrada (tiene ":"), la desciframos para operar con ella
             if (currentFechaStr.includes(':')) {
-                try { currentFechaStr = decrypt(currentFechaStr); } catch (e) { console.error("Error descifrando al extender:", e); }
+                try { 
+                    currentFechaStr = decrypt(currentFechaStr); 
+                    console.log("Fecha descifrada:", currentFechaStr);
+                } catch (e) { 
+                    console.error("Error descifrando al extender:", e);
+                    // Si falla el descifrado, usamos fecha actual
+                    currentFechaStr = null;
+                }
             }
             
-            const [day, month, year] = currentFechaStr.split('/');
-            const parsedDate = new Date(year, month - 1, day);
-            if (!isNaN(parsedDate)) fechaBase = parsedDate;
+            if (currentFechaStr) {
+                const [day, month, year] = currentFechaStr.split('/');
+                // Validar que sea una fecha válida
+                if (day && month && year) {
+                    const parsedDate = new Date(year, month - 1, day);
+                    if (!isNaN(parsedDate)) {
+                        fechaBase = parsedDate;
+                        console.log("Fecha base establecida:", fechaBase.toLocaleDateString('es-CL'));
+                    }
+                }
+            }
         }
 
-        // 2. Calcular la nueva fecha
+        // 2. Calcular la nueva fecha (con el ajuste de -1 día)
+        console.log("Tipo de extensión:", type);
+        console.log("Fecha antes de extender:", fechaBase.toLocaleDateString('es-CL'));
+        
         if (type === 'anual') {
             fechaBase.setFullYear(fechaBase.getFullYear() + 1);
+            fechaBase.setDate(fechaBase.getDate() - 1); // -1 día
         } else if (type === 'semestral') {
             fechaBase.setMonth(fechaBase.getMonth() + 6);
+            fechaBase.setDate(fechaBase.getDate() - 1); // -1 día
         }
 
         const nuevaFechaStr = fechaBase.toLocaleDateString('es-CL');
-        // CIFRAR la nueva fecha para que sea consistente con la DB
+        console.log("Nueva fecha (sin cifrar):", nuevaFechaStr);
+        
+        // CIFRAR la nueva fecha para guardar
         const nuevaFechaCifrada = encrypt(nuevaFechaStr);
+        console.log("Nueva fecha (cifrada):", nuevaFechaCifrada);
 
-        // 3. Actualizar en Domicilio Virtual
-        await collection.updateOne(
+        // 3. Actualizar en Domicilio Virtual - USANDO $set CON RUTA COMPLETA
+        const updateResult = await collection.updateOne(
             { _id: docId },
             { 
                 $set: { 
@@ -498,16 +524,65 @@ router.post("/:id/extend", async (req, res) => {
             }
         );
 
-        // 4. Sincronizar con el Ticket (Aquí se guarda el objeto Date, no el string cifrado)
+        console.log("Resultado actualización DB:", updateResult);
+
+        // 4. Sincronizar con el Ticket - CON VERIFICACIÓN
         try {
-            await req.db.collection("tickets").updateOne(
+            const ticketResult = await req.db.collection("tickets").updateOne(
                 { relatedRequestId: docId },
                 { $set: { expirationDate: fechaBase, updatedAt: new Date() } }
             );
-        } catch (e) { console.error("Error actualizando ticket:", e); }
+            console.log("Resultado actualización ticket:", ticketResult);
+        } catch (e) { 
+            console.error("Error actualizando ticket:", e); 
+        }
 
-        // Devolvemos el documento actualizado
+        // Devolvemos el documento actualizado PERO descifrando la fecha para el frontend
         const updatedRequest = await collection.findOne({ _id: docId });
+
+        // --- DESCIFRAR COMPLETAMENTE para el frontend ---
+        if (updatedRequest.responses) {
+            // Descifrar todas las respuestas (como en GET /:id)
+            const descifrarValor = (valor) => {
+                if (typeof valor === 'string' && valor.includes(':')) {
+                    try { return decrypt(valor); } catch (e) { return valor; }
+                }
+                if (Array.isArray(valor)) {
+                    return valor.map(item => descifrarValor(item));
+                }
+                if (typeof valor === 'object' && valor !== null) {
+                    const res = {};
+                    for (const k in valor) res[k] = descifrarValor(valor[k]);
+                    return res;
+                }
+                return valor;
+            };
+
+            const decryptedResponses = {};
+            for (const [key, value] of Object.entries(updatedRequest.responses)) {
+                decryptedResponses[key] = descifrarValor(value);
+            }
+            updatedRequest.responses = decryptedResponses;
+        }
+
+        // También descifrar user si existe
+        if (updatedRequest.user) {
+            if (updatedRequest.user.nombre && updatedRequest.user.nombre.includes(':')) {
+                try { updatedRequest.user.nombre = decrypt(updatedRequest.user.nombre); } catch (e) {}
+            }
+            if (updatedRequest.user.rut && updatedRequest.user.rut.includes(':')) {
+                try { updatedRequest.user.rut = decrypt(updatedRequest.user.rut); } catch (e) {}
+            }
+            if (updatedRequest.user.empresa && updatedRequest.user.empresa.includes(':')) {
+                try { updatedRequest.user.empresa = decrypt(updatedRequest.user.empresa); } catch (e) {}
+            }
+            if (updatedRequest.user.mail && updatedRequest.user.mail.includes(':')) {
+                try { updatedRequest.user.mail = decrypt(updatedRequest.user.mail); } catch (e) {}
+            }
+            if (updatedRequest.user.telefono && updatedRequest.user.telefono.includes(':')) {
+                try { updatedRequest.user.telefono = decrypt(updatedRequest.user.telefono); } catch (e) {}
+            }
+        }
 
         res.json({
             success: true,
@@ -517,7 +592,7 @@ router.post("/:id/extend", async (req, res) => {
 
     } catch (err) {
         console.error("Error extendiendo contrato:", err);
-        res.status(500).json({ error: "Error interno al extender" });
+        res.status(500).json({ error: "Error interno al extender: " + err.message });
     }
 });
 
