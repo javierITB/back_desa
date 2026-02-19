@@ -3690,16 +3690,16 @@ router.post("/:responseId/upload-client-signature", upload.single("signedPdf"), 
 });
 
 // Obtener PDF firmado por cliente SIN cambiar estado - CORREGIDO
-router.get("/:responseId/client-signature", async (req, res) => {
+router.get("/:_id/client-signature", async (req, res) => {
    try {
-      const { responseId } = req.params;
+      const { _id } = req.params;
 
       // Verificar token
       const auth = await verifyRequest(req);
       if (!auth.ok) return res.status(401).json({ error: auth.error });
 
       const signature = await req.db.collection("firmados").findOne({
-         responseId: responseId,
+         _id: ObjectId(_id),
       });
 
       if (!signature) {
