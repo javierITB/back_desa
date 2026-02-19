@@ -71,9 +71,21 @@ router.get("/companies", verifyRequest, async (req, res) => {
         // Usar aggregation para unir con Planes
         const companies = await db.collection("config_empresas").aggregate([
             {
+                $addFields: {
+                    planIdObj: {
+                        $convert: {
+                            input: "$planId",
+                            to: "objectId",
+                            onError: null,
+                            onNull: null
+                        }
+                    }
+                }
+            },
+            {
                 $lookup: {
                     from: "planes",
-                    localField: "planId",
+                    localField: "planIdObj",
                     foreignField: "_id",
                     as: "plan"
                 }
