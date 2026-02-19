@@ -111,7 +111,7 @@ router.get("/mini", async (req, res) => {
 
         const answers = await collection.find(dbQuery).sort({ createdAt: -1 }).toArray();
 
-        // --- PROCESAMIENTO: Mantenemos tu lógica de descifrado intacta ---
+        // --- CAMBIO: Procesar cada answer con la fecha descifrada ---
         const answersProcessed = answers.map(answer => {
             const getVal = (keys, ignore = []) => {
                 const responseKeys = Object.keys(answer.responses || {});
@@ -129,6 +129,7 @@ router.get("/mini", async (req, res) => {
                 return "";
             };
 
+            // --- CAMBIO: Crear copia de responses con la fecha descifrada ---
             const responsesWithDecryptedDate = { ...(answer.responses || {}) };
             const fechaKey = "FECHA_TERMINO_CONTRATO";
             
@@ -144,7 +145,7 @@ router.get("/mini", async (req, res) => {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
-                responses: responsesWithDecryptedDate,
+                responses: responsesWithDecryptedDate, // AHORA SÍ incluye la fecha legible
                 tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
                 nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
                 rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
@@ -155,24 +156,21 @@ router.get("/mini", async (req, res) => {
             };
         });
 
-        // --- FILTRADO: Lógica de normalización para que 'pepe' encuentre 'Pepé' ---
         const clean = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-
-        let filteredData = answersProcessed;
 
         if (company && company.trim() !== "") {
             const term = clean(company);
-            filteredData = filteredData.filter(a => clean(a.rutEmpresa).includes(term) || clean(a.nombreEmpresa).includes(term));
+            answersProcessed = answersProcessed.filter(a => clean(a.rutEmpresa).includes(term) || clean(a.nombreEmpresa).includes(term));
         }
 
         if (submittedBy && submittedBy.trim() !== "") {
             const term = clean(submittedBy);
-            filteredData = filteredData.filter(a => clean(a.tuNombre).includes(term));
+            answersProcessed = answersProcessed.filter(a => clean(a.tuNombre).includes(term));
         }
 
         if (search && search.trim() !== "") {
             const term = clean(search);
-            filteredData = filteredData.filter(a =>
+            answersProcessed = answersProcessed.filter(a =>
                 clean(a.tuNombre).includes(term) ||
                 clean(a.rutEmpresa).includes(term) ||
                 clean(a.nombreEmpresa).includes(term) ||
@@ -180,16 +178,15 @@ router.get("/mini", async (req, res) => {
             );
         }
 
-        const totalCount = filteredData.length;
+        const totalCount = answersProcessed.length;
         const skip = (page - 1) * limit;
-        const paginatedData = filteredData.slice(skip, skip + limit);
+        const paginatedData = answersProcessed.slice(skip, skip + limit);
 
-        // --- ESTADÍSTICAS: Basadas en la data filtrada ---
         const stats = {
             total: totalCount,
             documento_generado: 0, enviado: 0, solicitud_firmada: 0, informado_sii: 0, dicom: 0, dado_de_baja: 0, pendiente: 0
         };
-        filteredData.forEach(a => { if (stats.hasOwnProperty(a.status)) stats[a.status]++; });
+        answersProcessed.forEach(a => { if (stats.hasOwnProperty(a.status)) stats[a.status]++; });
 
         res.json({
             success: true,
