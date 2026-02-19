@@ -455,66 +455,51 @@ router.post("/:id/extend", async (req, res) => {
         const auth = await verifyRequest(req);
         if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-        const { type } = req.body; // 'semestral' o 'anual'
+        const { type } = req.body; 
         const collection = req.db.collection("domicilio_virtual");
         const docId = new ObjectId(req.params.id);
 
         const doc = await collection.findOne({ _id: docId });
         if (!doc) return res.status(404).json({ error: "Solicitud no encontrada" });
 
-        // 1. Obtener y DESCIFRAR la fecha base actual si existe
+        // 1. Obtener y DESCIFRAR la fecha base actual
         let fechaBase = new Date();
         let currentFechaStr = doc.responses?.["FECHA_TERMINO_CONTRATO"];
 
-        console.log("Fecha actual (cifrada):", currentFechaStr);
-
         if (currentFechaStr) {
-            // Si viene cifrada (tiene ":"), la desciframos para operar con ella
+            // DESCIFRADO CRÍTICO: Permite extensiones infinitas
             if (currentFechaStr.includes(':')) {
                 try { 
                     currentFechaStr = decrypt(currentFechaStr); 
-                    console.log("Fecha descifrada:", currentFechaStr);
                 } catch (e) { 
-                    console.error("Error descifrando al extender:", e);
-                    // Si falla el descifrado, usamos fecha actual
-                    currentFechaStr = null;
+                    console.error("Error descifrando:", e);
                 }
             }
             
-            if (currentFechaStr) {
-                const [day, month, year] = currentFechaStr.split('/');
-                // Validar que sea una fecha válida
-                if (day && month && year) {
-                    const parsedDate = new Date(year, month - 1, day);
-                    if (!isNaN(parsedDate)) {
-                        fechaBase = parsedDate;
-                        console.log("Fecha base establecida:", fechaBase.toLocaleDateString('es-CL'));
-                    }
-                }
+            // Intentar parsear DD/MM/YYYY
+            const parts = currentFechaStr.split('/');
+            if (parts.length === 3) {
+                const day = parseInt(parts[0]);
+                const month = parseInt(parts[1]) - 1;
+                const year = parseInt(parts[2]);
+                const parsedDate = new Date(year, month, day);
+                if (!isNaN(parsedDate)) fechaBase = parsedDate;
             }
         }
 
-        // 2. Calcular la nueva fecha (con el ajuste de -1 día)
-        console.log("Tipo de extensión:", type);
-        console.log("Fecha antes de extender:", fechaBase.toLocaleDateString('es-CL'));
-        
+        // 2. Calcular la nueva fecha
         if (type === 'anual') {
             fechaBase.setFullYear(fechaBase.getFullYear() + 1);
-            fechaBase.setDate(fechaBase.getDate() - 1); // -1 día
         } else if (type === 'semestral') {
             fechaBase.setMonth(fechaBase.getMonth() + 6);
-            fechaBase.setDate(fechaBase.getDate() - 1); // -1 día
         }
 
         const nuevaFechaStr = fechaBase.toLocaleDateString('es-CL');
-        console.log("Nueva fecha (sin cifrar):", nuevaFechaStr);
-        
-        // CIFRAR la nueva fecha para guardar
+        // Volver a cifrar para guardar con el estándar de seguridad
         const nuevaFechaCifrada = encrypt(nuevaFechaStr);
-        console.log("Nueva fecha (cifrada):", nuevaFechaCifrada);
 
-        // 3. Actualizar en Domicilio Virtual - USANDO $set CON RUTA COMPLETA
-        const updateResult = await collection.updateOne(
+        // 3. Actualizar base de datos
+        await collection.updateOne(
             { _id: docId },
             { 
                 $set: { 
@@ -524,75 +509,30 @@ router.post("/:id/extend", async (req, res) => {
             }
         );
 
-        console.log("Resultado actualización DB:", updateResult);
-
-        // 4. Sincronizar con el Ticket - CON VERIFICACIÓN
+        // 4. Sincronizar Ticket
         try {
-            const ticketResult = await req.db.collection("tickets").updateOne(
+            await req.db.collection("tickets").updateOne(
                 { relatedRequestId: docId },
                 { $set: { expirationDate: fechaBase, updatedAt: new Date() } }
             );
-            console.log("Resultado actualización ticket:", ticketResult);
-        } catch (e) { 
-            console.error("Error actualizando ticket:", e); 
-        }
+        } catch (e) {}
 
-        // Devolvemos el documento actualizado PERO descifrando la fecha para el frontend
-        const updatedRequest = await collection.findOne({ _id: docId });
-
-        // --- DESCIFRAR COMPLETAMENTE para el frontend ---
-        if (updatedRequest.responses) {
-            // Descifrar todas las respuestas (como en GET /:id)
-            const descifrarValor = (valor) => {
-                if (typeof valor === 'string' && valor.includes(':')) {
-                    try { return decrypt(valor); } catch (e) { return valor; }
-                }
-                if (Array.isArray(valor)) {
-                    return valor.map(item => descifrarValor(item));
-                }
-                if (typeof valor === 'object' && valor !== null) {
-                    const res = {};
-                    for (const k in valor) res[k] = descifrarValor(valor[k]);
-                    return res;
-                }
-                return valor;
-            };
-
-            const decryptedResponses = {};
-            for (const [key, value] of Object.entries(updatedRequest.responses)) {
-                decryptedResponses[key] = descifrarValor(value);
-            }
-            updatedRequest.responses = decryptedResponses;
-        }
-
-        // También descifrar user si existe
-        if (updatedRequest.user) {
-            if (updatedRequest.user.nombre && updatedRequest.user.nombre.includes(':')) {
-                try { updatedRequest.user.nombre = decrypt(updatedRequest.user.nombre); } catch (e) {}
-            }
-            if (updatedRequest.user.rut && updatedRequest.user.rut.includes(':')) {
-                try { updatedRequest.user.rut = decrypt(updatedRequest.user.rut); } catch (e) {}
-            }
-            if (updatedRequest.user.empresa && updatedRequest.user.empresa.includes(':')) {
-                try { updatedRequest.user.empresa = decrypt(updatedRequest.user.empresa); } catch (e) {}
-            }
-            if (updatedRequest.user.mail && updatedRequest.user.mail.includes(':')) {
-                try { updatedRequest.user.mail = decrypt(updatedRequest.user.mail); } catch (e) {}
-            }
-            if (updatedRequest.user.telefono && updatedRequest.user.telefono.includes(':')) {
-                try { updatedRequest.user.telefono = decrypt(updatedRequest.user.telefono); } catch (e) {}
-            }
+        // Devolver respuesta descifrada para el front
+        const updatedDoc = await collection.findOne({ _id: docId });
+        // Descifrar la fecha solo para el envío de respuesta
+        if (updatedDoc.responses) {
+            updatedDoc.responses["FECHA_TERMINO_CONTRATO"] = nuevaFechaStr;
         }
 
         res.json({
             success: true,
             message: `Contrato extendido hasta el ${nuevaFechaStr}`,
-            updatedRequest: updatedRequest
+            updatedRequest: updatedDoc
         });
 
     } catch (err) {
         console.error("Error extendiendo contrato:", err);
-        res.status(500).json({ error: "Error interno al extender: " + err.message });
+        res.status(500).json({ error: "Error al extender" });
     }
 });
 

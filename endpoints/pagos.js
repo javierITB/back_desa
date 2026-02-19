@@ -1,5 +1,5 @@
 const express = require("express");
-const router = express.Router({ mergeParams: true }); // Important for :company param
+const router = express.Router({ mergeParams: true });
 const { ObjectId } = require("mongodb");
 const multer = require("multer");
 const { validarToken } = require("../utils/validarToken");
@@ -24,9 +24,6 @@ const upload = multer({
     }
 });
 
-
-// --- ENDPOINTS ---
-
 // --- MIDDLEWARE ---
 
 const verifyAuth = async (req, res, next) => {
@@ -41,8 +38,6 @@ const verifyAuth = async (req, res, next) => {
             return res.status(401).json({ error: "Formato de token inválido." });
         }
 
-        // Use req.db (Tenant DB) to validate token because users log in to their specific company DB
-        // Fallback to formsdb if req.db is missing (admin context)
         let dbToUse = req.db;
         if (!dbToUse && req.mongoClient) {
             dbToUse = req.mongoClient.db("formsdb");
@@ -67,169 +62,316 @@ const verifyAuth = async (req, res, next) => {
     }
 };
 
-// --- ENDPOINTS ---
+// --- ENDPOINTS (Refactored for Cobros System) ---
 
-// 1. Upload Comprobante (Client)
-router.post("/upload", verifyAuth, upload.single("file"), async (req, res) => {
+/**
+ * ENPOINT: Generar Cobros (Admin)
+ * Crea registros en la colección 'cobros' para las empresas seleccionadas.
+ * Body: { companies: [{ dbName, name }], amount, concept, period }
+ */
+router.post("/admin/generate-charges", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
-        const { amount, date, concept } = req.body;
-        const company = req.params.company; // The company from the URL (the client's company)
-        const user = req.user; // From verifyAuth
 
-        if (!req.file) {
-            return res.status(400).json({ error: "No se ha subido ningún archivo." });
+        // ADMIN CHECK
+        let dbToUse = req.db;
+        if (!dbToUse && req.mongoClient) dbToUse = req.mongoClient.db("formsdb");
+        if (!dbToUse || (dbToUse.databaseName !== 'formsdb' && dbToUse.databaseName !== 'api')) {
+            return res.status(403).json({ error: "Acceso denegado: Solo administradores." });
         }
 
-        const newComprobante = {
-            company: company,
-            userEmail: user ? user.email : "anonymous",
-            userId: user ? user.userId : null,
-            amount: amount,
-            date: date, // Should be ISO date string or similar
+        const { companies, amount, concept, period } = req.body;
+
+        if (!companies || !Array.isArray(companies) || companies.length === 0) {
+            return res.status(400).json({ error: "Debe seleccionar al menos una empresa." });
+        }
+        if (!amount || !concept) {
+            return res.status(400).json({ error: "Monto y concepto son requeridos." });
+        }
+
+        const batch = companies.map(company => ({
+            companyDb: company.dbName,
+            companyName: company.name,
+            amount: parseFloat(amount),
             concept: concept,
+            period: period || new Date().toISOString().slice(0, 7), // YYYY-MM per default
             status: "Pendiente",
-            file: {
-                name: req.file.originalname,
-                mimetype: req.file.mimetype,
-                data: req.file.buffer, // Binary data
-                size: req.file.size
-            },
             createdAt: new Date(),
-            updatedAt: new Date()
-        };
+            updatedAt: new Date(),
+            receipt: null // Will hold file info later
+        }));
 
-        const result = await db.collection("comprobantes").insertOne(newComprobante);
+        const result = await db.collection("cobros").insertMany(batch);
 
-        res.status(201).json({ message: "Comprobante subido exitosamente", id: result.insertedId });
+        res.status(201).json({
+            message: `Se generaron ${result.insertedCount} cobros exitosamente.`,
+            ids: result.insertedIds
+        });
 
     } catch (error) {
-        console.error("Error uploading comprobante:", error);
-        res.status(500).json({ error: "Error interno al subir el comprobante." });
+        console.error("Error generating charges:", error);
+        res.status(500).json({ error: "Error al generar cobros." });
     }
 });
 
-// 2. Get History (Client View - filtered by company)
-router.get("/history", verifyAuth, async (req, res) => {
+/**
+ * ENDPOINT: Get Dashboard Stats (Admin)
+ * Obtiene métricas globales y por empresa.
+ */
+router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
-        const company = req.params.company;
 
-        // Project fields to exclude heavy file data
-        const comprobantes = await db.collection("comprobantes")
-            .find({ company: company })
-            .project({ "file.data": 0 }) // Exclude binary data
+        // ADMIN CHECK
+        let dbToUse = req.db;
+        if (!dbToUse && req.mongoClient) dbToUse = req.mongoClient.db("formsdb");
+        if (!dbToUse || (dbToUse.databaseName !== 'formsdb' && dbToUse.databaseName !== 'api')) {
+            return res.status(403).json({ error: "Acceso denegado." });
+        }
+
+        // 1. Global Stats
+        const globalStats = await db.collection("cobros").aggregate([
+            {
+                $group: {
+                    _id: null,
+                    totalCollected: {
+                        $sum: { $cond: [{ $eq: ["$status", "Aprobado"] }, "$amount", 0] }
+                    },
+                    totalPending: {
+                        $sum: {
+                            $cond: [{ $in: ["$status", ["Pendiente", "En Revisión"]] }, "$amount", 0]
+                        }
+                    },
+                    countPending: {
+                        $sum: {
+                            $cond: [{ $in: ["$status", ["Pendiente", "En Revisión"]] }, 1, 0]
+                        }
+                    }
+                }
+            }
+        ]).toArray();
+
+        // 2. Stats per Company
+        const companyStats = await db.collection("cobros").aggregate([
+            {
+                $group: {
+                    _id: "$companyDb",
+                    lastChargeDate: { $max: "$createdAt" },
+                    pendingCount: {
+                        $sum: {
+                            $cond: [{ $in: ["$status", ["Pendiente", "En Revisión"]] }, 1, 0]
+                        }
+                    },
+                    pendingAmount: {
+                        $sum: {
+                            $cond: [{ $in: ["$status", ["Pendiente", "En Revisión"]] }, "$amount", 0]
+                        }
+                    }
+                }
+            }
+        ]).toArray();
+
+        // Convert array to map for easier frontend lookup
+        const statsByCompany = {};
+        companyStats.forEach(stat => {
+            statsByCompany[stat._id] = stat;
+        });
+
+        res.json({
+            global: globalStats[0] || { totalCollected: 0, totalPending: 0, countPending: 0 },
+            byCompany: statsByCompany
+        });
+
+    } catch (error) {
+        console.error("Error fetching dashboard stats:", error);
+        res.status(500).json({ error: "Error al obtener estadísticas." });
+    }
+});
+
+/**
+ * ENDPOINT: Get Charges by Company (Admin View)
+ * Obtiene el historial de cobros para una empresa específica.
+ */
+router.get("/admin/charges/:companyDb", verifyAuth, async (req, res) => {
+    try {
+        const db = getCentralDB(req);
+        const { companyDb } = req.params;
+
+        // ADMIN CHECK
+        let dbToUse = req.db;
+        if (!dbToUse && req.mongoClient) dbToUse = req.mongoClient.db("formsdb");
+        if (!dbToUse || (dbToUse.databaseName !== 'formsdb' && dbToUse.databaseName !== 'api')) {
+            return res.status(403).json({ error: "Acceso denegado." });
+        }
+
+        const charges = await db.collection("cobros")
+            .find({ companyDb: companyDb })
+            .project({ "receipt.file.data": 0 }) // Exclude binary data
             .sort({ createdAt: -1 })
             .toArray();
 
-        res.json(comprobantes);
+        res.json(charges);
     } catch (error) {
-        console.error("Error fetching history:", error);
-        res.status(500).json({ error: "Error al obtener el historial." });
+        console.error("Error fetching charges for company:", error);
+        res.status(500).json({ error: "Error al obtener cobros." });
     }
 });
 
-// 3. Get All (Admin View - requires generic 'view_pagos' logic, assuming 'formsdb' context/user)
-router.get("/admin/all", verifyAuth, async (req, res) => {
+/**
+ * ENDPOINT: Get My Charges (Client View)
+ * El cliente obtiene sus propios cobros usando su dbName (obtenido del token/contexto o params)
+ * Para mayor seguridad, usamos el req.params.company que viene del frontend (verificado con su token si es necesario, 
+ * pero aqui simplificamos asumiendo que el frontend envia su propio identificador correcto, o lo sacamos del token).
+ * 
+ * En este caso, el router tiene mergeParams, si el frontend llama /pagos/:company/my-charges
+ */
+router.get("/client/my-charges", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
 
-        // Validar que el contexto sea formsdb
-        // Validar que el contexto sea formsdb
-        let dbToUse = req.db;
-        if (!dbToUse && req.mongoClient) dbToUse = req.mongoClient.db("formsdb");
+        // Determinar la companyDb del usuario actual
+        // El frontend suele enviar la company en la URL base si configuramos rutas asi, 
+        // pero aqui asumimos que 'req.params.company' viene por el middleware de app.use('/pagos/:company', ...)
+        const companyDb = req.params.company;
 
-        if (!dbToUse || (dbToUse.databaseName !== 'formsdb' && dbToUse.databaseName !== 'api')) {
-            return res.status(403).json({ error: "Acceso denegado: Contexto inválido" });
+        if (!companyDb) {
+            return res.status(400).json({ error: "Contexto de empresa no definido." });
         }
 
-        const comprobantes = await db.collection("comprobantes")
-            .find({})
-            .project({ "file.data": 0 })
+        const charges = await db.collection("cobros")
+            .find({ companyDb: companyDb }) // Buscar por el identificador de la DB o nombre unico
+            .project({ "receipt.file.data": 0 })
             .sort({ createdAt: -1 })
             .toArray();
 
-        res.json(comprobantes);
+        res.json(charges);
     } catch (error) {
-        console.error("Error fetching admin data:", error);
-        res.status(500).json({ error: "Error al obtener los datos de administración." });
+        console.error("Error fetching client charges:", error);
+        res.status(500).json({ error: "Error al obtener mis cobros." });
     }
 });
 
-// 4. Update Status (Admin)
-router.put("/:id/status", verifyAuth, async (req, res) => {
+/**
+ * ENDPOINT: Upload Receipt for Charge (Client)
+ * Sube el comprobante para un Cobro específico.
+ */
+router.post("/client/upload/:chargeId", verifyAuth, upload.single("file"), async (req, res) => {
     try {
         const db = getCentralDB(req);
+        const { chargeId } = req.params;
+        const user = req.user;
 
-        // Validar que el contexto sea formsdb
-        // Validar que el contexto sea formsdb
-        let dbToUse = req.db;
-        if (!dbToUse && req.mongoClient) dbToUse = req.mongoClient.db("formsdb");
-
-        if (!dbToUse || (dbToUse.databaseName !== 'formsdb' && dbToUse.databaseName !== 'api')) {
-            return res.status(403).json({ error: "Acceso denegado: Contexto inválido" });
+        if (!ObjectId.isValid(chargeId)) {
+            return res.status(400).json({ error: "ID de cobro inválido." });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: "Debe subir un archivo." });
         }
 
-        const { id } = req.params;
-        const { status } = req.body; // 'Aprobado', 'Rechazado', 'Pendiente'
-
-        if (!ObjectId.isValid(id)) {
-            return res.status(400).json({ error: "ID inválido" });
+        const charge = await db.collection("cobros").findOne({ _id: new ObjectId(chargeId) });
+        if (!charge) {
+            return res.status(404).json({ error: "Cobro no encontrado." });
         }
 
-        const result = await db.collection("comprobantes").updateOne(
-            { _id: new ObjectId(id) },
+        // Actualizar el cobro con el comprobante y cambiar estado a "En Revisión"
+        const updateResult = await db.collection("cobros").updateOne(
+            { _id: new ObjectId(chargeId) },
             {
                 $set: {
-                    status: status,
-                    updatedAt: new Date()
+                    status: "En Revisión",
+                    updatedAt: new Date(),
+                    receipt: {
+                        uploadedBy: user ? user.email : "anonymous",
+                        uploadedAt: new Date(),
+                        file: {
+                            name: req.file.originalname,
+                            mimetype: req.file.mimetype,
+                            size: req.file.size,
+                            data: req.file.buffer // Binary
+                        }
+                    }
                 }
             }
         );
 
-        if (result.matchedCount === 0) {
-            return res.status(404).json({ error: "Comprobante no encontrado" });
+        if (updateResult.modifiedCount === 0) {
+            return res.status(500).json({ error: "No se pudo actualizar el cobro." });
         }
 
-        res.json({ message: "Estado actualizado correctamente" });
+        res.json({ message: "Comprobante subido exitosamente.", status: "En Revisión" });
+
     } catch (error) {
-        console.error("Error updating status:", error);
-        res.status(500).json({ error: "Error al actualizar el estado." });
+        console.error("Error uploading receipt:", error);
+        res.status(500).json({ error: "Error interno al subir comprobante." });
     }
 });
 
-// 5. Get File (Download/View)
-router.get("/file/:id", verifyAuth, async (req, res) => {
+/**
+ * ENDPOINT: Update Status (Admin)
+ * Aprobar o Rechazar un pago.
+ */
+router.put("/admin/status/:chargeId", verifyAuth, async (req, res) => {
     try {
         const db = getCentralDB(req);
+        const { chargeId } = req.params;
+        const { status, feedback } = req.body; // feedback opcional para rechazos
 
-        // Validar que el contexto sea formsdb (ya que esto descarga cualquier archivo por ID)
-        // Validar que el contexto sea formsdb (ya que esto descarga cualquier archivo por ID)
+        // ADMIN CHECK
         let dbToUse = req.db;
         if (!dbToUse && req.mongoClient) dbToUse = req.mongoClient.db("formsdb");
-
         if (!dbToUse || (dbToUse.databaseName !== 'formsdb' && dbToUse.databaseName !== 'api')) {
-            return res.status(403).json({ error: "Acceso denegado: Contexto inválido" });
+            return res.status(403).json({ error: "Acceso denegado." });
         }
 
-        const { id } = req.params;
-
-        if (!ObjectId.isValid(id)) {
-            return res.status(400).json({ error: "ID inválido" });
+        if (!ObjectId.isValid(chargeId)) {
+            return res.status(400).json({ error: "ID inválido." });
         }
 
-        const doc = await db.collection("comprobantes").findOne(
-            { _id: new ObjectId(id) },
-            { projection: { file: 1 } }
+        const updateData = {
+            status: status,
+            updatedAt: new Date()
+        };
+        if (feedback) updateData.feedback = feedback;
+
+        const result = await db.collection("cobros").updateOne(
+            { _id: new ObjectId(chargeId) },
+            { $set: updateData }
         );
 
-        if (!doc || !doc.file) {
-            return res.status(404).json({ error: "Archivo no encontrado" });
+        res.json({ message: "Estado actualizado correctamente." });
+
+    } catch (error) {
+        console.error("Error updating status:", error);
+        res.status(500).json({ error: "Error al actualizar estado." });
+    }
+});
+
+/**
+ * ENDPOINT: Get Receipt File (Download)
+ * Descarga el archivo del comprobante asociado a un cobro.
+ */
+router.get("/file/:chargeId", verifyAuth, async (req, res) => {
+    try {
+        const db = getCentralDB(req);
+        const { chargeId } = req.params;
+
+        if (!ObjectId.isValid(chargeId)) {
+            return res.status(400).json({ error: "ID inválido." });
         }
 
-        res.setHeader("Content-Type", doc.file.mimetype);
-        res.setHeader("Content-Disposition", `inline; filename="${doc.file.name}"`);
-        res.send(doc.file.data.buffer); // doc.file.data is Binary, .buffer gives the raw buffer
+        const doc = await db.collection("cobros").findOne(
+            { _id: new ObjectId(chargeId) },
+            { projection: { "receipt.file": 1 } }
+        );
+
+        if (!doc || !doc.receipt || !doc.receipt.file) {
+            return res.status(404).json({ error: "Archivo no encontrado." });
+        }
+
+        const file = doc.receipt.file;
+        res.setHeader("Content-Type", file.mimetype);
+        res.setHeader("Content-Disposition", `inline; filename="${file.name}"`);
+        res.send(file.data.buffer);
 
     } catch (error) {
         console.error("Error serving file:", error);
