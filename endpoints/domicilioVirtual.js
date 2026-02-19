@@ -202,63 +202,63 @@ router.get("/mini", async (req, res) => {
 });
 
 // 2. Obtener detalle (GET /:id)
-router.get("/:id", async (req, res) => {
-    try {
-        const auth = await verifyRequest(req);
-        if (!auth.ok) return res.status(401).json({ error: auth.error });
+    router.get("/:id", async (req, res) => {
+        try {
+            const auth = await verifyRequest(req);
+            if (!auth.ok) return res.status(401).json({ error: auth.error });
 
-        const answer = await req.db.collection("domicilio_virtual").findOne({ _id: new ObjectId(req.params.id) });
-        if (!answer) return res.status(404).json({ error: "No encontrado" });
+            const answer = await req.db.collection("domicilio_virtual").findOne({ _id: new ObjectId(req.params.id) });
+            if (!answer) return res.status(404).json({ error: "No encontrado" });
 
-        const result = {
-            ...answer,
-            user: answer.user ? {
-                ...answer.user,
-                nombre: decrypt(answer.user.nombre),
-                rut: decrypt(answer.user.rut),
-                empresa: decrypt(answer.user.empresa),
-                mail: decrypt(answer.user.mail),
-                telefono: decrypt(answer.user.telefono)
-            } : null,
-        };
-
-        if (answer.responses) {
-            const descifrarValor = (valor) => {
-                if (typeof valor === 'string' && valor.includes(':')) {
-                    try { return decrypt(valor); } catch (e) { return valor; }
-                }
-                if (Array.isArray(valor)) {
-                    return valor.map(item => descifrarValor(item));
-                }
-                if (typeof valor === 'object' && valor !== null) {
-                    const res = {};
-                    for (const k in valor) res[k] = descifrarValor(valor[k]);
-                    return res;
-                }
-                return valor;
+            const result = {
+                ...answer,
+                user: answer.user ? {
+                    ...answer.user,
+                    nombre: decrypt(answer.user.nombre),
+                    rut: decrypt(answer.user.rut),
+                    empresa: decrypt(answer.user.empresa),
+                    mail: decrypt(answer.user.mail),
+                    telefono: decrypt(answer.user.telefono)
+                } : null,
             };
 
-            const decryptedResponses = {};
-            for (const [key, value] of Object.entries(answer.responses)) {
-                decryptedResponses[key] = descifrarValor(value);
-            }
-            result.responses = decryptedResponses;
-        }
+            if (answer.responses) {
+                const descifrarValor = (valor) => {
+                    if (typeof valor === 'string' && valor.includes(':')) {
+                        try { return decrypt(valor); } catch (e) { return valor; }
+                    }
+                    if (Array.isArray(valor)) {
+                        return valor.map(item => descifrarValor(item));
+                    }
+                    if (typeof valor === 'object' && valor !== null) {
+                        const res = {};
+                        for (const k in valor) res[k] = descifrarValor(valor[k]);
+                        return res;
+                    }
+                    return valor;
+                };
 
-        const adjuntosDoc = await req.db.collection("adjuntos").findOne({ responseId: answer._id });
-        if (adjuntosDoc && adjuntosDoc.adjuntos) {
-            result.adjuntos = adjuntosDoc.adjuntos.map(adj => ({
-                ...adj,
-                fileName: adj.fileName || adj.name,
-                mimeType: adj.mimeType || adj.type
-            }));
+                const decryptedResponses = {};
+                for (const [key, value] of Object.entries(answer.responses)) {
+                    decryptedResponses[key] = descifrarValor(value);
+                }
+                result.responses = decryptedResponses;
+            }
+
+            const adjuntosDoc = await req.db.collection("adjuntos").findOne({ responseId: answer._id });
+            if (adjuntosDoc && adjuntosDoc.adjuntos) {
+                result.adjuntos = adjuntosDoc.adjuntos.map(adj => ({
+                    ...adj,
+                    fileName: adj.fileName || adj.name,
+                    mimeType: adj.mimeType || adj.type
+                }));
+            }
+            res.json(result);
+        } catch (err) {
+            console.error("Error en GET /:id:", err);
+            res.status(500).json({ error: "Error interno: " + err.message });
         }
-        res.json(result);
-    } catch (err) {
-        console.error("Error en GET /:id:", err);
-        res.status(500).json({ error: "Error interno: " + err.message });
-    }
-});
+    });
 
 // 3. Crear solicitud (POST /)
 router.post("/", async (req, res) => {
@@ -462,54 +462,45 @@ router.post("/:id/extend", async (req, res) => {
         const doc = await collection.findOne({ _id: docId });
         if (!doc) return res.status(404).json({ error: "Solicitud no encontrada" });
 
-        // 1. Obtener y DESCIFRAR la fecha base actual
         let fechaBase = new Date();
         let currentFechaStr = doc.responses?.["FECHA_TERMINO_CONTRATO"];
 
-        if (currentFechaStr) {
-            // DESCIFRADO CRÍTICO: Permite extensiones infinitas
-            if (currentFechaStr.includes(':')) {
-                try { 
-                    currentFechaStr = decrypt(currentFechaStr); 
-                } catch (e) { 
-                    console.error("Error descifrando:", e);
-                }
-            }
+        // 1. Descifrar si es necesario
+        if (currentFechaStr && typeof currentFechaStr === 'string' && currentFechaStr.includes(':')) {
+            try { currentFechaStr = decrypt(currentFechaStr); } catch (e) { console.error("Error decrypt:", e); }
+        }
+
+        // 2. NORMALIZACIÓN CRÍTICA: Cambiar guiones por barras para que split('/') funcione siempre
+        if (currentFechaStr && typeof currentFechaStr === 'string') {
+            currentFechaStr = currentFechaStr.replace(/-/g, '/'); // <-- Esto permite re-extender fechas como 19-08-2026
             
-            // Intentar parsear DD/MM/YYYY
             const parts = currentFechaStr.split('/');
             if (parts.length === 3) {
                 const day = parseInt(parts[0]);
                 const month = parseInt(parts[1]) - 1;
                 const year = parseInt(parts[2]);
                 const parsedDate = new Date(year, month, day);
-                if (!isNaN(parsedDate)) fechaBase = parsedDate;
+                if (!isNaN(parsedDate.getTime())) fechaBase = parsedDate;
             }
         }
 
-        // 2. Calcular la nueva fecha
+        // 3. Calcular nueva fecha
         if (type === 'anual') {
             fechaBase.setFullYear(fechaBase.getFullYear() + 1);
         } else if (type === 'semestral') {
             fechaBase.setMonth(fechaBase.getMonth() + 6);
         }
 
-        const nuevaFechaStr = fechaBase.toLocaleDateString('es-CL');
-        // Volver a cifrar para guardar con el estándar de seguridad
+        // 4. Guardar (Usamos barras '/' para ser consistentes)
+        const nuevaFechaStr = fechaBase.toLocaleDateString('es-CL').replace(/-/g, '/');
         const nuevaFechaCifrada = encrypt(nuevaFechaStr);
 
-        // 3. Actualizar base de datos
         await collection.updateOne(
             { _id: docId },
-            { 
-                $set: { 
-                    "responses.FECHA_TERMINO_CONTRATO": nuevaFechaCifrada,
-                    "updatedAt": new Date() 
-                } 
-            }
+            { $set: { "responses.FECHA_TERMINO_CONTRATO": nuevaFechaCifrada, "updatedAt": new Date() } }
         );
 
-        // 4. Sincronizar Ticket
+        // 5. Sincronizar Ticket
         try {
             await req.db.collection("tickets").updateOne(
                 { relatedRequestId: docId },
@@ -517,12 +508,23 @@ router.post("/:id/extend", async (req, res) => {
             );
         } catch (e) {}
 
-        // Devolver respuesta descifrada para el front
+        // 6. Devolver respuesta descifrada para el frontend
         const updatedDoc = await collection.findOne({ _id: docId });
-        // Descifrar la fecha solo para el envío de respuesta
-        if (updatedDoc.responses) {
-            updatedDoc.responses["FECHA_TERMINO_CONTRATO"] = nuevaFechaStr;
-        }
+        
+        const descifrarTodo = (obj) => {
+            if (typeof obj === 'string' && obj.includes(':')) {
+                try { return decrypt(obj); } catch (e) { return obj; }
+            }
+            if (Array.isArray(obj)) return obj.map(descifrarTodo);
+            if (typeof obj === 'object' && obj !== null) {
+                const r = {};
+                for (const k in obj) r[k] = descifrarTodo(obj[k]);
+                return r;
+            }
+            return obj;
+        };
+
+        if (updatedDoc.responses) updatedDoc.responses = descifrarTodo(updatedDoc.responses);
 
         res.json({
             success: true,
@@ -531,8 +533,8 @@ router.post("/:id/extend", async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Error extendiendo contrato:", err);
-        res.status(500).json({ error: "Error al extender" });
+        console.error("Error extension:", err);
+        res.status(500).json({ error: "Error interno" });
     }
 });
 
