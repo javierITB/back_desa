@@ -142,7 +142,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                         $sum: {
                             $cond: [
                                 { $eq: ["$status", "Aprobado"] },
-                                { $toDouble: "$amount" },
+                                { $convert: { input: "$amount", to: "double", onError: 0, onNull: 0 } },
                                 0
                             ]
                         }
@@ -156,7 +156,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                                         { $eq: ["$period", currentPeriod] }
                                     ]
                                 },
-                                { $toDouble: "$amount" },
+                                { $convert: { input: "$amount", to: "double", onError: 0, onNull: 0 } },
                                 0
                             ]
                         }
@@ -170,7 +170,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                                         { $eq: ["$status", "En Revisión"] }
                                     ]
                                 },
-                                { $toDouble: "$amount" },
+                                { $convert: { input: "$amount", to: "double", onError: 0, onNull: 0 } },
                                 0
                             ]
                         }
@@ -222,7 +222,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                                         { $eq: ["$status", "En Revisión"] }
                                     ]
                                 },
-                                { $toDouble: "$amount" },
+                                { $convert: { input: "$amount", to: "double", onError: 0, onNull: 0 } },
                                 0
                             ]
                         }
