@@ -3814,25 +3814,31 @@ router.delete("/:responseId/client-signature/:signatureId", async (req, res) => 
          });
       }
 
-      // Crear metadata timeline
-      const firmaEliminadaMetadata = await getFirmaEliminadaMetadata(req, auth, currentDate);
+      const remainingSignatures = await req.db.collection("firmados").countDocuments({
+         responseId: responseId, // o objectId
+      });
 
-      // Actualizar respuesta y timeline
+      // Crear metadata timeline
+      const firmaEliminadaMetadata = await getFirmaEliminadaMetadata(req, auth, currentDate, remainingSignatures);
+
+      const updateQuery = {
+         $set: {
+            updatedAt: currentDate,
+            updateAdmin: currentDate,
+         },
+         $push: {
+            cambios: firmaEliminadaMetadata,
+         },
+      };
+
+      if (remainingSignatures === 0) {
+         updateQuery.$set.status = "aprobado";
+      }
+
       const updatedResponse = await req.db.collection("respuestas").findOneAndUpdate(
          { _id: objectId },
-         {
-            $set: {
-               status: "aprobado",
-               updatedAt: currentDate,
-               updateAdmin: currentDate,
-            },
-            $push: {
-               cambios: firmaEliminadaMetadata,
-            },
-         },
-         {
-            returnDocument: "after",
-         },
+         updateQuery,
+         { returnDocument: "after" }
       );
 
       res.json({

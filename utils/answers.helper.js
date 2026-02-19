@@ -8,7 +8,7 @@ function getRequestSentMetadata(currentDate) {
          title: "Solicitud Enviada",
          description: "La solicitud ha sido enviada y está pendiente de revisión inicial.",
          status: "completed",
-         completedAt:  currentDate,
+         completedAt: currentDate,
          assignedTo: "Sistema Automático",
          notes: "Solicitud recibida correctamente.",
       },
@@ -65,17 +65,19 @@ async function getFirmadoMetadata(req, auth, currentDate) {
       completedAt: currentDate,
       assignedTo: formatActor(actor),
       notes: "Documento recibido correctamente.",
-   }
+   };
 }
 
-async function getFirmaEliminadaMetadata(req, auth, currentDate) {
+async function getFirmaEliminadaMetadata(req, auth, currentDate, remainingSignatures) {
    const actor = await getActor(req, auth);
    const formattedActor = formatActor(actor);
 
    return {
-      title: "Cambio de estado a aprobado | Firma eliminada",
+      title: remainingSignatures > 0 ? "Firma eliminada" : "Cambio de estado a aprobado | Firma eliminada",
       description:
-         "La firma del cliente ha sido eliminada y la solicitud ha vuelto a estado aprobado.",
+         remainingSignatures > 0
+            ? "Una firma del cliente ha sido eliminada."
+            : "No hay firmas del cliente. La solicitud ha vuelto a estado aprobado.",
       status: "completed",
       completedAt: currentDate,
       assignedTo: formattedActor,
@@ -114,15 +116,13 @@ async function getCorrectedFilesDeletedMetadata(req, auth, fileNames, date) {
    };
 }
 
-
 async function getCorrectionsClearedMetadata(req, auth, date) {
    const actor = await getActor(req, auth);
    const formattedActor = formatActor(actor);
 
    return {
       title: "Correcciones eliminadas completamente",
-      description:
-         "Se eliminaron todas las correcciones. La solicitud vuelve a revisión.",
+      description: "Se eliminaron todas las correcciones. La solicitud vuelve a revisión.",
       status: "completed",
       completedAt: date,
       assignedTo: formattedActor,
@@ -130,40 +130,30 @@ async function getCorrectionsClearedMetadata(req, auth, date) {
 }
 
 async function getFinalizedMetadata(req, auth, date) {
-
    const actor = await getActor(req, auth);
    const formattedActor = formatActor(actor);
 
    return {
       title: "Solicitud Finalizada",
-      description:
-         "La solicitud ha sido finalizada y el proceso ha concluido.",
+      description: "La solicitud ha sido finalizada y el proceso ha concluido.",
       status: "completed",
       completedAt: date,
       assignedTo: formattedActor,
    };
-
 }
 
 async function getArchivedMetadata(req, auth, date) {
-
    const actor = await getActor(req, auth);
    const formattedActor = formatActor(actor);
 
    return {
       title: "Solicitud Archivada",
-      description:
-         "La solicitud ha sido archivada y ya no admite modificaciones.",
+      description: "La solicitud ha sido archivada y ya no admite modificaciones.",
       status: "completed",
       completedAt: date,
       assignedTo: formattedActor,
    };
-
 }
-
-
-
-
 
 function formatText(text) {
    const formatted = text.replace(/_/g, " ");
@@ -219,5 +209,5 @@ module.exports = {
    getCorrectedFilesDeletedMetadata,
    getCorrectionsClearedMetadata,
    getFinalizedMetadata,
-   getArchivedMetadata
+   getArchivedMetadata,
 };
