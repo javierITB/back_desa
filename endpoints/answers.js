@@ -3767,9 +3767,9 @@ router.get("/:id/client-signatures", async (req, res) => {
 });
 
 // Eliminar PDF firmado por cliente y volver al estado 'aprobado'
-router.delete("/:responseId/client-signature", async (req, res) => {
+router.delete("/:responseId/client-signature/:signatureId", async (req, res) => {
    try {
-      const { responseId } = req.params;
+      const { responseId, signatureId } = req.params;
 
       // Verificar auth
       const auth = await verifyRequest(req);
@@ -3805,7 +3805,7 @@ router.delete("/:responseId/client-signature", async (req, res) => {
 
       // Eliminar firma
       const deleteResult = await req.db.collection("firmados").deleteOne({
-         responseId: responseId,
+         _id: new ObjectId(signatureId),
       });
 
       if (deleteResult.deletedCount === 0) {
