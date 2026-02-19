@@ -89,17 +89,20 @@ router.post("/admin/generate-charges", verifyAuth, async (req, res) => {
             return res.status(400).json({ error: "El concepto es requerido." });
         }
 
-        const batch = companies.map(company => ({
-            companyDb: company.dbName,
-            companyName: company.name,
-            amount: parseFloat(company.amount || amount),
-            concept: concept,
-            period: period || new Date().toISOString().slice(0, 7), // YYYY-MM per default
-            status: "Pendiente",
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            receipt: null // Will hold file info later
-        }));
+        const batch = companies.map(company => {
+            const rawAmount = parseFloat(company.amount || amount);
+            return {
+                companyDb: company.dbName,
+                companyName: company.name,
+                amount: isNaN(rawAmount) ? 0 : rawAmount,
+                concept: concept,
+                period: period || new Date().toISOString().slice(0, 7), // YYYY-MM per default
+                status: "Pendiente",
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                receipt: null // Will hold file info later
+            };
+        });
 
         const result = await db.collection("cobros").insertMany(batch);
 
@@ -236,11 +239,6 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
         companyStats.forEach(stat => {
             statsByCompany[stat._id] = stat;
         });
-
-        console.log("--- DASHBOARD STATS DEBUG ---");
-        console.log("Global Stats (Raw):", JSON.stringify(globalStats, null, 2));
-        console.log("Company Stats (Raw):", JSON.stringify(companyStats, null, 2));
-        console.log("-----------------------------");
 
         res.json({
             global: globalStats[0] || { totalCollected: 0, monthCollected: 0, totalPending: 0, countPending: 0 },
