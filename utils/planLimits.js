@@ -112,6 +112,30 @@ async function checkPlanLimits(req, type, overrideUser = null) {
                 }
                 break;
 
+            case 'bot_messages':
+                limitValue = limits.chatbot?.maxQuantity;
+                if (limitValue !== undefined) {
+                    // Usamos agregación para sumar el tamaño del array 'messages' de todos los documentos
+                    const result = await currentDb.collection("chatbot").aggregate([
+                        {
+                            $project: {
+                                // Obtenemos el tamaño del array messages, si no existe o es nulo, devuelve 0
+                                count: { $size: { $ifNull: ["$messages", []] } }
+                            }
+                        },
+                        {
+                            $group: {
+                                _id: null,
+                                totalMessages: { $sum: "$count" }
+                            }
+                        }
+                    ]).toArray();
+
+                    // Si hay resultados, extraemos el total; si la colección está vacía, es 0
+                    currentCount = result.length > 0 ? result[0].totalMessages : 0;
+                }
+                break;
+
             case 'templates':
                 limitValue = limits.templates?.maxQuantity;
                 if (limitValue !== undefined) {
