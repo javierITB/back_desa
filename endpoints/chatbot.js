@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { Groq } = require('groq-sdk');
+
 const { validarToken } = require("../utils/validarToken.js");
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -8,13 +9,14 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const LEGAL_SYSTEM_PROMPT = `Eres un Asesor Legal Virtual especializado en legislación chilena y procedimientos empresariales. Tu rol es técnico y orientativo.
 
 Reglas de respuesta:
-1. Brevedad Estricta: Responde de forma concisa.
-2. Objetividad y Tono: Tono profesional, seco y sin emotividad.
-3. Honestidad Técnica: Si no sabes algo, admítelo. Prohibido inventar.
-4. Alcance Chileno: Solo legislación de Chile (SII, CMF, Código del Trabajo, etc.).
-5. Prohibición de Redacción: No generes documentos, solo explica procedimientos.`;
+1. Brevedad Estricta: Respuestas cortas. Responde de forma concisa. Si la respuesta puede darse en pocas lineas o pocas palabras, hazlo así. Evita introducciones largas como "Es un placer saludarte" o conclusiones redundantes.
+2. Objetividad y Tono: Mantén un tono profesional y cercano pero seco. No ofrezcas soporte emocional, opiniones personales ni consejos de vida. No eres un amigo.
+3. Honestidad Técnica: Si no tienes el dato exacto o la consulta es compleja, di: "No poseo información técnica suficiente sobre este punto; consulte con un abogado especializado". Prohibido alucinar o inventar.
+4. Alcance Chileno: Limítate a leyes de Chile (SII, CMF, Código del Trabajo, etc.).
+5. Prohibición de Redacción: No generes borradores de contratos, demandas ni escrituras. Solo explica el procedimiento legal para obtenerlos.
+6. Ambigüedad: Si la pregunta es vaga, no asumas; pide la información faltante de inmediato.`;
 
-// ==================== ENDPOINT: OBTENER HISTORIAL ====================
+// ==================== ENDPOINT: OBTENER HISTORIAL (GET) ====================
 router.get('/history', async (req, res) => {
     try {
         const db = req.db;
@@ -26,15 +28,14 @@ router.get('/history', async (req, res) => {
 
         const sessionToken = authHeader.split(' ')[1];
         const tokenValido = await validarToken(db, sessionToken);
+
         if (!tokenValido.ok) return res.status(401).json({ success: false, error: "Token inválido" });
 
-        const uid = tokenValido.data.email;
-
-        // Buscamos el documento único del usuario
-        const chatSession = await db.collection("chatbot").findOne({ uid });
-
-        // Retornamos solo los mensajes que están marcados como activos
-        const history = chatSession ? chatSession.messages.filter(m => m.active) : [];
+        // Buscamos solo los mensajes ACTIVOS del usuario (uid basado en su email o id)
+        const history = await db.collection("chatbot")
+            .find({ uid: tokenValido.data.email, active: true })
+            .sort({ createdAt: 1 })
+            .toArray();
 
         res.json({ success: true, history });
     } catch (error) {
@@ -42,7 +43,7 @@ router.get('/history', async (req, res) => {
     }
 });
 
-// ==================== ENDPOINT: LIMPIAR CHAT ====================
+// ==================== ENDPOINT: LIMPIAR CHAT (POST) ====================
 router.post('/clear', async (req, res) => {
     try {
         const db = req.db;
@@ -56,35 +57,33 @@ router.post('/clear', async (req, res) => {
         const tokenValido = await validarToken(db, sessionToken);
         if (!tokenValido.ok) return res.status(401).json({ success: false, error: "Token inválido" });
 
-        const uid = tokenValido.data.email;
-
-        // Marcamos todos los mensajes actuales como activos: false
-        await db.collection("chatbot").updateOne(
-            { uid },
-            { $set: { "messages.$[].active": false } }
+        // Desactivamos los mensajes pero NO los borramos de la DB
+        await db.collection("chatbot").updateMany(
+            { uid: tokenValido.data.email, active: true },
+            { $set: { active: false } }
         );
 
-        res.json({ success: true, message: "Historial archivado correctamente." });
+        res.json({ success: true, message: "Chat reiniciado. Respaldo conservado." });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// ==================== ENDPOINT: ENVIAR MENSAJE ====================
+// ==================== ENDPOINT: ENVIAR MENSAJE (POST) ====================
 router.post('/', async (req, res) => {
     try {
         const { checkPlanLimits } = require("../utils/planLimits");
         try {
-            await checkPlanLimits(req, "bot_messages", null);
+            await checkPlanLimits(req, "requests", null);
         } catch (limitErr) {
             return res.status(403).json({ error: limitErr.message });
         }
-
         const db = req.db;
-        const authHeader = req.headers.authorization;
+        if (!db) return res.status(500).json({ success: false, error: 'Error de conexión' });
 
+        const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ success: false, error: "Token requerido" });
+            return res.status(401).json({ success: false, error: "Token de autenticación requerido." });
         }
 
         const sessionToken = authHeader.split(' ')[1];
@@ -92,26 +91,27 @@ router.post('/', async (req, res) => {
         if (!tokenValido.ok) return res.status(401).json({ success: false, error: "Token inválido" });
 
         const { message } = req.body;
+        if (!message) return res.status(400).json({ success: false, error: "Mensaje vacío" });
+
         const uid = tokenValido.data.email;
 
-        // 1. Obtener solo los últimos mensajes ACTIVOS para el contexto de Groq
-        const chatSession = await db.collection("chatbot").findOne({ uid });
+        // 1. Obtener contexto previo de la DB (Solo activos)
+        const lastMessages = await db.collection("chatbot")
+            .find({ uid, active: true })
+            .sort({ createdAt: -1 })
+            .limit(6)
+            .toArray();
 
-        let contextMessages = [];
-        if (chatSession && chatSession.messages) {
-            contextMessages = chatSession.messages
-                .filter(m => m.active)
-                .slice(-6) // Limitamos a los últimos 6 para ahorrar tokens
-                .map(m => ({ role: m.role, content: m.content }));
-        }
+        // Los invertimos para que queden en orden cronológico para Groq
+        const context = lastMessages.reverse().map(m => ({ role: m.role, content: m.content }));
 
         const messagesForGroq = [
             { role: "system", content: LEGAL_SYSTEM_PROMPT },
-            ...contextMessages,
+            ...context,
             { role: "user", content: message }
         ];
 
-        // 2. Consultar a Groq
+        // 2. Llamada a Groq
         const completion = await groq.chat.completions.create({
             model: "llama-3.1-8b-instant",
             messages: messagesForGroq,
@@ -120,25 +120,21 @@ router.post('/', async (req, res) => {
 
         const aiResponse = completion.choices[0].message.content;
 
-        // 3. Actualizar el documento del usuario (Push de nuevos mensajes)
-        const newMessages = [
-            { role: 'user', content: message, active: true, createdAt: new Date() },
-            { role: 'assistant', content: aiResponse, active: true, createdAt: new Date() }
+        // 3. Guardar en DB la interacción
+        const logs = [
+            { uid, role: 'user', content: message, active: true, createdAt: new Date() },
+            { uid, role: 'assistant', content: aiResponse, active: true, createdAt: new Date() }
         ];
+        await db.collection("chatbot").insertMany(logs);
 
-        await db.collection("chatbot").updateOne(
-            { uid },
-            {
-                $push: { messages: { $each: newMessages } },
-                $set: { lastUpdate: new Date() }
-            },
-            { upsert: true } // Si no existe el registro del usuario, lo crea
-        );
-
-        res.json({ success: true, response: aiResponse });
+        res.json({
+            success: true,
+            response: aiResponse
+        });
 
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('ERROR CHATBOT:', error);
+        res.status(500).json({ success: false, error: 'Error interno', detalle: error.message });
     }
 });
 
