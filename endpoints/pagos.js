@@ -130,6 +130,10 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
         }
 
         // 1. Global Stats
+        const now = new Date();
+        // Since we store period as 'YYYY-MM', let's use that for current month
+        const currentPeriod = now.toISOString().slice(0, 7);
+
         const globalStats = await db.collection("cobros").aggregate([
             {
                 $group: {
@@ -137,14 +141,36 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
                     totalCollected: {
                         $sum: { $cond: [{ $eq: ["$status", "Aprobado"] }, "$amount", 0] }
                     },
-                    totalPending: {
+                    monthCollected: {
                         $sum: {
-                            $cond: [{ $in: ["$status", ["Pendiente", "En Revisión"]] }, "$amount", 0]
+                            $cond: [
+                                {
+                                    $and: [
+                                        { $eq: ["$status", "Aprobado"] },
+                                        { $eq: ["$period", currentPeriod] }
+                                    ]
+                                },
+                                "$amount",
+                                0
+                            ]
                         }
                     },
-                    countPending: {
+                    monthPendingAmount: {
                         $sum: {
-                            $cond: [{ $in: ["$status", ["Pendiente", "En Revisión"]] }, 1, 0]
+                            $cond: [
+                                { $in: ["$status", ["Pendiente", "En Revisión"]] },
+                                "$amount",
+                                0
+                            ]
+                        }
+                    },
+                    monthPendingCount: {
+                        $sum: {
+                            $cond: [
+                                { $in: ["$status", ["Pendiente", "En Revisión"]] },
+                                1,
+                                0
+                            ]
                         }
                     }
                 }
@@ -178,7 +204,7 @@ router.get("/admin/dashboard-stats", verifyAuth, async (req, res) => {
         });
 
         res.json({
-            global: globalStats[0] || { totalCollected: 0, totalPending: 0, countPending: 0 },
+            global: globalStats[0] || { totalCollected: 0, monthCollected: 0, monthPendingAmount: 0, monthPendingCount: 0 },
             byCompany: statsByCompany
         });
 
