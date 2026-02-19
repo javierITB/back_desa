@@ -132,6 +132,8 @@ router.get("/mini", async (req, res) => {
                 _id: answer._id,
                 formId: answer.formId,
                 formTitle: answer.formTitle,
+                // --- PERTINENTE: Pasamos responses para que la Card vea la fecha ---
+                responses: answer.responses, 
                 tuNombre: getVal(["tu nombre", "nombre solicitante", "nombre"], ["empresa", "razón", "razon", "social"]),
                 nombreEmpresa: getVal(["razón social", "razon social", "nombre que llevará la empresa", "empresa", "cliente"], ["rut", "teléfono", "telefono", "celular", "mail", "correo", "dirección", "direccion", "calle"]),
                 rutEmpresa: getVal(["rut de la empresa", "rut representante legal"]),
@@ -142,7 +144,6 @@ router.get("/mini", async (req, res) => {
             };
         });
 
-        // --- CAMBIO MÍNIMO VIABLE: Lógica de Normalización de Tildes ---
         const clean = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
         if (company && company.trim() !== "") {
@@ -156,21 +157,19 @@ router.get("/mini", async (req, res) => {
         }
 
         if (search && search.trim() !== "") {
-            const term = clean(search); // "contratacion"
+            const term = clean(search);
             answersProcessed = answersProcessed.filter(a =>
                 clean(a.tuNombre).includes(term) ||
                 clean(a.rutEmpresa).includes(term) ||
                 clean(a.nombreEmpresa).includes(term) ||
-                clean(a.formTitle).includes(term) // Hará match con "Contratación"
+                clean(a.formTitle).includes(term)
             );
         }
-        // --------------------------------------------------------------
 
         const totalCount = answersProcessed.length;
         const skip = (page - 1) * limit;
         const paginatedData = answersProcessed.slice(skip, skip + limit);
 
-        // Recalcular stats basadas en el filtro actual para que el front sea coherente
         const stats = {
             total: totalCount,
             documento_generado: 0, enviado: 0, solicitud_firmada: 0, informado_sii: 0, dicom: 0, dado_de_baja: 0, pendiente: 0
@@ -257,7 +256,7 @@ router.post("/", async (req, res) => {
         const form = await req.db.collection("forms").findOne({ _id: new ObjectId(formId) });
         if (!form) return res.status(404).json({ error: "Formulario no encontrado" });
 
-        // --- NUEVA INTEGRACIÓN: CÁLCULO PARA RESPONSES (Sin quitar nada) ---
+        // --- INTEGRACIÓN: CÁLCULO PARA RESPONSES (Mínimo cambio viable) ---
         const keysForCalc = Object.keys(responses || {});
         const planKey = keysForCalc.find(k => k.toLowerCase().trim().includes('plan de servicio seleccionado'));
         
@@ -377,7 +376,7 @@ router.post("/", async (req, res) => {
             await req.db.collection("tickets").insertOne({
                 formId: formId, 
                 user: userToSave, 
-                responses: responses, 
+                responses: responses, // Se pasan las respuestas (incluyendo la fecha de término en texto plano para el ticket)
                 formTitle: ticketTitle,
                 mail: "",
                 status: statusInicial,
