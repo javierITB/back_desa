@@ -500,62 +500,63 @@ router.post("/:id/extend", async (req, res) => {
         // Helper interno para consistencia de fechas
         const formatDate = (date) => date.toLocaleDateString('es-CL').replace(/-/g, '/');
 
-        let fechaBase = new Date();
-        let finalStartDateStr = "";
-        let finalEndDateStr = "";
+        let fechaBase = null;
+        const updates = { updatedAt: new Date() };
 
-        if (type === 'custom' && startDate && endDate) {
-            // ISO format (YYYY-MM-DD) es más seguro para parsear
-            const startParsed = new Date(`${startDate}T12:00:00`);
-            const endParsed = new Date(`${endDate}T12:00:00`);
-            
-            finalStartDateStr = formatDate(startParsed);
-            finalEndDateStr = formatDate(endParsed);
-            fechaBase = endParsed; 
+        if (type === 'custom') {
+            // Caso 1: Solo viene fecha de inicio
+            if (startDate) {
+                const startParsed = new Date(`${startDate}T12:00:00`);
+                updates.fechaInicioContrato = encrypt(formatDate(startParsed));
+            }
+
+            // Caso 2: Solo viene fecha de término
+            if (endDate) {
+                const endParsed = new Date(`${endDate}T12:00:00`);
+                updates.fechaTerminoContrato = encrypt(formatDate(endParsed));
+                fechaBase = endParsed; // Referencia para sincronizar ticket
+            }
         } else {
-            // Buscamos fecha en raíz
+            // Lógica automática (Anual/Semestral)
             let currentFechaStr = doc.fechaTerminoContrato;
             
             if (currentFechaStr && typeof currentFechaStr === 'string' && currentFechaStr.includes(':')) {
                 try { currentFechaStr = decrypt(currentFechaStr); } catch (e) {}
             }
 
+            let dateCalc = new Date();
             if (currentFechaStr && typeof currentFechaStr === 'string') {
-                // Normalizamos a "/" para el split
                 const parts = currentFechaStr.replace(/-/g, '/').split('/');
                 if (parts.length === 3) {
-                    // Formato DD/MM/YYYY
-                    fechaBase = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), 12, 0, 0);
+                    dateCalc = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), 12, 0, 0);
                 }
             }
 
             if (type === 'anual') {
-                fechaBase.setFullYear(fechaBase.getFullYear() + 1);
+                dateCalc.setFullYear(dateCalc.getFullYear() + 1);
             } else if (type === 'semestral') {
-                fechaBase.setMonth(fechaBase.getMonth() + 6);
+                dateCalc.setMonth(dateCalc.getMonth() + 6);
             }
             
-            // La nueva fecha de inicio es HOY, la de término es la extendida
-            finalStartDateStr = formatDate(new Date());
-            finalEndDateStr = formatDate(fechaBase);
+            updates.fechaInicioContrato = encrypt(formatDate(new Date()));
+            updates.fechaTerminoContrato = encrypt(formatDate(dateCalc));
+            fechaBase = dateCalc;
         }
 
-        // 4. Guardar en RAÍZ (Cifrado)
-        const updates = {
-            "fechaInicioContrato": encrypt(finalStartDateStr),
-            "fechaTerminoContrato": encrypt(finalEndDateStr),
-            "updatedAt": new Date()
-        };
-
+        // 4. Guardar cambios en la RAÍZ del documento
         await collection.updateOne({ _id: docId }, { $set: updates });
 
-        // 5. Sincronizar Ticket (expirationDate es un objeto Date en la DB de tickets)
-        try {
-            await req.db.collection("tickets").updateOne(
-                { relatedRequestId: docId },
-                { $set: { expirationDate: fechaBase, updatedAt: new Date() } }
-            );
-        } catch (e) {}
+        // 5. Sincronizar Ticket (Solo si se definió una nueva fechaBase de término)
+        if (fechaBase) {
+            try {
+                await req.db.collection("tickets").updateOne(
+                    { relatedRequestId: docId },
+                    { $set: { expirationDate: fechaBase, updatedAt: new Date() } }
+                );
+            } catch (e) {
+                console.error("Error al sincronizar ticket:", e);
+            }
+        }
 
         // 6. Devolver respuesta con raíz DESCIFRADA para el Front
         const updatedDoc = await collection.findOne({ _id: docId });
@@ -567,7 +568,6 @@ router.post("/:id/extend", async (req, res) => {
             return val;
         };
 
-        // Descifrado recursivo para responses
         const descifrarProceso = (valor) => {
             if (typeof valor === 'string') return safeDecrypt(valor);
             if (Array.isArray(valor)) return valor.map(descifrarProceso);
@@ -581,13 +581,12 @@ router.post("/:id/extend", async (req, res) => {
 
         if (updatedDoc.responses) updatedDoc.responses = descifrarProceso(updatedDoc.responses);
         
-        // Fechas en raíz descifradas
         updatedDoc.fechaInicioContrato = safeDecrypt(updatedDoc.fechaInicioContrato);
         updatedDoc.fechaTerminoContrato = safeDecrypt(updatedDoc.fechaTerminoContrato);
 
         res.json({
             success: true,
-            message: `Contrato actualizado hasta el ${finalEndDateStr}`,
+            message: `Contrato actualizado correctamente`,
             updatedRequest: updatedDoc
         });
 
